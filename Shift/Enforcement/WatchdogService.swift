@@ -29,9 +29,13 @@ enum WatchdogService {
 
     private static var domain: String { "gui/\(getuid())" }
 
+    static var hasConfiguration: Bool {
+        FileManager.default.fileExists(atPath: plistURL.path)
+    }
+
     /// True when launchd currently has the agent loaded.
     static var isInstalled: Bool {
-        guard FileManager.default.fileExists(atPath: plistURL.path) else { return false }
+        guard hasConfiguration else { return false }
         return launchctl(["print", "\(domain)/\(label)"]) == 0
     }
 
@@ -82,8 +86,9 @@ enum WatchdogService {
     /// Unloads and deletes the agent.
     @discardableResult
     static func remove() -> Bool {
-        _ = launchctl(["bootout", "\(domain)/\(label)"])
+        // Remove the file first so cleanup also works when the agent unloads itself.
         try? FileManager.default.removeItem(at: plistURL)
+        _ = launchctl(["bootout", "\(domain)/\(label)"])
         log.info("Watchdog removed.")
         return true
     }

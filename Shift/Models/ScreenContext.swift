@@ -9,13 +9,9 @@ struct ScreenContext: Equatable, Sendable {
     var windowTitle: String?
     var url: URL?
     var windowID: CGWindowID?
-    /// Advances when focus or a mouse interaction may have changed visible content.
-    var revision: UInt64
 
     var websiteAddress: WebsiteAddress? { url.flatMap(WebsiteAddress.init(url:)) }
     var host: String? { websiteAddress?.host }
-
-    var isBrowser: Bool { Browser(bundleID: bundleID) != nil }
 
     /// Stable identity used by hysteresis: the same signature twice in a row means "consistent reading".
     var signature: String {

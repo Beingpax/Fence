@@ -1,50 +1,47 @@
 import AppKit
 import SwiftUI
 
-/// A full-screen shield with a shared action layout and a different palette for each strike level.
+/// The full-screen shield: the last rung of `NudgeLadder`, after the nudges are spent.
+///
+/// One tier, not three. The escalation lives in the ladder now, so by the time this appears
+/// the user has already been asked three times — which is why the wait and the phrase are
+/// unconditional. It carries the same rose as the last nudge, so the arc reads as one thing.
 struct ShieldView: View {
     let request: ShieldRequest
     let showsControls: Bool
     let onResolve: (ShieldResolution) -> Void
 
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var secondsLeft: Int
     @State private var typedPhrase = ""
-    @State private var appeared = false
     @FocusState private var phraseFocused: Bool
 
     init(request: ShieldRequest, showsControls: Bool, onResolve: @escaping (ShieldResolution) -> Void) {
         self.request = request
         self.showsControls = showsControls
         self.onResolve = onResolve
-        _secondsLeft = State(initialValue: request.policy.countdownSeconds)
+        _secondsLeft = State(initialValue: ShieldPolicy.countdownSeconds)
     }
 
     private var unlocked: Bool {
         let phraseMatches = typedPhrase.trimmingCharacters(in: .whitespacesAndNewlines)
             .caseInsensitiveCompare(ShieldPolicy.phrase) == .orderedSame
-        return secondsLeft == 0 && (!request.policy.requiresPhrase || phraseMatches)
+        return secondsLeft == 0 && phraseMatches
     }
 
-    private var colors: (accent: Color, button: Color) {
-        switch request.policy.level {
-        case .gentle:
-            (Color(red: 0.59, green: 0.91, blue: 0.81), Color(red: 0.08, green: 0.36, blue: 0.32))
-        case .firm:
-            (Color(red: 1, green: 0.80, blue: 0.53), Color(red: 0.46, green: 0.29, blue: 0.10))
-        case .severe:
-            (Color(red: 1, green: 0.64, blue: 0.67), Color(red: 0.49, green: 0.20, blue: 0.28))
-        }
-    }
-
-    private var headline: String {
-        switch request.policy.level {
-        case .gentle: "Your focus comes first."
-        case .firm: "Protect the time you set aside."
-        case .severe: "Choose what gets your time."
-        }
+    /// One hue, lit from one direction.
+    ///
+    /// The old backdrop stacked a maroon bloom and an indigo bloom over a navy ground;
+    /// three hues at low saturation average out to mud, and the action button was so dark
+    /// against it that an enabled button looked disabled. So: a neutral near-black ground,
+    /// a single rose bloom behind the headline, and an action colour bright enough that
+    /// dimming it to 0.48 still reads as "not yet" rather than "broken".
+    private enum Palette {
+        static let ground = Color(red: 0.055, green: 0.059, blue: 0.078)
+        static let bloom = Color(red: 0.62, green: 0.14, blue: 0.28)
+        static let accent = Color(red: 1, green: 0.72, blue: 0.74)
+        static let action = Color(red: 0.89, green: 0.26, blue: 0.35)
     }
 
     var body: some View {
@@ -58,12 +55,8 @@ struct ShieldView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .scrollBounceBehavior(.basedOnSize)
-                    .opacity(appeared ? 1 : 0)
                 }
-                .task {
-                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.24)) { appeared = true }
-                    await runCountdown()
-                }
+                .task { await runCountdown() }
             }
         }
         .environment(\.colorScheme, .dark)
@@ -71,20 +64,23 @@ struct ShieldView: View {
 
     private var backdrop: some View {
         ZStack {
-            let ground = Color(red: 0.04, green: 0.07, blue: 0.09)
-            if reduceTransparency {
-                ground
-            } else {
+            if !reduceTransparency {
                 BehindWindowBlur(material: .fullScreenUI)
-                ground.opacity(0.92)
             }
-            RadialGradient(
-                colors: [colors.accent.opacity(0.22), .clear],
-                center: .topTrailing, startRadius: 0, endRadius: 780
+            Palette.ground.opacity(reduceTransparency ? 1 : 0.95)
+
+            // One bloom, sitting behind the headline, so the backdrop reads as light
+            // falling on the message rather than as a gradient for its own sake.
+            EllipticalGradient(
+                colors: [Palette.bloom.opacity(0.66), Palette.bloom.opacity(0.17), .clear],
+                center: UnitPoint(x: 0.5, y: 0.32),
+                startRadiusFraction: 0, endRadiusFraction: 0.78
             )
+
+            // Vignette. Holds the eye in the middle and hides where the bloom runs out.
             RadialGradient(
-                colors: [colors.accent.opacity(0.10), .clear],
-                center: .bottomLeading, startRadius: 0, endRadius: 650
+                colors: [.clear, .black.opacity(0.5)],
+                center: .center, startRadius: 300, endRadius: 1020
             )
         }
         .ignoresSafeArea()
@@ -93,11 +89,19 @@ struct ShieldView: View {
 
     private var content: some View {
         VStack(spacing: Theme.Space.loose) {
-            strikeBadge
+            // Haloed, so the badge sits inside the bloom rather than on top of it.
+            BlockBadge(symbol: "shield.lefthalf.filled", tint: .pink, size: 62)
+                .background {
+                    Circle()
+                        .fill(Palette.action)
+                        .frame(width: 112, height: 112)
+                        .blur(radius: 44)
+                        .opacity(0.42)
+                }
 
             VStack(spacing: Theme.Space.snug) {
-                Text(headline)
-                    .font(.system(size: 64, weight: .semibold, design: .serif))
+                Text("Not now.")
+                    .font(.system(size: 48, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .accessibilityAddTraits(.isHeader)
 
@@ -106,20 +110,26 @@ struct ShieldView: View {
                     .foregroundStyle(.white.opacity(0.85))
             }
 
-            VStack(spacing: Theme.Space.tight) {
-                Label(request.blockName, systemImage: "shield.lefthalf.filled")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(colors.accent)
-                if !request.goal.isEmpty {
-                    Label(request.goal, systemImage: "scope")
-                        .font(.callout)
-                        .foregroundStyle(.white.opacity(0.78))
-                }
+            Label(request.blockName, systemImage: "square.stack")
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.85))
+
+            VStack(spacing: Theme.Space.base) {
+                ladderBadge
+
+                phraseField
+                actions
             }
-
-            if request.policy.requiresPhrase { phraseField }
-
-            actions
+            .padding(Theme.Space.loose)
+            .frame(maxWidth: 420)
+            // Lighter than the ground, not darker: on a near-black backdrop an elevated
+            // surface has to catch light, or the panel disappears into the page.
+            .background(Color.white.opacity(reduceTransparency ? 0.10 : 0.06), in: RoundedRectangle(cornerRadius: Theme.Radius.panel))
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.Radius.panel)
+                    .strokeBorder(.white.opacity(0.12))
+                    .allowsHitTesting(false)
+            }
 
             if request.isPreview {
                 Text("Shield preview")
@@ -132,14 +142,14 @@ struct ShieldView: View {
         .multilineTextAlignment(.center)
     }
 
-    private var strikeBadge: some View {
-        Label("\(request.policy.level.rawValue) · Strike \(request.strike)", systemImage: request.policy.level.symbol)
+    /// Says why the screen is covered: the nudges ran out.
+    private var ladderBadge: some View {
+        Label("\(NudgeLadder.stepCount) nudges, then this", systemImage: "hand.raised.fill")
             .font(.callout.weight(.semibold))
-            .foregroundStyle(colors.accent)
+            .foregroundStyle(Palette.accent)
             .padding(.horizontal, Theme.Space.base)
             .padding(.vertical, Theme.Space.tight)
-            .background(Color.black.opacity(0.22), in: Capsule())
-            .overlay { Capsule().strokeBorder(colors.accent.opacity(0.34)) }
+            .background(Palette.accent.opacity(0.12), in: Capsule())
     }
 
     private var phraseField: some View {
@@ -162,16 +172,16 @@ struct ShieldView: View {
             if secondsLeft > 0 {
                 Text("Actions available in \(secondsLeft)s")
                     .font(.callout.monospacedDigit())
-                    .foregroundStyle(colors.accent)
+                    .foregroundStyle(Palette.accent)
             }
 
             Button {
-                onResolve(request.isBrowser ? .closeTab : .quitApp)
+                onResolve(.quitApp)
             } label: {
-                Label(request.primaryActionTitle, systemImage: request.isBrowser ? "xmark" : "power")
+                Label(request.primaryActionTitle, systemImage: "power")
                     .frame(minWidth: 180)
             }
-            .buttonStyle(.shiftProminent(colors.button))
+            .buttonStyle(.shiftProminent(Palette.action))
             .disabled(!unlocked)
             .opacity(unlocked ? 1 : 0.48)
             .keyboardShortcut(.defaultAction)

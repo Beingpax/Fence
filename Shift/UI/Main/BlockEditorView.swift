@@ -12,12 +12,14 @@ struct BlockInspector: View {
     @State private var isShowingDiscardConfirmation = false
 
     private let isNew: Bool
+    private let dismissalRequest: Int
     private let onClose: () -> Void
 
-    init(block: Block, isNew: Bool, onClose: @escaping () -> Void) {
+    init(block: Block, isNew: Bool, dismissalRequest: Int, onClose: @escaping () -> Void) {
         _draft = State(initialValue: block)
         _original = State(initialValue: block)
         self.isNew = isNew
+        self.dismissalRequest = dismissalRequest
         self.onClose = onClose
     }
 
@@ -38,8 +40,8 @@ struct BlockInspector: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Space.snug) {
                     identity
-                    focusGoal
                     blockedItems
+                    focusGoal
                     schedule
                     breaks
                     lock
@@ -58,6 +60,9 @@ struct BlockInspector: View {
         .onChange(of: isLocked) { _, locked in
             if locked { preserveLockedRules() }
         }
+        .onChange(of: dismissalRequest) { _, _ in
+            requestClose()
+        }
         .sheet(isPresented: $isShowingAppPicker) {
             AppPickerView(selected: $draft.list.apps, tint: tint, canRemove: !isLocked)
         }
@@ -69,6 +74,14 @@ struct BlockInspector: View {
         .confirmationDialog("Discard unsaved changes?", isPresented: $isShowingDiscardConfirmation) {
             Button("Discard changes", role: .destructive, action: onClose)
             Button("Keep editing", role: .cancel) {}
+        }
+    }
+
+    private func requestClose() {
+        if hasChanges {
+            isShowingDiscardConfirmation = true
+        } else {
+            onClose()
         }
     }
 
@@ -142,6 +155,17 @@ struct BlockInspector: View {
         draft = allowed
     }
 
+    private var focusGoal: some View {
+        Panel("Focus goal", icon: "scope") {
+            ShiftTextField(prompt: "Optional, e.g. Finish the thesis chapter", text: $draft.goal)
+                .accessibilityLabel("Focus goal")
+                .disabled(isLocked)
+            Text("Shift can use this goal for gentle reminders when no blocking rule matches.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     // MARK: Identity
 
     private var identity: some View {
@@ -157,9 +181,7 @@ struct BlockInspector: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button {
-                    if hasChanges { isShowingDiscardConfirmation = true } else { onClose() }
-                } label: {
+                Button(action: requestClose) {
                     Image(systemName: "xmark")
                         .font(.caption.weight(.bold))
                 }
@@ -211,19 +233,6 @@ struct BlockInspector: View {
         }
         .glassSurface(padding: Theme.Space.base, tint: tint)
     }
-
-    private var focusGoal: some View {
-        Panel("Focus goal", icon: "scope") {
-            ShiftTextField(prompt: "Optional, e.g. Finish the thesis chapter", text: $draft.goal)
-                .accessibilityLabel("Focus goal")
-                .disabled(isLocked)
-            Text("Shift checks visible text against this goal when no list rule applies.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    // MARK: Lists
 
     private var blockedItems: some View {
         Panel {

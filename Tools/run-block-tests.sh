@@ -7,5 +7,5 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT="$(mktemp -d)"
-swiftc -o "$OUT/blocktest" Shift/Models/Block.swift Tools/BlockLogicTests/main.swift
+swiftc -o "$OUT/blocktest" Shift/Models/Block.swift Shift/Models/WebsiteAddress.swift Tools/BlockLogicTests/main.swift
 "$OUT/blocktest"

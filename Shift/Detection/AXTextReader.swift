@@ -2,14 +2,13 @@ import ApplicationServices
 import Foundation
 
 struct AXTextReader: ScreenTextReading {
-    func read(_ context: ScreenContext, previousFrame: FrameFingerprint?) async -> ScreenTextSample {
+    func read(_ context: ScreenContext) async -> String? {
         let task = Task.detached(priority: .utility) { Self.readText(context) }
-        let text = await withTaskCancellationHandler {
+        return await withTaskCancellationHandler {
             await task.value
         } onCancel: {
             task.cancel()
         }
-        return ScreenTextSample(text: text)
     }
 
     private static func readText(_ context: ScreenContext) -> String? {
@@ -41,7 +40,7 @@ struct AXTextReader: ScreenTextReading {
         var queue = [root]
         var index = 0
 
-        while index < queue.count, index < 160, characters < ScreenTextSample.limit,
+        while index < queue.count, index < 160, characters < textLimit,
               !Task.isCancelled, ContinuousClock.now < deadline {
             let element = queue[index]
             index += 1
@@ -52,7 +51,7 @@ struct AXTextReader: ScreenTextReading {
 
             if textRoles.contains(role),
                let raw = WindowInspector.string(element, "AXValue") ?? WindowInspector.string(element, "AXTitle") {
-                let bounded = String(raw.prefix(ScreenTextSample.limit - characters))
+                let bounded = String(raw.prefix(textLimit - characters))
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 if !bounded.isEmpty, seen.insert(bounded).inserted {
                     lines.append(bounded)

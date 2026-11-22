@@ -9,9 +9,9 @@ import os.log
 ///   1. relaunch Shift if the UI process is gone (force quit, `kill`, crash), and
 ///   2. put the app bundle back if it was dragged to the Trash.
 ///
-/// Outside a Locked session it does nothing but sleep, which is why the poll is a file
-/// read rather than anything expensive. `KeepAlive` in the launch agent means killing the
-/// watchdog brings it straight back, so the pair revive each other as PRD §9 describes.
+/// `KeepAlive` in the launch agent brings it back if it is killed during a lock.
+/// The app unloads the agent when the last lock ends. The agent can also unload itself
+/// if the lock expires while the app is unavailable.
 ///
 /// Honesty, per the PRD: `kill -9` on both processes at once, or deleting the bundle while
 /// unlocked, still wins. Shift sells friction, not a prison.
@@ -43,8 +43,14 @@ enum WatchdogRunner {
     }
 
     private static func tick() {
-        guard let state = GuardState.load() else { return }
-        guard state.isActive else { return }
+        guard let state = GuardState.load(), state.isActive else {
+            if !isShiftRunning(), GuardState.load()?.isActive != true {
+                signal(SIGTERM, SIG_DFL)
+                WatchdogService.remove()
+                exit(EXIT_SUCCESS)
+            }
+            return
+        }
 
         restoreBundleIfTrashed(expectedPath: state.bundlePath)
 

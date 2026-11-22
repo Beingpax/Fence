@@ -81,11 +81,11 @@ struct DashboardView: View {
         Panel("Your blocks", icon: "shield.lefthalf.filled") {
             if model.store.blocks.isEmpty {
                 VStack(alignment: .leading, spacing: Theme.Space.snug) {
-                    Text("No blocks yet. Start from a ready-made one.")
+                    Text("No blocks yet.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                     Button(action: onAddBlock) {
-                        Label("Browse blocks", systemImage: "square.grid.2x2")
+                        Label("Add a block", systemImage: "plus")
                     }
                     .buttonStyle(.shiftProminent)
                 }
@@ -114,7 +114,9 @@ struct DashboardView: View {
         if !model.accessibilityGranted {
             issues.append(PermissionIssue(
                 title: "Accessibility is off",
-                detail: "Without it Shift can't tell which window is in front, so nothing will be blocked.",
+                detail: "Allow Shift to read window titles and browser addresses for your blocks.",
+                symbol: "exclamationmark.triangle.fill",
+                tint: .orange,
                 action: { model.requestAccessibilityPermission() }
             ))
         }
@@ -125,10 +127,13 @@ struct DashboardView: View {
 // MARK: - Pieces
 
 struct PermissionIssue: Identifiable {
-    let id = UUID()
     let title: String
     let detail: String
+    let symbol: String
+    let tint: Color
     let action: () -> Void
+
+    var id: String { title }
 }
 
 struct PermissionRow: View {
@@ -136,8 +141,9 @@ struct PermissionRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: Theme.Space.snug) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
+            Image(systemName: issue.symbol)
+                .foregroundStyle(issue.tint)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(issue.title).font(.callout.weight(.semibold))
                 Text(issue.detail)
@@ -149,11 +155,7 @@ struct PermissionRow: View {
             Button("Grant", action: issue.action)
                 .buttonStyle(.shiftSoft)
         }
-        .padding(Theme.Space.snug)
-        .background {
-            RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                .fill(Color.orange.opacity(0.12))
-        }
+        .glassSurface(padding: Theme.Space.snug, tint: issue.tint)
     }
 }
 

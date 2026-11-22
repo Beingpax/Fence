@@ -25,13 +25,9 @@ enum PermissionsManager {
         _ = AXIsProcessTrustedWithOptions(options)
     }
 
-    // MARK: Screen Recording
-
-    /// Needed only by the on-screen text reader (tier 1b). Checked without prompting.
+    /// Optional permission for reading the foreground window with OCR.
     static var isScreenRecordingGranted: Bool { CGPreflightScreenCaptureAccess() }
 
-    /// Triggers the one-time system prompt. Returns the result of the preflight after it.
-    @discardableResult
     static func requestScreenRecording() -> Bool { CGRequestScreenCaptureAccess() }
 
     // MARK: Settings deep links
@@ -44,10 +40,6 @@ enum PermissionsManager {
         open("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
     }
 
-    static func openAutomationSettings() {
-        open("x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")
-    }
-
     // MARK: Diagnostics
 
     /// Written once at launch. If a permission looks granted in System Settings but Shift
@@ -57,7 +49,6 @@ enum PermissionsManager {
         log.notice("""
         Permission state at launch:
         accessibility=\(isAccessibilityTrusted, privacy: .public) \
-        screenRecording=\(isScreenRecordingGranted, privacy: .public) \
         bundle=\(bundlePath, privacy: .public)
         """)
     }

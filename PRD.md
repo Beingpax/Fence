@@ -1,6 +1,6 @@
 # Shift — Product Requirements Document
 
-**Product:** Shift: Local AI App & Website Blocker for macOS
+**Product:** Shift: Local App & Website Blocker for macOS
 **Platform:** macOS 26+ (Apple Silicon only)
 **Status:** Draft v0.2 · November 2026
 **Owner:** beingpax
@@ -17,11 +17,9 @@
 
 ## 1. Summary
 
-Shift is a strict distraction blocker for the Mac, in the spirit of Cold Turkey Blocker. The difference is that it understands what is on your screen. Instead of matching a list of domains, Shift judges whether what you're looking at fits the goal you set for this focus session, using the on-device model Apple already ships with macOS. When it doesn't fit, a full-screen frosted shield covers everything, and the only way out is to close the tab or quit the app.
+Shift is a local distraction blocker for the Mac. An active website, path, or app rule can raise a full-screen shield. Optional nudges use keywords in window titles.
 
-Everything runs locally. No screenshots, text or browsing history ever leave the Mac. There is no model to download, no account, and no server to go down.
-
-**One-line pitch:** *The blocker that sees your screen, and never sends it anywhere.*
+The semantic detection and Screen Recording material elsewhere in this draft describes earlier plans. The current app uses explicit rules and Accessibility window metadata.
 
 ## 2. Problem
 
@@ -34,7 +32,7 @@ Everything runs locally. No screenshots, text or browsing history ever leave the
 ## 3. Goals and non-goals
 
 ### Goals
-1. Block distractions based on **intent** (session goal plus screen content), not only domains.
+1. Block explicit website, path and app matches. Offer optional reminders based on a focus goal and screen content.
 2. Be **as strict as Cold Turkey** when the user asks for it.
 3. Keep **zero network dependency** for detection. 100% local inference, and nothing to download.
 4. Stay **invisible when you're on task**: under 3% average CPU and under 400 MB RAM when idle.
@@ -91,10 +89,10 @@ people actually want. Cold Turkey got this right, and the block is the correct u
   or until the Mac restarts.
 - **Break:** an optional two-minute pause for one block, started from its shield.
   Each block allows two starts per day, resetting at local midnight.
-- **Verdict:** `allow`, `nudge` (mild drift) or `block` (confident), each with a
+- **Verdict:** `allow`, `nudge` (mild drift) or `block` (explicit rule match), each with a
   one-line reason and the block that produced it.
-- **Strike:** each enforced hit, counted separately for the matched rule within a block
-  or for the site or app that triggered an intent verdict. Counts reset at local midnight.
+- **Strike:** each enforced hit, counted separately for the matched rule within a block.
+  Counts reset at local midnight.
 - **Goal:** an optional intent sentence per block, shown on the shield and the input to
   the intent tier when it lands.
 
@@ -107,7 +105,7 @@ people actually want. Cold Turkey got this right, and the block is the correct u
 - Rule-based classifier with sensible defaults and editable website and app lists.
 - Path-aware rules (`youtube.com/shorts` blocked while `youtube.com` stays allowed).
 - **Full-screen shield** on all displays and Spaces, with escalating friction.
-- Shield actions: **close tab** (browsers), **force quit** (native apps), and **take a break** when configured.
+- Shield actions: **quit the browser or app**, and **take a break** when configured.
 - Hysteresis: a block requires two consistent readings.
 - Locked blocks can't be switched off, edited loosely, deleted, and Shift can't be quit.
 - "What Shift sees" panel: live view of the current context and verdict.
@@ -147,32 +145,33 @@ Event (app switch, title change, URL change, AX text change, screen diff)
    │          → rules decide ~90% of cases (definite allow / definite block)
    │
    ├─ Tier 1a AX page text ......... exact strings from the accessibility tree  ~5 ms
-   ├─ Tier 1b OCR .................. ScreenCaptureKit + Vision, change-gated   ~20 ms
+   ├─ Tier 1b OCR .................. ScreenCaptureKit + Vision on demand       ~20 ms
    │          1a and 1b are both built in P2 and compared; see §8.3
    │
    ├─ Tier 2  Embedding match ...... goal vs text, NLContextualEmbedding     ~10 ms
    │          resolves obvious matches without waking the LLM
    │
-   ├─ Tier 3  Foundation Models .... (goal, context) → {verdict, reason}     ~300–800 ms
+   ├─ Tier 3  Foundation Models .... (goal, context) → activity label        ~300–800 ms
    │          built into macOS, no download, guided generation
    │
    └─ Tier 4  Vision-language model  image-heavy screens only (P4)
    │
    ▼
-Hysteresis (2–3 consistent readings) → Enforcement
+Consistent rule matches → Shield
+Sustained evidence of unrelated leisure → Nudge
 ```
 
 **Rules of the pipeline**
-- Events drive work. Nothing polls at high frequency, and OCR in particular is never on a timer.
-- When confidence is low on a work-type app (IDE, terminal, docs), **default to allow**.
+- Context changes and pending nudge confirmations drive text sampling.
+- Ambiguous or unavailable evidence leaves the current activity alone.
 - Every verdict carries a human-readable reason.
-- Each tier may only escalate what the tier above could not resolve.
+- Shield enforcement requires an explicit rule match.
 
 ### 8.1 Tier 1a — Accessibility text (preferred channel)
 
 Both Safari and Chrome expose their rendered page to macOS as an accessibility web area. Its URL is readable as an attribute, and the visible text is readable as element values. Compared with OCR this is exact text rather than recognition: correct Unicode, correct casing, no confidence score to threshold, no frame capture, and no Screen Recording permission.
 
-It also lets us read the **URL from the accessibility tree instead of Apple Events**, which removes the per-browser Automation prompt from onboarding. Apple Events are still used to *close* a tab, which is an action rather than a read.
+It also lets us read the **URL from the accessibility tree** without a per-browser Automation prompt.
 
 **Known hazards, to be settled by the P2 spike:**
 - Chromium and Electron build their accessibility trees lazily. Chrome populates page content only for a client that sets `AXEnhancedUserInterface` on the application element; Electron apps need `AXManualAccessibility`.
@@ -186,9 +185,8 @@ It also lets us read the **URL from the accessibility tree instead of Apple Even
 The original v0.1 plan, retained as a full channel rather than a stub:
 1. `SCShareableContent` finds the frontmost window's `SCWindow`.
 2. `SCScreenshotManager.captureImage` with a single-window filter, scaled to about 1280 px.
-3. A perceptual hash against the previous frame gates the work. Unchanged screens are skipped.
-4. `VNRecognizeTextRequest` in fast mode on the Neural Engine, capped at about 2k characters.
-5. Frames stay in memory and are never written to disk.
+3. `VNRecognizeTextRequest` in fast mode, capped at about 2k characters.
+4. Frames stay in memory for the duration of the sample.
 
 OCR covers what the accessibility tree cannot: canvas-rendered apps, video, games, images, and any app with a hostile or absent AX tree. It needs Screen Recording permission, so it must degrade cleanly when that is missing.
 
@@ -204,7 +202,7 @@ Instrument every sample with the channel used, latency, and characters returned.
 | Agreement: verdicts matching the other channel | Investigate every disagreement above 5% |
 | Latency p95 | AX under 50 ms, OCR under 150 ms |
 | Idle CPU during a session | Whole-app average under 3% |
-| False blocks per 10 focus hours | Under 1 for the chosen default |
+| Unwanted nudges per 10 focus hours | Under 1 for the chosen default |
 
 Expected outcome, to be confirmed rather than assumed: AX text becomes the default for browsers and AX-capable native apps, and OCR becomes the fallback for everything else and for when Accessibility text comes back empty. If Chromium proves unreliable, OCR becomes the default for Chromium browsers specifically, per-browser rather than globally.
 
@@ -215,7 +213,7 @@ Apple's Foundation Models framework exposes the on-device model behind Apple Int
 **Why it replaces the v0.1 downloaded classifier**
 - Nothing to download, so the model downloader, the signed CDN manifest, the version directories and the 300 MB payload all disappear from scope.
 - Free, offline and private by construction.
-- Guided generation with constrained decoding returns a schema-guaranteed `{verdict, confidence, reason}`, which is both safer and faster than parsing free text.
+- Guided generation returns one activity label from `work`, `unclear` and `unrelatedLeisure`.
 - Measured performance fits the budget: about 0.6 ms per prompt token to first token, then 30–50 tokens per second.
 - On macOS 27 Apple removed the switch that turns Apple Intelligence off, so on supported hardware the model is simply present.
 
@@ -224,18 +222,18 @@ Apple's Foundation Models framework exposes the on-device model behind Apple Int
 - Availability must still be checked at runtime. Handle the unavailable cases and fall back to tiers 0–2 rather than failing.
 - Apple warns the model is unsuited to world knowledge and factual recall. Our task is classification against a user-supplied goal, which is in scope.
 
-**The guardrail is a signal, not just an error.** The framework raises a guardrail violation when its safety system rejects a prompt or a response. The content most likely to trip it is exactly the content a distraction blocker exists to catch. Treat a guardrail violation on page text as **evidence supporting a block**, attributed honestly in the reason line, rather than as a failed inference. Never treat it as an allow.
+Model refusals, guardrails and other inference failures are treated as unclear. Shift chooses the action after evaluating the activity label.
 
 ### 8.5 Tier 2 — Embeddings
 
-Apple's natural language contextual embeddings run on-device, ship with the OS, and answer "does this text resemble the session goal" without waking an LLM. This is the cheap semantic layer between rules and the model, and it also carries the whole semantic load if Foundation Models is unavailable.
+Apple's natural language contextual embeddings use available on-device assets to resolve obvious matches to any active goal before calling the model.
 
 Calibration matters. Unrelated short strings score deceptively high, so compare sentence-length or phrase-length text, not single words, and tune thresholds against the eval set rather than guessing.
 
 ## 9. Enforcement and shield UX
 
 ### Platform limit, recorded deliberately
-Apple's Screen Time frameworks (FamilyControls, ManagedSettings, DeviceActivity) are **iOS and iPadOS only and are not available on macOS in any capacity**. There is no OS-level app shield to borrow on the Mac. Enforcement therefore has to be app-level (close tab, force quit) plus process-level persistence (watchdog) plus an optional network backstop. This is why §9's anti-bypass section ends in an honesty clause rather than a guarantee.
+Apple's Screen Time frameworks (FamilyControls, ManagedSettings, DeviceActivity) are **iOS and iPadOS only and are not available on macOS in any capacity**. There is no OS-level app shield to borrow on the Mac. Enforcement therefore has to be app-level (quit the browser or app) plus process-level persistence (watchdog) plus an optional network backstop. This is why §9's anti-bypass section ends in an honesty clause rather than a guarantee.
 
 ### Shield
 - A borderless window at screen-saver level on **every display**, joining all Spaces and full-screen apps.
@@ -246,9 +244,8 @@ Apple's Screen Time frameworks (FamilyControls, ManagedSettings, DeviceActivity)
 ### Primary action
 | Context | Action |
 |---|---|
-| Browser tab | **Close this tab** (never quit a browser with 30 work tabs over one tab) |
-| Native app (Discord, Steam…) | **Force quit** the app |
-| Browser that keeps returning (P1) | Force quit the browser |
+| Browser | **Quit** the entire browser |
+| Native app (Discord, Steam…) | **Quit** the app |
 
 ### Automatic shield escalation
 
@@ -258,7 +255,7 @@ Apple's Screen Time frameworks (FamilyControls, ManagedSettings, DeviceActivity)
 | 2 | Firm | After 15 seconds |
 | 3+ | Severe | After 30 seconds and typing the phrase |
 
-The close-tab or quit-app action stays the same across levels. The phrase is *"I am choosing to get distracted"*.
+The quit action stays the same across levels. The phrase is *"I am choosing to get distracted"*.
 Nudge verdicts show a dismissible HUD.
 
 ### Anti-bypass (Locked)
@@ -275,7 +272,7 @@ Nudge verdicts show a dismissible HUD.
 
 | Model | Purpose | Size | Runtime | Residency |
 |---|---|---|---|---|
-| Apple Foundation Models | (goal, context) → verdict, confidence, reason | 0 bytes shipped by us | Built into macOS 26+ | System-managed |
+| Apple Foundation Models | (goal, context) → activity label | 0 bytes shipped by us | Built into macOS 26+ | System-managed |
 | Contextual embeddings | Cheap goal-vs-text similarity | 0 bytes shipped by us | Built into macOS | System-managed |
 | Vision-language model (P4) | Screens with little text: video, images, games | ~1 GB, 4-bit | MLX | On demand, unloaded after 5 min idle |
 | Personal adapter (P4) | Learns the user's corrections | <20 MB | MLX or framework adapter | Merged at load |
@@ -310,11 +307,10 @@ Nudge verdicts show a dismissible HUD.
 | Permission | Why | When requested |
 |---|---|---|
 | Accessibility | Window titles, page text, browser URL, disabling shortcuts during the shield | Onboarding step 2 |
-| Screen Recording | OCR channel (tier 1b) | Onboarding step 3, skippable |
-| Automation (Apple Events) per browser | Closing a tab | First time a tab actually needs closing |
+| Screen Recording | OCR for optional focus reminders | Settings, optional |
 | Network Extension (P3) | Hostname backstop | Optional, strict users only |
 
-Accessibility is now the one permission that carries detection, which is a real onboarding win over v0.1: URLs no longer require an Automation prompt per browser just to read where you are. Apple Events are requested later and only for the close-tab action.
+Accessibility provides window, page text, and URL detection. The quit action uses the standard macOS process termination request.
 
 Onboarding flow:
 1. Plain-language prompt: "What steals your time?"
@@ -388,13 +384,13 @@ The `DistractionClassifier` and `ScreenTextReading` protocols in the skeleton ar
 |---|---|---|
 | M0 / P0 | Block CRUD and ordering, schedule, locks, breaks, website and app rules, path rules, live context, recent activity, shield, two-reading hysteresis and per-rule daily escalation | Validate shield behavior across Spaces and displays, daily rollover, and timed starts with saved blocks. |
 | M1 / P1 | Launch at login, user-level watchdog with Trash restoration, quit protection, preset-based onboarding, shield preview, settings and nudge HUD | Plain-language rule generation, guided 25-minute first block, clock and time-zone hardening, and live verification of watch and relaunch behavior. |
-| M2 / P2 | Accessibility browser URLs and text, selective single-window OCR, local reader comparison, installed-asset embedding pre-filter and Foundation Models classification against block goals | Run the §8.3 bake-off, measure latency and false blocks, calibrate semantic thresholds, and implement rabbit-hole detection and automatic same-window content change signals. |
+| M2 / P2 | Accessibility browser URLs and text, selective single-window OCR, installed-asset embedding pre-filter and on-device activity classification for optional nudges | Measure latency, missed distractions and unwanted nudges. |
 | M3 / P3 | | Network Extension hostname backstop, weekly insights, Sparkle and notarized public beta. |
 | M4 / P4 | | Vision-language model, doomscroll detection, on-device adaptation, calendar sessions and partner unlock codes. |
 
-The current M2 policy prefers Accessibility text. OCR handles an absent or sparse Accessibility result when Screen Recording is granted. Settings → Detection lets users opt into running both channels on the same sample. The comparison and confirmation paths retain fingerprints and verdict metadata for the current context. Screen frames and source text are transient. The model's guardrail errors contribute a nudge. Automatic shields require two compatible off-task readings.
+The current M2 policy prefers Accessibility text. OCR handles an absent or sparse Accessibility result when Screen Recording is granted. Screen frames and source text are transient.
 
-A change of focused window, title, URL or settled mouse interaction can trigger a new reading. An off-task result triggers one confirmation capture when OCR is the evidence source. Visual changes inside a static window with no interaction may go undetected. The screen capture permission flow, real window selection, browser coverage, and Apple Intelligence verdict quality still require runtime verification.
+A change of focused window, title or URL can trigger a new reading. If the model identifies leisure unrelated to every active goal, Shift takes a fresh reading after at least 15 seconds. A matching result from the same source in the same context can show one gentle reminder. Visual changes within a window that retains the same title and URL may go undetected. The capture permission flow, window selection, browser coverage and activity classification still require runtime verification.
 
 M2 shrank from six weeks to four: the model downloader, signed manifest, version management and model training work are gone, offset by building two tier-1 channels instead of one.
 

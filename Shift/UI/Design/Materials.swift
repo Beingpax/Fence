@@ -119,6 +119,7 @@ struct Panel<Content: View>: View {
     var subtitle: String?
     var icon: String?
     var help: String?
+    var tint: Color?
     @ViewBuilder var content: () -> Content
 
     init(
@@ -126,19 +127,21 @@ struct Panel<Content: View>: View {
         subtitle: String? = nil,
         icon: String? = nil,
         help: String? = nil,
+        tint: Color? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.title = title
         self.subtitle = subtitle
         self.icon = icon
         self.help = help
+        self.tint = tint
         self.content = content
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.snug) {
             if let title {
-                PanelHeading(title: title, icon: icon, help: help)
+                PanelHeading(title: title, icon: icon, help: help, tint: tint)
 
                 if let subtitle {
                     Text(subtitle)
@@ -150,7 +153,7 @@ struct Panel<Content: View>: View {
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassSurface(padding: Theme.Space.base)
+        .glassSurface(padding: Theme.Space.base, tint: tint)
     }
 }
 
@@ -158,6 +161,7 @@ struct PanelHeading: View {
     let title: String
     var icon: String?
     var help: String?
+    var tint: Color?
 
     @State private var isShowingHelp = false
 
@@ -166,7 +170,7 @@ struct PanelHeading: View {
             if let icon {
                 Image(systemName: icon)
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(tint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.secondary))
                     .accessibilityHidden(true)
             }
             Text(title)
@@ -402,6 +406,7 @@ struct SidebarIconTile: View {
 struct SlidingPanel<PanelContent: View>: ViewModifier {
     @Binding var isPresented: Bool
     var width: CGFloat = 400
+    let onOutsideClick: () -> Void
     @ViewBuilder var panel: () -> PanelContent
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -414,10 +419,17 @@ struct SlidingPanel<PanelContent: View>: ViewModifier {
             .accessibilityHidden(isPresented)
             .overlay(alignment: .trailing) {
                 GeometryReader { geometry in
+                    let panelWidth = min(max(width, 360), 460, geometry.size.width)
                     ZStack(alignment: .trailing) {
                         if isPresented {
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture(perform: onOutsideClick)
+                                .padding(.trailing, panelWidth)
+                                .accessibilityHidden(true)
+
                             panelSurface
-                                .frame(width: min(max(width, 360), 460, geometry.size.width))
+                                .frame(width: panelWidth)
                                 .transition(reduceMotion ? .opacity : .move(edge: .trailing))
                         }
                     }
@@ -452,8 +464,9 @@ extension View {
     func slidingPanel<PanelContent: View>(
         isPresented: Binding<Bool>,
         width: CGFloat = 400,
+        onOutsideClick: @escaping () -> Void,
         @ViewBuilder panel: @escaping () -> PanelContent
     ) -> some View {
-        modifier(SlidingPanel(isPresented: isPresented, width: width, panel: panel))
+        modifier(SlidingPanel(isPresented: isPresented, width: width, onOutsideClick: onOutsideClick, panel: panel))
     }
 }

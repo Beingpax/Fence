@@ -97,6 +97,7 @@ final class BlockStore {
     var lockedUntil: Date? {
         let now = Date()
         let deadlines = blocks.compactMap { block -> Date? in
+            guard block.isEnabled else { return nil }
             if block.lock.engagedUntilRestart { return .distantFuture }
             if block.requiresUnlockChallenge(at: now) {
                 return block.schedule.isManual ? block.manualRunEndsAt : .distantFuture
@@ -149,7 +150,7 @@ final class BlockStore {
     /// While locked, the only edits allowed are ones that make the block stricter or
     /// are purely cosmetic. Anything that could weaken it is refused.
     private func isSafeEditWhileLocked(from existing: Block, to proposed: Block) -> Bool {
-        guard existing.schedule == proposed.schedule, existing.goal == proposed.goal else { return false }
+        guard existing.schedule == proposed.schedule else { return false }
         guard existing.lock.hasSameSettings(as: proposed.lock),
               existing.breaks.isEnabled == proposed.breaks.isEnabled
         else { return false }

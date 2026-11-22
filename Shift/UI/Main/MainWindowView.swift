@@ -47,9 +47,8 @@ struct MainWindowView: View {
     @Environment(AppModel.self) private var model
 
     @State private var selectedBlockID: Block.ID?
-    @State private var newBlock: Block?
     @State private var isInspectorPresented = false
-    @State private var isShowingTemplates = false
+    @State private var inspectorDismissalRequest = 0
 
     var body: some View {
         @Bindable var model = model
@@ -62,15 +61,17 @@ struct MainWindowView: View {
                 .background {
                     Theme.detailBackground.ignoresSafeArea(.container, edges: .top)
                 }
-                .slidingPanel(isPresented: $isInspectorPresented, width: 420) {
-                    inspector
-                }
-                .onChange(of: isInspectorPresented) { _, presented in
-                    if !presented {
-                        selectedBlockID = nil
-                        newBlock = nil
-                    }
-                }
+        }
+        .slidingPanel(isPresented: $isInspectorPresented, width: 420, onOutsideClick: {
+            inspectorDismissalRequest += 1
+        }) {
+            inspector
+        }
+        .onChange(of: isInspectorPresented) { _, presented in
+            if !presented {
+                selectedBlockID = nil
+                model.newBlock = nil
+            }
         }
         .frame(minWidth: 900, minHeight: 560)
         .background {
@@ -79,12 +80,10 @@ struct MainWindowView: View {
         // Content runs to the very top of the window, under the hidden title bar.
         // Without this the sidebar and the panel both stop short of the traffic lights.
         .ignoresSafeArea(.container, edges: .top)
-        .sheet(isPresented: $isShowingTemplates) {
-            TemplateGalleryView { template in
-                selectedBlockID = nil
-                newBlock = template.makeBlock()
-                isInspectorPresented = true
-            }
+        .onChange(of: model.newBlock?.id, initial: true) { _, id in
+            guard id != nil else { return }
+            selectedBlockID = nil
+            isInspectorPresented = true
         }
         .sheet(item: $model.unlockTarget) { block in
             RandomStringUnlockView(block: block)
@@ -92,7 +91,7 @@ struct MainWindowView: View {
     }
 
     private func selectBlock(_ block: Block) {
-        newBlock = nil
+        model.newBlock = nil
         selectedBlockID = block.id
         isInspectorPresented = true
     }
@@ -102,13 +101,13 @@ struct MainWindowView: View {
         switch model.mainSection {
         case .dashboard:
             DashboardView(
-                onAddBlock: { isShowingTemplates = true },
+                onAddBlock: model.presentNewBlock,
                 onSelect: selectBlock
             )
         case .blocks:
             BlocksView(
                 onSelect: selectBlock,
-                onAddBlock: { isShowingTemplates = true }
+                onAddBlock: model.presentNewBlock
             )
         case .activity:
             ActivityView()
@@ -119,8 +118,8 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private var inspector: some View {
-        if let block = newBlock ?? selectedBlockID.flatMap({ model.store.block(id: $0) }) {
-            BlockInspector(block: block, isNew: newBlock != nil) {
+        if let block = model.newBlock ?? selectedBlockID.flatMap({ model.store.block(id: $0) }) {
+            BlockInspector(block: block, isNew: model.newBlock != nil, dismissalRequest: inspectorDismissalRequest) {
                 isInspectorPresented = false
             }
             .id(block.id)
@@ -393,9 +392,9 @@ private struct EmptyBlocksView: View {
                 .shadow(color: .indigo.opacity(0.25), radius: 16, y: 6)
 
             VStack(spacing: Theme.Space.tight) {
-                Text("Pick something to block")
+                Text("Create your first block")
                     .font(.system(.title2, design: .rounded).weight(.bold))
-                Text("Start from one of the ready-made blocks, then make it yours. Each one keeps its own list, schedule and lock.")
+                Text("Choose which sites and apps to block.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -403,106 +402,11 @@ private struct EmptyBlocksView: View {
             }
 
             Button(action: onAddBlock) {
-                Label("Browse blocks", systemImage: "square.grid.2x2")
+                Label("Add a block", systemImage: "plus")
             }
             .buttonStyle(.shiftProminent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-// MARK: - Template gallery
-
-struct TemplateGalleryView: View {
-    @Environment(\.dismiss) private var dismiss
-    let onPick: (BlockTemplate) -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Add a block")
-                        .font(.system(.title3, design: .rounded).weight(.bold))
-                    Text("Ready-made, and editable afterwards.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.caption.weight(.bold))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
-            }
-            .padding(Theme.Space.loose)
-
-            Divider()
-
-            ScrollView {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 230), spacing: Theme.Space.snug)],
-                    spacing: Theme.Space.snug
-                ) {
-                    ForEach(BlockTemplate.all) { template in
-                        TemplateCard(template: template) {
-                            onPick(template)
-                            dismiss()
-                        }
-                    }
-                }
-                .padding(Theme.Space.loose)
-            }
-        }
-        .frame(width: 720, height: 520)
-        .background {
-            VisualEffect(surface: .window, blending: .behindWindow).ignoresSafeArea()
-        }
-    }
-}
-
-private struct TemplateCard: View {
-    let template: BlockTemplate
-    let action: () -> Void
-
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: Theme.Space.snug) {
-                BlockBadge(symbol: template.symbol, tint: template.tint, size: 36)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(template.name)
-                        .font(.system(.callout, design: .rounded).weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text(template.tagline)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 0)
-
-                HStack(spacing: Theme.Space.tight) {
-                    if template.hosts.count + template.paths.count > 0 {
-                        Chip(text: "\(template.hosts.count + template.paths.count) sites", symbol: "globe")
-                    }
-                    if !template.apps.isEmpty {
-                        Chip(text: "\(template.apps.count) apps", symbol: "app.badge")
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, minHeight: 150, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .glassSurface(tint: template.tint.color, isSelected: isHovering)
-        .onHover { isHovering = $0 }
-        .accessibilityHint(template.tagline)
     }
 }
 

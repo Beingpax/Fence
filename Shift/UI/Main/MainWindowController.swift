@@ -11,8 +11,7 @@ final class MainWindowController {
 
     func present(model: AppModel) {
         if let window {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate()
+            window.presentForUser()
             return
         }
 
@@ -38,13 +37,27 @@ final class MainWindowController {
         window.setFrameAutosaveName("ShiftMainWindow")
         window.minSize = NSSize(width: 820, height: 520)
         window.center()
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate()
 
         self.window = window
+        window.presentForUser()
     }
 
     func close() {
         window?.orderOut(nil)
+    }
+}
+
+extension NSWindow {
+    func presentForUser() {
+        if NSApp.isHidden { NSApp.unhide(nil) }
+        NSApp.activate()
+        if isMiniaturized { deminiaturize(nil) }
+
+        if let sheet = attachedSheet {
+            orderFront(nil)
+            sheet.makeKey()
+        } else {
+            makeKeyAndOrderFront(nil)
+        }
     }
 }

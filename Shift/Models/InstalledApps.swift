@@ -48,9 +48,7 @@ final class InstalledApps {
             let fileManager = FileManager.default
             let roots = [
                 "/Applications",
-                "/Applications/Utilities",
                 "/System/Applications",
-                "/System/Applications/Utilities",
                 NSHomeDirectory() + "/Applications",
             ].map { URL(fileURLWithPath: $0) }
 
@@ -58,13 +56,14 @@ final class InstalledApps {
             var results: [InstalledApp] = []
 
             for root in roots {
-                guard let entries = try? fileManager.contentsOfDirectory(
+                guard let entries = fileManager.enumerator(
                     at: root,
-                    includingPropertiesForKeys: [.isApplicationKey],
-                    options: [.skipsHiddenFiles]
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles, .skipsPackageDescendants]
                 ) else { continue }
 
-                for url in entries where url.pathExtension == "app" {
+                for case let url as URL in entries where url.pathExtension.lowercased() == "app" {
+                    entries.skipDescendants()
                     guard
                         let bundle = Bundle(url: url),
                         let bundleID = bundle.bundleIdentifier,

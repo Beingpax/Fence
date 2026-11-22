@@ -16,10 +16,8 @@ Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (br
   UI flows have not been walked through by hand.
 - Built: main window (Dashboard, Blocks, Activity), block editor, menu bar popover,
   full-screen shield with escalation and breaks, nudge HUD, onboarding, launch at login,
-  watchdog pair, quit and Trash protection, real ScreenCaptureKit and Vision text reading.
-- Goal detection now uses Accessibility or single-window OCR, local contextual embeddings
-  when their assets are installed, and Apple Foundation Models. The paired-reader comparison
-  is available in Settings. See PRD §16 for implementation and verification status.
+  watchdog pair, and quit and Trash protection.
+- Active detection uses app, website, and path rules. Optional nudges use window-title keywords.
 - **The binary has two entry points.** `Shift` is the app; `Shift --watchdog` is the
   headless watchdog. `main.swift` branches, which is why `ShiftApp` has no `@main`.
 
@@ -30,9 +28,9 @@ xcodebuild -project Shift.xcodeproj -scheme Shift -configuration Debug -destinat
 ```
 
 - Run from Xcode with Cmd+R. Shift is an `LSUIElement` menu bar app (◎ icon), with no Dock icon.
-- Test the shield without side effects: menu bar → *Preview shield* → Strike 1/2/3.
-- Real test: start a Firm session, open `instagram.com` or `youtube.com/shorts` in Safari or Chrome. The shield should appear in about 2–3 seconds.
-- Permissions: Accessibility (titles, page text, URLs), optional Screen Recording (OCR), and Automation when closing supported browser tabs.
+- Test without side effects: Settings → Previews has each nudge rung, the shield, and the soft drift hint.
+- Real test: switch on a block listing `instagram.com` or `youtube.com/shorts`, then open it in Safari or Chrome. The first nudge should lean in within about 3 seconds, and the shield about 15 seconds after that if you stay.
+- Shift requests Accessibility for window titles and browser addresses.
 - **Signing is load-bearing for permissions.** `DEVELOPMENT_TEAM = V6J6A3VWY2` is set on both configurations, so builds are signed with a real identity. Do not let this fall back to ad-hoc. macOS keys TCC grants to the designated requirement, and an ad-hoc signature puts the binary's `cdhash` in that requirement, so **every rebuild silently voids the Accessibility grant** and the app reports "not granted" while System Settings still shows it enabled. Verify with `codesign -d -r- <app>`: the requirement must name the certificate, not a `cdhash`. If a grant ever does go stale, `tccutil reset Accessibility com.beingpax.Shift` and grant it again.
 - Automated GUI testing needs Accessibility and Screen Recording granted to the terminal running Claude Code. Without them, `osascript` UI scripting fails with -1719 and `screencapture` fails outright, so shield verification has to be manual.
 
@@ -40,11 +38,12 @@ xcodebuild -project Shift.xcodeproj -scheme Shift -configuration Debug -destinat
 
 1. **Menu bar.** Icon appears; the count next to it matches the number of active blocks.
 2. **Main window.** Menu bar → Open Shift. Create a block, add sites and apps, save.
-3. **Blocking.** Switch the block on, visit a listed site in Safari and Chrome. The shield
-   should appear within about 3 s and close the tab, not the browser.
+3. **Blocking.** Switch the block on, visit a listed site in Safari and Chrome. A nudge
+   should lean in from the right within about 3 s, then two more 5 s apart, then the
+   shield. Leaving the site at any rung should end it silently. The shield's primary
+   action quits the browser.
 4. **Schedules.** Set a window that starts a minute from now and confirm it self-activates.
-5. **On-screen words.** Add a keyword, grant Screen Recording, and confirm it fires on a
-   page whose address says nothing. Confirm capture stays off when no block has keywords.
+5. **Nudges.** With a block active and nudges enabled, open an unblocked window whose title contains a configured feed keyword.
 6. **Locks.** Each of duration, until-time, random-string and restart. Check that the
    switch, the editor and Delete all refuse while locked.
 7. **Breaks.** Enable breaks, hit the block, take a break, confirm the block goes quiet and
@@ -92,8 +91,7 @@ Rules that are easy to get wrong, and are covered by the tests:
 
 - `AppModel`, `BlockStore` and the window controllers are `@MainActor`. SwiftUI reads them.
 - Anything that talks to another process runs off the main actor and is awaited:
-  Accessibility reads (`WindowInspector`, 0.5 s messaging timeout), Apple Events
-  (`AppleScriptRunner`, one serial queue plus a deadline), and screen capture
+  Accessibility reads (`WindowInspector`, 0.5 s messaging timeout) and screen capture
   (`ScreenTextReader`, an actor).
 - `ContextMonitor` drops overlapping samples rather than queueing them, so a slow reading
   can't build a backlog behind it.
@@ -102,12 +100,10 @@ Rules that are easy to get wrong, and are covered by the tests:
 
 ## Product decisions (don't relitigate without asking)
 
-- **Blocks come from templates.** `BlockTemplate.all` is the gallery people start from.
-  A blank block is one of the options, not the only one.
+- **Onboarding creates the first block** from the user's choices. Add Block opens a blank editor.
 - **The app picker is in-app.** `InstalledApps` scans the application folders once, off the
   main actor, and caches icons. Don't send people to an open panel.
-- **Explicit lists contain websites, paths and apps.** The optional focus goal applies
-  intent detection to unresolved screens.
+- **Explicit lists contain websites, paths and apps.** Only a matching rule can raise the shield.
 - **One window.** Settings is a section of the main window, not a `Settings` scene, so a
   menu bar app never puts two windows on screen. `MainSection` drives the sidebar, the
   model owns the selection, and Cmd+, opens the window at Settings. Don't reintroduce
@@ -117,29 +113,43 @@ Rules that are easy to get wrong, and are covered by the tests:
 - **Locking and friction are different things.** The lock decides whether the switch works.
   Friction decides what the shield does when you hit it. Don't merge them.
 - **The app icon is generated, not drawn by hand.** `Tools/make-icon.swift` renders every size and rewrites the appiconset's `Contents.json`. Edit the script, not the PNGs.
+- **The nudge character is Flop, an invented creature, drawn in code.**
+  `UI/NudgeCharacterView.swift` renders it in one `Canvas` pass driven by one clock. No
+  image assets, no 3D, no dependency: crisp at any size, kilobytes instead of megabytes,
+  and it can blink.
+  - **The ears carry the escalation**, in pure silhouette: perked and fluttering, one
+    cocked back, then both pinned flat out. You can read the rung from the corner of your
+    eye without resolving a single facial feature. If you change one thing about the
+    expressions, change `earAngle`. Everything else only confirms what the ears said.
+  - **The dark outline is load-bearing.** A tinted `ink` stroke around every shape is the
+    whole difference between a designed mascot and a gradient blob with eyes on it. Each
+    mood carries its own ink — one black outline across all three reads as a printed
+    sticker. Don't remove it.
+  - **A being, not an object, and invented rather than real.** Both halves were tested the
+    long way: rendered 3D art of a boy, a hand-drawn boy, a cat, then a run of faceless
+    objects (plant, gauge, lock, candle). The boy fell into the uncanny valley; the objects
+    stopped being someone you could feel anything about. Don't "improve" it toward realism
+    and don't swap the creature for a thing.
+  - Idle motion is not decoration. The bob, the sway, the ear flutter and a jittered blink
+    (where roughly every third is a quick double) are what separate a character from a
+    sticker. The blink interval is jittered on purpose — a fixed one reads as a metronome.
 
-- **Name:** "Shift", subtitle "Local AI App & Website Blocker".
+- **Name:** "Shift", subtitle "Local App & Website Blocker".
 - **No Dock icon by default,** but there is a "Show Shift in the Dock" switch in Settings → General that flips the activation policy at runtime. `LSUIElement` keeps the default as menu-bar-only.
-- **Platform:** Mac only, Apple Silicon, **macOS 26+** (raised from 14 in v0.2). The floor exists so Apple's Foundation Models can be assumed present, with no `#available` forks in the AI path.
-- **Everything is local.** Never send screen content, OCR text, accessibility text or URLs off the device. No cloud fallback, not even optional.
-- **Nothing to download.** The model tier is Apple's built-in Foundation Models, not a 300 MB MLX classifier. This deleted the model downloader, the CDN, the signed manifest and version management from scope. A downloader only returns in M4 for the optional VLM tier.
-- **Detection is a cheap-first cascade:** rules → page text → embeddings → Foundation Models → VLM (M4, on demand). Rules must work with no model at all.
-- **Screen capture is on demand.** Explicit rules run first. An active block with a goal
-  can use OCR when Accessibility text is sparse and Screen Recording is granted. Only the
-  foreground window is captured. A matching grayscale fingerprint skips repeat OCR.
-- **Two text channels.** Accessibility is the provisional default. The optional comparison
-  runs both readers and emits only counts, durations, identifiers and verdict categories
-  to the local system log. The measurement gates in PRD §8.3 are still pending.
-- **Read URLs from the accessibility tree**, not Apple Events. That removes the per-browser Automation prompt from onboarding. Apple Events stay only for *closing* a tab.
-- **A Foundation Models guardrail violation contributes a nudge.** The framework can flag
-  either the prompt or its generated response, so the error alone does not raise a shield.
-- **Intent over domains:** judge the screen against the session's goal. Path-aware rules (`youtube.com/shorts` blocked, `youtube.com` allowed).
+- **Platform:** Apple Silicon Macs running macOS 26 or later.
+- **Detection stays local.** Read browser addresses through Accessibility. Match enabled app, website, and path rules before considering a title-based nudge.
+- **Nudges come before the shield.** A rule match no longer raises the shield directly.
+  `NudgeLadder` shows 3 nudges, 5 s apart, re-checking between each that the user is still
+  on the same blocked thing. Leaving at any point ends it with nothing having happened.
+  Only when the nudges are spent does the shield appear. The point is the habit, not the
+  punishment — see "The nudge ladder" below.
 - **Shield:** frosted full-screen window on every display and Space; while it's up, the Dock, menu bar and Cmd+Tab are disabled. The text says "Not now." plus a one-line reason.
-  - Browsers: **close the tab, never quit the browser.** Native apps: force quit.
-  - **Escalation:** Gentle is immediate, Firm adds 15 seconds, and Severe adds 30 seconds
-    plus the phrase *"I am choosing to get distracted"*. The level follows the local
-    calendar day's strike count for the matched rule or intent target.
-  - Only confident blocks show the shield; nudges never do. Default to allow on work apps when unsure.
+  - **Quit the entire browser or app.** Let the user respond when the target shows a quit confirmation.
+  - **One tier, not three.** The ladder is the escalation now, so the shield is always a
+    10-second wait plus the phrase *"I am choosing to get distracted"*. The old per-day
+    Gentle/Firm/Severe strike tiers and `DailyStrikeCounts` are gone — friction that grew
+    with a count the user couldn't see explained nothing.
+  - Only confident blocks reach the ladder; soft hints never do. Default to allow on work apps when unsure.
 - **Locked mode:** you can't end the session or quit Shift early.
 - **Honesty:** an admin can always win. We sell friction, not a prison.
 
@@ -150,6 +160,14 @@ Rules that are easy to get wrong, and are covered by the tests:
 - **The macOS 26 full-URL filter is unusable for us.** It requires a Bloom filter plus a Private Information Retrieval *server* plus a dedicated entitlement. A server contradicts the local-only rule. Rejected, documented in PRD §10.2.
 - **Foundation Models context is about 4,096 tokens** covering instructions, prompt, output and tool definitions together. Trim page text to roughly 2,500 tokens. Never send a whole page.
 - **Chromium and Electron build accessibility trees lazily.** Chrome needs `AXEnhancedUserInterface` set on its application element; Electron needs `AXManualAccessibility`. Confirm success by reading the attribute back, because Chrome returns not-implemented even when it worked, and retry after about 150 ms because the tree fills asynchronously.
+- **Don't try to render the character live, or in Blender.** Two routes were explored and
+  rejected. Live 3D (RealityKit/SceneKit) means standing up a Metal renderer for a figure
+  that is on screen for five seconds, against the app's whole low-energy argument — and
+  RealityKit cannot load animations from Blender's USD export anyway, so the pipeline would
+  run Blender → FBX → Reality Converter → USDZ by hand. Posing a rig in Blender (the free
+  CC-BY Snow rig was tried end to end, and it does render headlessly) produces a character
+  nobody asked for: Snow is a lean, realistically-proportioned adult in a grey t-shirt, and
+  no amount of lighting turns him into a stylised kid. Flat rendered artwork is the answer.
 - **Continuous screen capture is the expensive path.** Rewind shut down in December 2025 with a reputation for cooking MacBooks, and Screenpipe users report CPU spikes to 700% on an M3 Max. This is why OCR is change-gated and never on a timer.
 
 ## Competition (as of Nov 2026)
@@ -173,10 +191,10 @@ Shift/
 │                   BlockTint), BlockStore (persistence, locking, CRUD),
 │                   ScreenContext, Verdict, ActivityEvent, DistractionPreset
 ├── Detection/      ContextMonitor (async sampling), WindowInspector (AX),
-│                   Browser + AppleScriptRunner (off-main Apple Events),
+│                   Browser (browser identities),
 │                   ScreenTextReader (ScreenCaptureKit + Vision, an actor)
 ├── Intelligence/   BlockEvaluator (tier 0), Hysteresis
-├── Enforcement/    ShieldController, ShieldView, ShieldPolicy, GuardState,
+├── Enforcement/    ShieldController, ShieldView, ShieldPolicy, GuardState, NudgeLadder,
 │                   LaunchAtLogin, WatchdogService, WatchdogRunner
 └── UI/             DesignSystem (Theme, BlockBadge), Design/ (Materials, Controls),
                     MenuBarView, SettingsView (a pane, not a scene), NudgeHUD,
@@ -219,16 +237,33 @@ because both float over *other apps* and so must sample the desktop, which only
 
 Flow: `AppModel.engineTick` (1 s) decides which blocks are active and starts or stops
 detection → `ContextMonitor` sample → `AppModel.handle` → `BlockEvaluator` over the active
-blocks → `Hysteresis` (2 consistent readings) → `ShieldController.present` → resolve
-(close tab / quit app / take a break).
+blocks → `Hysteresis` (2 consistent readings) → `NudgeLadder` (3 nudges, 5 s apart) →
+`ShieldController.present` → resolve (quit app / take a break).
 
-`IntentClassifier` owns semantic evaluation. The Accessibility and OCR readers share
-`ScreenTextReading`. `AppModel` applies rule precedence and handles confirmation and enforcement.
+### The nudge ladder
+`Enforcement/NudgeLadder.swift` owns the escalation between "you matched a rule" and "your
+screen is covered". Three rules there are easy to get wrong:
+
+- **It is keyed on the rule and the process, not `context.signature`.** A page's title
+  churns while the user sits still, and a signature key would restart the ladder on every
+  churn, so it would never reach the shield.
+- **Timing is driven by the ladder, not the 1.5 s sampler**, so the rungs land on exact
+  5-second intervals. Presence stays authoritative: `isStillHere` re-evaluates the rules
+  immediately before every rung, and `AppModel.endLadder()` tears the ladder down the
+  moment a sample stops matching.
+- **`showNudges` does not gate it.** That preference is for the soft intent and
+  feed-keyword hints. The ladder is how blocking works, so it always runs.
+
+`NudgeHUDController` serves both: `hint(reason:detail:)` for the soft kind (fades after
+5 s, no progress dots) and `ladder(step:headline:detail:)` for the rungs. A rung replaces
+the one before it, which is why `show` has to cancel an in-flight fade-out.
+
+The standalone semantic classifier and text readers are outside the active detection path. `AppModel` applies explicit rules and handles confirmation and enforcement.
 
 ## Conventions
 
 - Swift 5 language mode, SwiftUI plus AppKit where needed, `@Observable`, macOS 26 APIs are fine.
-- **Not sandboxed**, Hardened Runtime on, entitlement `com.apple.security.automation.apple-events`. Distribution: Developer ID plus notarization (no Mac App Store).
+- **Not sandboxed**, Hardened Runtime on. Distribution: Developer ID plus notarization (no Mac App Store).
 - The Xcode project uses **folder-synced groups** (`PBXFileSystemSynchronizedRootGroup`): new files in `Shift/` are picked up automatically, so don't hand-edit file references into `project.pbxproj`.
 - Keep the UI native and calm; the shield is the only loud surface.
 - Small, focused commits on `main`, pushed to `origin`.

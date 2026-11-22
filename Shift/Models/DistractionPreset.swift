@@ -80,8 +80,8 @@ struct DistractionPreset: Identifiable, Hashable, Codable {
             title: "Netflix and streaming",
             symbol: "tv",
             hosts: ["netflix.com", "hulu.com", "disneyplus.com", "primevideo.com"],
-            apps: ["com.netflix.Netflix"],
-            effect: "Blocks streaming sites and the Netflix app."
+            apps: ["com.netflix.Netflix", "com.apple.TV"],
+            effect: "Blocks streaming sites and suggests matching installed apps."
         ),
         DistractionPreset(
             id: "twitch",
@@ -95,14 +95,37 @@ struct DistractionPreset: Identifiable, Hashable, Codable {
             title: "Discord",
             symbol: "message",
             apps: ["com.hnc.Discord"],
-            effect: "Asks you to quit Discord when it comes up."
+            effect: "Adds Discord if it's installed."
+        ),
+        DistractionPreset(
+            id: "whatsapp",
+            title: "WhatsApp",
+            symbol: "phone.bubble.left",
+            hosts: ["web.whatsapp.com"],
+            apps: ["net.whatsapp.WhatsApp"],
+            effect: "Blocks WhatsApp Web and adds the installed app."
+        ),
+        DistractionPreset(
+            id: "viber",
+            title: "Viber",
+            symbol: "phone.bubble.left",
+            apps: ["com.viber.osx"],
+            effect: "Adds Viber if it's installed."
+        ),
+        DistractionPreset(
+            id: "spotify",
+            title: "Spotify",
+            symbol: "music.note",
+            hosts: ["open.spotify.com"],
+            apps: ["com.spotify.client"],
+            effect: "Blocks the Spotify web player and adds the installed app."
         ),
         DistractionPreset(
             id: "games",
-            title: "Games and Steam",
+            title: "Game launchers",
             symbol: "arcade.stick",
-            apps: ["com.valvesoftware.steam"],
-            effect: "Asks you to quit Steam when it comes up."
+            apps: ["com.valvesoftware.steam", "com.epicgames.EpicGamesLauncher", "net.battle.app"],
+            effect: "Adds installed launchers such as Steam, Epic Games Launcher, and Battle.net."
         ),
         DistractionPreset(
             id: "shopping",
@@ -123,11 +146,11 @@ struct DistractionPreset: Identifiable, Hashable, Codable {
 
 extension BlockList {
     /// Builds a list from onboarding answers using the same rule parsing as the editor.
-    static func from(presets: [DistractionPreset], custom: [String] = []) -> BlockList {
+    static func from(presets: [DistractionPreset], custom: [String], apps: [String]) -> BlockList {
         var list = BlockList(
             hosts: unique(presets.flatMap(\.hosts)),
             paths: unique(presets.flatMap(\.paths)),
-            apps: unique(presets.flatMap(\.apps))
+            apps: unique(apps)
         )
         for address in custom.compactMap(WebsiteAddress.init(entry:)) { list.addWebsite(address) }
         return list
@@ -139,7 +162,7 @@ extension BlockList {
         DistractionPreset.all.filter { preset in
             let hostsCovered = !preset.hosts.isEmpty && preset.hosts.allSatisfy(hosts.contains)
             let pathsCovered = !preset.paths.isEmpty && preset.paths.allSatisfy(paths.contains)
-            let appsCovered = !preset.apps.isEmpty && preset.apps.allSatisfy(apps.contains)
+            let appsCovered = preset.apps.contains(where: apps.contains)
             return hostsCovered || pathsCovered || appsCovered
         }
     }

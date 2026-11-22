@@ -2,7 +2,7 @@ import Foundation
 
 /// Judges one screen reading against every block that is currently active.
 ///
-/// Tier 0 is deterministic and runs before intent detection.
+/// Explicit block rules take precedence over focus and title-based nudges.
 struct BlockEvaluator {
     /// Only blocks that are active right now. The caller does the schedule maths.
     var blocks: [Block]
@@ -37,22 +37,23 @@ struct BlockEvaluator {
         blocks.compactMap { block in
             let goal = String(block.goal.prefix(400)).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !goal.isEmpty else { return nil }
-            return IntentGoal(id: block.id, name: block.name, text: goal)
+            return IntentGoal(id: block.id, text: goal)
         }
     }
 
-    func fallbackVerdict(for context: ScreenContext, hasIntentGoals: Bool = false) -> Verdict {
+    func fallbackVerdict(for context: ScreenContext, hasIntentGoals: Bool) -> Verdict {
+        if hasIntentGoals { return .allow("No blocking rule matched. No clear distraction detected.") }
         if let title = context.windowTitle,
            let keyword = driftKeywords.first(where: { title.localizedCaseInsensitiveContains($0) }) {
             return .nudge("“\(keyword)” looks like a feed")
         }
 
-        return .allow(hasIntentGoals ? "No blocking rule matched. Intent could not be confirmed." : "No blocking rule matched")
+        return .allow("No blocking rule matched")
     }
 
     private func ruleMatch(_ context: ScreenContext, website: WebsiteAddress?, against block: Block) -> Verdict? {
         let list = block.list
-        let target: StrikeTarget
+        let target: RuleTarget
         let name: String
 
         let matchingRules = website.map { address in
@@ -78,11 +79,9 @@ struct BlockEvaluator {
         return Verdict(
             kind: .block,
             reason: "\(name) is blocked",
-            confidence: 0.95,
             blockID: block.id,
             blockName: block.name,
-            ruleTarget: target,
-            goal: block.goal
+            ruleTarget: target
         )
     }
 }

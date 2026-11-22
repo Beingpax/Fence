@@ -5,8 +5,7 @@ import os.log
 /// Wires blocks → detection → classification → enforcement.
 ///
 /// Main-actor isolated, because it owns timers, windows and observable state that SwiftUI
-/// reads. Everything genuinely slow happens behind an `await`: window titles, Apple Events
-/// and screen capture all run off this actor and come back as finished values.
+/// reads. Window inspection runs off this actor.
 @MainActor
 @Observable
 final class AppModel {
@@ -25,7 +24,6 @@ final class AppModel {
     private(set) var accessibilityGranted = PermissionsManager.isAccessibilityTrusted
     private(set) var screenRecordingGranted = PermissionsManager.isScreenRecordingGranted
     private(set) var launchAtLoginEnabled = LaunchAtLogin.isEnabled
-    private(set) var watchdogInstalled = WatchdogService.isInstalled
 
     /// Mirrors the engine so the UI can show whether Shift is actually watching.
     private(set) var isWatching = false
@@ -33,16 +31,15 @@ final class AppModel {
     /// Which section the main window is showing. Owned here so the menu bar and the
     /// Settings command can open the window straight to a section.
     var mainSection: MainSection = .dashboard
+    var newBlock: Block?
     var unlockTarget: Block?
 
     var showNudges: Bool {
-        didSet { Preferences.showNudges = showNudges }
-    }
-
-    var keepWatchdogAlways: Bool {
         didSet {
-            Preferences.keepWatchdogAlways = keepWatchdogAlways
-            syncWatchdogInstallation()
+            Preferences.showNudges = showNudges
+            intentNudges.reset()
+            nudgeHysteresis.reset()
+            if !showNudges { nudgeHUD.hide() }
         }
     }
 
@@ -57,36 +54,16 @@ final class AppModel {
         didSet { Preferences.driftKeywords = driftKeywords }
     }
 
-    var compareTextReaders: Bool {
-        didSet {
-            Preferences.compareTextReaders = compareTextReaders
-            resetIntent()
-            monitor.invalidate()
-        }
-    }
-
-    var intentModelAvailable: Bool { IntentClassifier.isModelAvailable }
-
     private(set) var hasCompletedOnboarding: Bool
 
     // MARK: Engine
 
-    private struct EvaluatedIntent {
-        let request: IntentRequest
-        let reading: IntentReading
-        let verdict: Verdict?
-        let needsConfirmation: Bool
-    }
-
-    @ObservationIgnored private var dailyStrikes = Preferences.dailyStrikes
     @ObservationIgnored private let monitor = ContextMonitor()
-    @ObservationIgnored private let intentClassifier = IntentClassifier()
-    @ObservationIgnored private var intentTask: Task<Void, Never>?
-    @ObservationIgnored private var intentInFlight: IntentRequest?
-    @ObservationIgnored private var evaluatedIntent: EvaluatedIntent?
+    @ObservationIgnored private let intentNudges = IntentNudgeMonitor()
     @ObservationIgnored private let shield = ShieldController()
     @ObservationIgnored private var resolvingProcesses: Set<pid_t> = []
     @ObservationIgnored private let nudgeHUD = NudgeHUDController()
+    @ObservationIgnored private let nudgeLadder = NudgeLadder()
     @ObservationIgnored private let onboarding = OnboardingController()
     @ObservationIgnored private let mainWindow = MainWindowController()
     @ObservationIgnored private var hysteresis = Hysteresis(requiredHits: 2)
@@ -101,17 +78,17 @@ final class AppModel {
     private init() {
         store = BlockStore()
         showNudges = Preferences.showNudges
-        keepWatchdogAlways = Preferences.keepWatchdogAlways
         showInDock = Preferences.showInDock
         driftKeywords = Preferences.driftKeywords
-        compareTextReaders = Preferences.compareTextReaders
         hasCompletedOnboarding = Preferences.hasCompletedOnboarding
 
         monitor.onSample = { [weak self] context in
             self?.handle(context)
         }
         monitor.onInvalidation = { [weak self] in
-            self?.intentTask?.cancel()
+            self?.intentNudges.reset()
+            self?.nudgeLadder.reset()
+            self?.nudgeHUD.hide()
         }
     }
 
@@ -128,18 +105,14 @@ final class AppModel {
         // takes a moment, and doing it when the picker opens makes the picker feel slow.
         InstalledApps.shared.loadIfNeeded()
 
-        if !hasCompletedOnboarding {
-            presentOnboarding()
-        } else {
-            presentMainWindow()
-        }
+        openApp()
     }
 
     func applicationWillTerminate() {
         // Only reached when termination was allowed, so no lock is standing.
         GuardState.clear()
+        if WatchdogService.hasConfiguration { WatchdogService.remove() }
         monitor.stop()
-        resetIntent()
         engineTimer?.invalidate()
         store.flushPendingSaves()
     }
@@ -185,22 +158,20 @@ final class AppModel {
                 log("Watching · \(active.count) block\(active.count == 1 ? "" : "s") active", symbol: "eye")
             } else {
                 monitor.stop()
-                resetIntent()
                 lastContext = nil
                 lastVerdict = nil
                 shield.dismiss()
+                nudgeLadder.reset()
                 nudgeHUD.hide()
                 hysteresis.reset()
                 log("Nothing active", symbol: "eye.slash")
             }
         }
 
-        monitor.trackInteraction(active.contains { !$0.goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            && (accessibilityGranted || screenRecordingGranted))
         syncLockProtections()
 
-        // Permissions change in System Settings; re-read occasionally while watching.
-        if tickCount % 5 == 0, isWatching {
+        // Permissions can change in System Settings even when no block is active.
+        if tickCount % 5 == 0, isWatching || NSApp.isActive {
             refreshPermissions()
         }
     }
@@ -212,131 +183,154 @@ final class AppModel {
         if lastContext != context { lastContext = context }
         if locationChanged {
             lastVerdict = nil
-            nudgeHUD.hide()
+            if nudgeLadder.key == nil { nudgeHUD.hide() }
         }
         guard !shield.isShowing, !resolvingProcesses.contains(context.processID) else { return }
 
         let evaluator = BlockEvaluator(blocks: store.activeBlocks, driftKeywords: driftKeywords)
         if let verdict = evaluator.ruleVerdict(for: context) {
-            resetIntent()
+            intentNudges.reset()
             apply(verdict, to: context)
             return
         }
+        endLadder()
+        hysteresis.reset()
 
-        guard let request = intentRequest(for: context, evaluator: evaluator) else {
-            resetIntent()
-            apply(evaluator.fallbackVerdict(for: context, hasIntentGoals: !evaluator.intentGoals().isEmpty), to: context)
-            return
-        }
-
-        let fallback = evaluator.fallbackVerdict(for: context, hasIntentGoals: true)
-        guard monitor.interactionIsSettled else {
-            intentTask?.cancel()
-            hysteresis.reset()
-            if lastVerdict != fallback { lastVerdict = fallback }
-            return
-        }
-
-        if let result = evaluatedIntent, result.request == request, !result.needsConfirmation {
-            if hasPermission(for: result.verdict?.source) {
-                apply(result.verdict ?? fallback, to: context, intentConfirmed: false)
-            } else {
-                refreshPermissions()
-                apply(fallback, to: context)
-            }
-            return
-        }
-
-        if intentInFlight != request { intentTask?.cancel() }
-        guard intentTask == nil else { return }
-
-        let previous = evaluatedIntent.flatMap { request.canReuse($0.request) ? $0.reading : nil }
-        let confirming = evaluatedIntent?.request == request && evaluatedIntent?.needsConfirmation == true
-        intentInFlight = request
-        intentTask = Task { [weak self, intentClassifier] in
-            let reading = await intentClassifier.classify(request, previous: previous)
-            guard let self else { return }
-            self.intentTask = nil
-            self.intentInFlight = nil
-            guard !Task.isCancelled, !self.shield.isShowing, self.monitor.isCurrent(context),
-                  self.intentRequest(for: context) == request,
-                  self.hasPermission(for: reading.verdict?.source)
-            else { return }
-
-            var verdict = reading.verdict
-            let confirmed = confirming && verdict?.kind == .block
-                && previous?.verdict?.blockID == verdict?.blockID
-                && previous?.verdict?.source == verdict?.source
-            if confirming, verdict?.kind == .block, !confirmed {
-                verdict?.kind = .nudge
-            }
-
-            self.apply(verdict ?? fallback, to: context, intentConfirmed: confirmed)
-            self.evaluatedIntent = EvaluatedIntent(
-                request: request,
-                reading: reading,
-                verdict: verdict,
-                needsConfirmation: verdict?.kind == .block && !confirming
-            )
-        }
-    }
-
-    private func intentRequest(for context: ScreenContext, evaluator: BlockEvaluator? = nil) -> IntentRequest? {
-        let evaluator = evaluator ?? BlockEvaluator(blocks: store.activeBlocks, driftKeywords: driftKeywords)
-        guard evaluator.ruleVerdict(for: context) == nil, context.windowID != nil,
-              accessibilityGranted || screenRecordingGranted
-        else { return nil }
         let goals = evaluator.intentGoals()
-        guard !goals.isEmpty else { return nil }
-        return IntentRequest(
-            context: context,
-            goals: goals,
-            accessibilityGranted: accessibilityGranted,
-            screenRecordingGranted: screenRecordingGranted,
-            compareTextReaders: compareTextReaders
-        )
-    }
+        let fallback = evaluator.fallbackVerdict(for: context, hasIntentGoals: !goals.isEmpty)
+        guard let request = intentRequest(for: context, goals: goals) else {
+            intentNudges.reset()
+            apply(fallback, to: context)
+            return
+        }
+        if lastVerdict == nil { apply(fallback, to: context) }
 
-    private func hasPermission(for source: Verdict.Source?) -> Bool {
-        switch source {
-        case .accessibility: PermissionsManager.isAccessibilityTrusted
-        case .screenOCR: PermissionsManager.isScreenRecordingGranted
-        default: true
+        intentNudges.observe(request) { [weak self] source in
+            guard let self, !self.shield.isShowing, self.monitor.isRunning, self.lastContext == context,
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == context.processID else { return false }
+            let current = BlockEvaluator(blocks: self.store.activeBlocks, driftKeywords: self.driftKeywords)
+            guard current.ruleVerdict(for: context) == nil,
+                  self.intentRequest(for: context, goals: current.intentGoals()) == request else { return false }
+            switch source {
+            case .accessibility: return PermissionsManager.isAccessibilityTrusted
+            case .screenOCR: return PermissionsManager.isScreenRecordingGranted
+            default: return true
+            }
+        } onVerdict: { [weak self] verdict in
+            self?.apply(verdict ?? fallback, to: context)
         }
     }
 
-    private func resetIntent() {
-        intentTask?.cancel()
-        evaluatedIntent = nil
+    private func intentRequest(for context: ScreenContext, goals: [IntentGoal]) -> IntentRequest? {
+        guard showNudges, !goals.isEmpty, context.windowID != nil,
+              accessibilityGranted || screenRecordingGranted, IntentClassifier.isModelAvailable else { return nil }
+        return IntentRequest(context: context, goals: goals, accessibilityGranted: accessibilityGranted,
+                             screenRecordingGranted: screenRecordingGranted)
     }
 
-    private func apply(
-        _ verdict: Verdict, to context: ScreenContext,
-        intentConfirmed: Bool? = nil
-    ) {
+    private func apply(_ verdict: Verdict, to context: ScreenContext) {
         if lastVerdict != verdict { lastVerdict = verdict }
         switch verdict.kind {
         case .allow:
             hysteresis.reset()
             nudgeHysteresis.reset()
+            endLadder()
         case .nudge:
             hysteresis.reset()
+            endLadder()
+            if verdict.source == .rules, !nudgeHysteresis.register(context.signature) { return }
             considerNudge(verdict, on: context)
         case .block:
             nudgeHysteresis.reset()
-            if let intentConfirmed {
-                guard intentConfirmed else { return }
-            } else {
-                let signature = "\(context.signature)|\(verdict.blockID?.uuidString ?? "")"
-                guard hysteresis.register(signature) else { return }
+            guard let target = verdict.ruleTarget, let blockID = verdict.blockID else { return }
+            // Keyed on the rule and the app, not the window signature: a page's title can
+            // churn while the user sits on the same blocked site, and that must not restart
+            // the ladder — otherwise it never reaches the shield.
+            let key = "\(blockID.uuidString)|\(target.identifier)|\(context.processID)"
+            // A new encounter still has to read consistently once, so a stray frame can't
+            // open with a nudge. After that the ladder owns the timing.
+            if key != nudgeLadder.key {
+                guard hysteresis.register(key) else { return }
             }
-            enforce(verdict, on: context)
+            climbLadder(key: key, verdict: verdict, on: context)
+        }
+    }
+
+    /// Nudge, re-check, nudge again, and only then cover the screen.
+    ///
+    /// Three nudges five seconds apart, each one re-verifying that the user is still on the
+    /// same blocked thing. Closing the tab yourself at any point ends it with nothing having
+    /// happened, which is the whole point: the habit is worth more than the punishment.
+    private func climbLadder(key: String, verdict: Verdict, on context: ScreenContext) {
+        let location = context.host ?? context.appName
+        nudgeLadder.begin(
+            key: key,
+            onStep: { [weak self] step in
+                guard let self else { return }
+                let copy = Self.ladderCopy(
+                    step: step,
+                    location: location,
+                    appName: context.appName,
+                    blockName: verdict.blockName ?? "Shift"
+                )
+                self.nudgeHUD.ladder(step: step, headline: copy.headline, detail: copy.detail)
+                self.log("Nudge \(step) of \(NudgeLadder.stepCount) · \(location)", symbol: "hand.wave")
+            },
+            isStillHere: { [weak self] in
+                self?.isStillBlocked(context) ?? false
+            },
+            onExhausted: { [weak self] in
+                guard let self, self.isStillBlocked(context) else { return }
+                self.enforce(verdict, on: context)
+            }
+        )
+    }
+
+    /// The ladder only advances while the user is still looking at the same blocked thing.
+    private func isStillBlocked(_ context: ScreenContext) -> Bool {
+        guard !shield.isShowing, monitor.isRunning, lastContext == context,
+              !resolvingProcesses.contains(context.processID),
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == context.processID
+        else { return false }
+        let evaluator = BlockEvaluator(blocks: store.activeBlocks, driftKeywords: driftKeywords)
+        return evaluator.ruleVerdict(for: context)?.kind == .block
+    }
+
+    /// Drops any ladder in progress and takes its nudge down with it.
+    private func endLadder() {
+        guard nudgeLadder.key != nil else { return }
+        nudgeLadder.reset()
+        nudgeHUD.hide()
+    }
+
+    /// What the character says at each rung.
+    ///
+    /// No counters and no "nudge 2 of 3": the creature's ears and colour already say how
+    /// far along you are, and a tally made it read as a machine keeping score. Rung 2 asks
+    /// a question, rung 3 states what is about to happen.
+    private static func ladderCopy(
+        step: Int,
+        location: String,
+        appName: String,
+        blockName: String
+    ) -> (headline: String, detail: String) {
+        switch step {
+        case ...1:
+            return ("\(location) is blocked", "“\(blockName)” is on. Close it and get back to it.")
+        case 2:
+            return ("Still on \(location)?", "Close it yourself, or I'll handle it.")
+        default:
+            return (
+                "I'll handle it now.",
+                location == appName
+                    ? "Closing \(appName)."
+                    : "Closing \(appName) unless you leave \(location)."
+            )
         }
     }
 
     private func considerNudge(_ verdict: Verdict, on context: ScreenContext) {
         guard showNudges else { return }
-        guard nudgeHysteresis.register(context.signature) else { return }
 
         let isRepeat = context.signature == lastNudgeSignature
         let withinCooldown = Date().timeIntervalSince(lastNudgeAt) < nudgeCooldown
@@ -345,31 +339,21 @@ final class AppModel {
         lastNudgeSignature = context.signature
         lastNudgeAt = Date()
 
-        nudgeHUD.show(reason: verdict.reason, detail: context.displayLocation) { [weak self] in
-            guard let self, self.monitor.isCurrent(context), !self.shield.isShowing,
-                  self.hasPermission(for: verdict.source),
-                  verdict.blockID.map({ id in self.store.activeBlocks.contains { $0.id == id } }) ?? true
-            else { return }
-            var block = verdict
-            block.kind = .block
-            self.enforce(block, on: context)
-        }
-        log("Nudged · \(context.displayLocation)", symbol: "arrow.turn.up.left")
+        let location = context.host ?? context.appName
+        nudgeHUD.hint(reason: verdict.reason, detail: location)
+        log("Nudged · \(location)", symbol: "arrow.turn.up.left")
     }
 
     private func enforce(_ verdict: Verdict, on context: ScreenContext) {
-        guard !resolvingProcesses.contains(context.processID) else { return }
+        guard verdict.kind == .block, verdict.source == .rules,
+              let blockID = verdict.blockID,
+              !resolvingProcesses.contains(context.processID) else { return }
         nudgeHUD.hide()
 
         let now = Date()
-        let blockID = verdict.blockID
-        let target = verdict.ruleTarget ?? context.host.map(StrikeTarget.website)
-            ?? .app(context.bundleID.lowercased())
-        let strike = dailyStrikes.record(target, blockID: blockID, now: now)
-        Preferences.dailyStrikes = dailyStrikes
-        if let blockID { store.recordTrigger(id: blockID, now: now) }
+        store.recordTrigger(id: blockID, now: now)
 
-        let breaks = blockID.flatMap { store.block(id: $0)?.breaks }
+        let breaks = store.block(id: blockID)?.breaks
         let breakMinutes = breaks.flatMap { $0.remaining(at: now) > 0 ? BreakPlan.minutes : nil }
 
         log("Blocked \(context.displayLocation)", symbol: "hand.raised.fill")
@@ -379,49 +363,26 @@ final class AppModel {
             bundleID: context.bundleID,
             processID: context.processID,
             host: context.host,
-            isBrowser: context.isBrowser,
             reason: verdict.reason,
             blockName: verdict.blockName ?? "Shift",
             blockID: blockID,
-            goal: verdict.goal,
-            strike: strike,
-            policy: .make(strike: strike),
             breakMinutes: breakMinutes
         )
         shield.present(request) { [weak self] resolution in
-            self?.resolve(resolution, for: request, context: context)
+            self?.resolve(resolution, for: request)
         }
     }
 
-    private func resolve(
-        _ resolution: ShieldResolution, for request: ShieldRequest,
-        context: ScreenContext? = nil
-    ) {
+    private func resolve(_ resolution: ShieldResolution, for request: ShieldRequest) {
         hysteresis.reset()
+        nudgeLadder.reset()
         guard !request.isPreview else { return }
-        resetIntent()
         monitor.invalidate()
 
         let app = NSRunningApplication(processIdentifier: request.processID).flatMap {
             $0.bundleIdentifier == request.bundleID && !$0.isTerminated ? $0 : nil
         }
         switch resolution {
-        case .closeTab:
-            guard let context, let browser = Browser(bundleID: context.bundleID), let app,
-                  resolvingProcesses.insert(request.processID).inserted else { return }
-            app.activate()
-            Task {
-                defer { resolvingProcesses.remove(request.processID) }
-                let snapshot = await WindowInspector.snapshot(
-                    pid: context.processID, browser: browser, prepareAccessibility: false
-                )
-                let sameTab = !app.isTerminated && NSWorkspace.shared.frontmostApplication?.processIdentifier == context.processID
-                    && context.windowID != nil && snapshot.windowID == context.windowID && snapshot.url == context.url
-                    && (context.url != nil || (context.windowTitle != nil && snapshot.title == context.windowTitle))
-                let closed = sameTab ? await browser.closeFrontTab(pid: context.processID, expectedURL: context.url) : false
-                let result = closed ? "Close requested" : "Couldn’t close tab"
-                log("\(result) · \(context.displayLocation)", symbol: "xmark.circle")
-            }
         case .quitApp:
             guard let app, resolvingProcesses.insert(request.processID).inserted else { return }
             Task { await quit(app, for: request) }
@@ -474,35 +435,25 @@ final class AppModel {
     /// Keeps SIGTERM handling, the watchdog and the handshake file in step with whether
     /// any block is currently locked.
     private func syncLockProtections() {
-        let locked = store.hasLockedBlock
+        signal(SIGTERM, store.hasLockedBlock ? SIG_IGN : SIG_DFL)
 
-        if locked {
-            signal(SIGTERM, SIG_IGN)
-            if !WatchdogService.isInstalled {
-                _ = WatchdogService.install()
-                watchdogInstalled = WatchdogService.isInstalled
-            }
-            if tickCount % 10 == 0 || GuardState.load() == nil {
-                writeGuardState()
-            }
-        } else {
-            signal(SIGTERM, SIG_DFL)
-            if GuardState.load() != nil {
-                GuardState.clear()
-                syncWatchdogInstallation()
-            }
+        let guardState = GuardState.load()
+        guard let deadline = store.lockedUntil else {
+            if guardState != nil { GuardState.clear() }
+            if WatchdogService.hasConfiguration { WatchdogService.remove() }
+            return
         }
-    }
 
-    private func writeGuardState() {
-        let names = store.lockedBlocks.map(\.name)
-        guard let deadline = store.lockedUntil else { return }
-        GuardState(
-            lockedUntil: deadline,
-            bundlePath: Bundle.main.bundleURL.path,
-            goal: names.joined(separator: ", "),
-            heartbeat: Date()
-        ).save()
+        let names = store.lockedBlocks.filter(\.isEnabled).map(\.name).joined(separator: ", ")
+        if guardState?.lockedUntil != deadline || guardState?.goal != names || tickCount % 10 == 0 {
+            GuardState(
+                lockedUntil: deadline,
+                bundlePath: Bundle.main.bundleURL.path,
+                goal: names,
+                heartbeat: Date()
+            ).save()
+        }
+        if !WatchdogService.isInstalled { WatchdogService.install() }
     }
 
     private func warnCannotQuit() {
@@ -523,20 +474,16 @@ final class AppModel {
 
     // MARK: Previews
 
-    func previewShield(strike: Int) {
+    func previewShield() {
         let request = ShieldRequest(
             appName: "Safari",
             bundleID: "com.apple.Safari",
             processID: 0,
             host: "instagram.com",
-            isBrowser: true,
             reason: "instagram.com is blocked",
             blockName: "Deep work",
             blockID: nil,
-            goal: "Finish chapter 3",
-            strike: strike,
-            policy: .make(strike: strike),
-            breakMinutes: strike == 1 ? BreakPlan.minutes : nil,
+            breakMinutes: BreakPlan.minutes,
             isPreview: true
         )
         shield.present(request) { [weak self] resolution in
@@ -544,11 +491,30 @@ final class AppModel {
         }
     }
 
-    func previewNudge() {
-        nudgeHUD.show(reason: "“Shorts” looks like a feed", detail: "youtube.com", onBlock: {})
+    /// `step` previews a rung of the escalation ladder; `nil` previews a soft hint.
+    func previewNudge(step: Int? = nil) {
+        guard let step else {
+            nudgeHUD.hint(reason: "“Shorts” looks like a feed", detail: "youtube.com")
+            return
+        }
+        let copy = Self.ladderCopy(step: step, location: "instagram.com", appName: "Safari", blockName: "Deep work")
+        nudgeHUD.ladder(step: step, headline: copy.headline, detail: copy.detail)
     }
 
     // MARK: Windows
+
+    func openApp() {
+        if !hasCompletedOnboarding || onboarding.isShowing {
+            presentOnboarding()
+        } else {
+            presentMainWindow()
+        }
+    }
+
+    func presentNewBlock() {
+        if newBlock == nil { newBlock = Block(name: "") }
+        presentMainWindow()
+    }
 
     func requestBlockUnlock(id: Block.ID) {
         guard let block = store.block(id: id), block.requiresUnlockChallenge() else { return }
@@ -557,11 +523,13 @@ final class AppModel {
     }
 
     func presentMainWindow(section: MainSection? = nil) {
+        refreshPermissions()
         if let section { mainSection = section }
         mainWindow.present(model: self)
     }
 
     func presentOnboarding() {
+        refreshPermissions()
         onboarding.present(model: self)
     }
 
@@ -592,11 +560,12 @@ final class AppModel {
         guard accessibility != accessibilityGranted || screenRecording != screenRecordingGranted else { return }
         accessibilityGranted = accessibility
         screenRecordingGranted = screenRecording
-        resetIntent()
         monitor.invalidate()
     }
 
     func requestAccessibilityPermission() {
+        refreshPermissions()
+        guard !accessibilityGranted else { return }
         PermissionsManager.requestAccessibility()
         PermissionsManager.openAccessibilitySettings()
     }
@@ -611,21 +580,11 @@ final class AppModel {
     func refreshSystemState() {
         refreshPermissions()
         launchAtLoginEnabled = LaunchAtLogin.isEnabled
-        watchdogInstalled = WatchdogService.isInstalled
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
         LaunchAtLogin.setEnabled(enabled)
         launchAtLoginEnabled = LaunchAtLogin.isEnabled
-    }
-
-    private func syncWatchdogInstallation() {
-        if keepWatchdogAlways || store.hasLockedBlock {
-            if !WatchdogService.isInstalled { _ = WatchdogService.install() }
-        } else if WatchdogService.isInstalled {
-            _ = WatchdogService.remove()
-        }
-        watchdogInstalled = WatchdogService.isInstalled
     }
 
     // MARK: Activity log
@@ -641,37 +600,15 @@ final class AppModel {
 /// Thin `UserDefaults` wrapper so key strings live in exactly one place.
 enum Preferences {
     private enum Key {
-        static let dailyStrikes = "Shift.dailyStrikes"
         static let showNudges = "Shift.showNudges"
-        static let keepWatchdogAlways = "Shift.keepWatchdogAlways"
         static let showInDock = "Shift.showInDock"
         static let driftKeywords = "Shift.driftKeywords"
-        static let compareTextReaders = "Shift.compareTextReaders"
         static let hasCompletedOnboarding = "Shift.hasCompletedOnboarding.v1"
-    }
-
-    static var dailyStrikes: DailyStrikeCounts {
-        get {
-            guard let data = UserDefaults.standard.data(forKey: Key.dailyStrikes),
-                  let counts = try? JSONDecoder().decode(DailyStrikeCounts.self, from: data)
-            else { return DailyStrikeCounts() }
-            return counts
-        }
-        set {
-            if let data = try? JSONEncoder().encode(newValue) {
-                UserDefaults.standard.set(data, forKey: Key.dailyStrikes)
-            }
-        }
     }
 
     static var showNudges: Bool {
         get { UserDefaults.standard.object(forKey: Key.showNudges) as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: Key.showNudges) }
-    }
-
-    static var keepWatchdogAlways: Bool {
-        get { UserDefaults.standard.bool(forKey: Key.keepWatchdogAlways) }
-        set { UserDefaults.standard.set(newValue, forKey: Key.keepWatchdogAlways) }
     }
 
     static var showInDock: Bool {
@@ -682,11 +619,6 @@ enum Preferences {
     static var driftKeywords: [String] {
         get { UserDefaults.standard.stringArray(forKey: Key.driftKeywords) ?? DriftKeywords.default }
         set { UserDefaults.standard.set(newValue, forKey: Key.driftKeywords) }
-    }
-
-    static var compareTextReaders: Bool {
-        get { UserDefaults.standard.bool(forKey: Key.compareTextReaders) }
-        set { UserDefaults.standard.set(newValue, forKey: Key.compareTextReaders) }
     }
 
     static var hasCompletedOnboarding: Bool {

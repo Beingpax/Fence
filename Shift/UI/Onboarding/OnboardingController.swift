@@ -3,9 +3,7 @@ import SwiftUI
 
 /// Hosts the first-run flow in its own window.
 ///
-/// Shift is an `LSUIElement` app, so there is no Dock icon to click and no window by
-/// default. The window is created on demand, centred, and sized to its content, per the
-/// HIG guidance that setup windows shouldn't be resizable without reason.
+/// The window is created on demand, centred, and sized to its content.
 @MainActor
 final class OnboardingController {
     private var window: NSWindow?
@@ -14,8 +12,7 @@ final class OnboardingController {
 
     func present(model: AppModel) {
         if let window {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate()
+            window.presentForUser()
             return
         }
 
@@ -36,13 +33,13 @@ final class OnboardingController {
         window.contentView = NSHostingView(rootView: root)
         window.isReleasedWhenClosed = false
         window.center()
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate()
 
         self.window = window
+        window.presentForUser()
     }
 
-    func close() {
+    private func close() {
         window?.orderOut(nil)
+        window = nil
     }
 }

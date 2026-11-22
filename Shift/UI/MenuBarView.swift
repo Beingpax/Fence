@@ -38,10 +38,7 @@ struct MenuBarView: View {
         .background {
             VisualEffect(surface: .window, blending: .behindWindow).ignoresSafeArea()
         }
-        .onAppear {
-            model.refreshPermissions()
-            model.refreshSystemState()
-        }
+        .onAppear { model.refreshSystemState() }
         .task {
             while !Task.isCancelled {
                 model.refreshPermissions()
@@ -68,14 +65,8 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: Theme.Space.snug) {
             Text("No blocks yet")
                 .font(.callout.weight(.semibold))
-            Text("Start from a ready-made block, then make it yours.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Button {
-                model.presentMainWindow(section: .blocks)
-            } label: {
-                Label("Browse blocks", systemImage: "square.grid.2x2")
+            Button(action: model.presentNewBlock) {
+                Label("Add a block", systemImage: "plus")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.shiftProminent)
@@ -123,7 +114,7 @@ struct MenuBarView: View {
     private var footer: some View {
         HStack(spacing: 2) {
             Button {
-                model.presentMainWindow()
+                model.openApp()
             } label: {
                 Label("Open Shift", systemImage: "macwindow")
                     .font(.caption.weight(.semibold))

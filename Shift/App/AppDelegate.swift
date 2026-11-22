@@ -8,6 +8,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppModel.shared.applicationDidFinishLaunching()
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows _: Bool) -> Bool {
+        AppModel.shared.openApp()
+        return false
+    }
+
     /// PRD §9: a Locked session can't be ended, and Shift can't be quit, until it runs out.
     /// This catches every polite route out, including Cmd+Q, the Quit menu item, AppleScript
     /// `quit`, Activity Monitor's "Quit", and a `SIGTERM` from `kill`.

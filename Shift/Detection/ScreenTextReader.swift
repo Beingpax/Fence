@@ -5,58 +5,23 @@ import ScreenCaptureKit
 import Vision
 import os.log
 
-struct FrameFingerprint: Equatable, Sendable {
-    let value: Int
-
-    init?(image: CGImage) {
-        // Compare reduced grayscale frames conservatively. A coarse 8x8 hash can miss
-        // small changes such as a new headline on an otherwise unchanged page.
-        let side = 128
-        var pixels = [UInt8](repeating: 0, count: side * side)
-        let fingerprint: Int? = pixels.withUnsafeMutableBytes { bytes in
-            guard let context = CGContext(
-                data: bytes.baseAddress,
-                width: side,
-                height: side,
-                bitsPerComponent: 8,
-                bytesPerRow: side,
-                space: CGColorSpaceCreateDeviceGray(),
-                bitmapInfo: CGImageAlphaInfo.none.rawValue
-            ) else { return nil }
-            context.interpolationQuality = .medium
-            context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
-            context.flush()
-            var hasher = Hasher()
-            hasher.combine(bytes: UnsafeRawBufferPointer(bytes))
-            return hasher.finalize()
-        }
-        guard let fingerprint else { return nil }
-        value = fingerprint
-    }
-}
-
-struct ScreenTextSample: Sendable {
-    static let limit = 2_000
-
-    var text: String?
-    var frame: FrameFingerprint?
-    var unchanged = false
-}
-
-/// Both readers return bounded text. OCR can also confirm that a newly captured frame
-/// matches one the caller already evaluated.
+/// Both readers return a fresh, bounded sample of the foreground window's text.
 protocol ScreenTextReading: Sendable {
-    func read(_ context: ScreenContext, previousFrame: FrameFingerprint?) async -> ScreenTextSample
+    func read(_ context: ScreenContext) async -> String?
+}
+
+extension ScreenTextReading {
+    static var textLimit: Int { 2_000 }
 }
 
 /// Local, single-window screenshots. The image and Vision results stay in this call.
 actor ScreenTextReader: ScreenTextReading {
     private static let log = Logger(subsystem: "com.beingpax.Shift", category: "ScreenText")
 
-    func read(_ context: ScreenContext, previousFrame: FrameFingerprint?) async -> ScreenTextSample {
+    func read(_ context: ScreenContext) async -> String? {
         guard let windowID = context.windowID,
               !Task.isCancelled, PermissionsManager.isScreenRecordingGranted
-        else { return ScreenTextSample() }
+        else { return nil }
 
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
@@ -65,25 +30,21 @@ actor ScreenTextReader: ScreenTextReading {
                 $0.windowID == windowID && $0.owningApplication?.processID == context.processID && $0.isOnScreen
             }), !window.frame.isEmpty, await Self.isForeground(context),
                   PermissionsManager.isScreenRecordingGranted
-            else { return ScreenTextSample() }
+            else { return nil }
             try Task.checkCancellation()
 
             let image = try await capture(window)
             try Task.checkCancellation()
             guard await Self.isForeground(context), PermissionsManager.isScreenRecordingGranted else {
-                return ScreenTextSample()
+                return nil
             }
 
-            let frame = FrameFingerprint(image: image)
-            if let frame, frame == previousFrame {
-                return ScreenTextSample(frame: frame, unchanged: true)
-            }
-            return ScreenTextSample(text: try Self.recognizeText(in: image), frame: frame)
+            return try Self.recognizeText(in: image)
         } catch is CancellationError {
-            return ScreenTextSample()
+            return nil
         } catch {
             Self.log.debug("Single-window capture or text recognition failed")
-            return ScreenTextSample()
+            return nil
         }
     }
 
@@ -111,7 +72,7 @@ actor ScreenTextReader: ScreenTextReading {
         try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
 
         let lines = request.results?.compactMap { $0.topCandidates(1).first?.string } ?? []
-        let text = String(lines.joined(separator: "\n").prefix(ScreenTextSample.limit))
+        let text = String(lines.joined(separator: "\n").prefix(textLimit))
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return text.isEmpty ? nil : text
     }

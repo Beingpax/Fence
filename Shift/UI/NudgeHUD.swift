@@ -1,36 +1,80 @@
 import AppKit
 import SwiftUI
 
-/// The HUD for `nudge` verdicts. PRD §9: nudges never raise the shield.
+/// What one nudge says, and how worried it looks saying it.
+struct NudgeContent: Equatable {
+    var headline: String
+    var detail: String
+    /// `1...total` for a rung of the escalation ladder; `nil` for a soft hint that never
+    /// escalates into anything (the intent and feed-keyword nudges).
+    var step: Int?
+    var total: Int = NudgeLadder.stepCount
+
+    var mood: NudgeMood {
+        guard let step else { return .calm }
+        switch step {
+        case ...1: return .calm
+        case 2: return .concerned
+        default: return .alarmed
+        }
+    }
+}
+
+/// Drives which rendered expression appears and what colour the panel carries.
+enum NudgeMood {
+    case calm, concerned, alarmed
+
+    var tint: Color {
+        switch self {
+        case .calm: Color(red: 0.36, green: 0.78, blue: 0.72)
+        case .concerned: Color(red: 0.98, green: 0.69, blue: 0.33)
+        case .alarmed: Color(red: 0.98, green: 0.45, blue: 0.47)
+        }
+    }
+}
+
+/// The HUD for every nudge, soft or escalating.
 ///
 /// Behaviour borrowed from IINA's on-screen display, which is the best-behaved HUD on the
 /// platform: a non-activating panel that floats over everything, never takes keyboard focus,
-/// never appears in Cmd+Tab or Mission Control, and fades itself out. Hovering it cancels
-/// the fade so a slow reader isn't punished.
+/// never appears in Cmd+Tab or Mission Control, and fades itself out.
+///
+/// It sits against the right edge rather than the bottom centre, because the ladder nudges
+/// have to be noticed without covering the thing the user is reading, and because a
+/// character leaning in from off-screen is a friendlier interruption than a banner.
 @MainActor
 final class NudgeHUDController {
     private var panel: NSPanel?
     private var dismissTask: Task<Void, Never>?
+    /// Ladder rungs replace each other every few seconds, so a fade-out already in flight
+    /// has to lose to the fade-in that follows it, or the panel gets ordered out from
+    /// under the new rung.
+    private var transitionTask: Task<Void, Never>?
 
-    /// How long a nudge stays up before fading. Long enough to read a line, short enough
-    /// to never feel like an alert.
-    private let visibleDuration: Duration = .seconds(5)
-    private let width: CGFloat = 420
+    /// How long a soft hint stays up before fading.
+    private let hintDuration: Duration = .seconds(5)
+    private let width: CGFloat = 512
 
     var isShowing: Bool { panel?.isVisible ?? false }
 
-    /// Shows or replaces the current nudge.
-    func show(reason: String, detail: String, onBlock: @escaping () -> Void) {
+    /// A nudge that will never turn into anything. Fades itself out.
+    func hint(reason: String, detail: String) {
+        show(NudgeContent(headline: reason, detail: detail, step: nil))
+    }
+
+    /// Rung `step` of the escalation ladder.
+    func ladder(step: Int, headline: String, detail: String) {
+        show(NudgeContent(headline: headline, detail: detail, step: step))
+    }
+
+    func show(_ content: NudgeContent) {
+        let isHint = content.step == nil
         let view = NudgeHUDView(
-            reason: reason,
-            detail: detail,
-            onBlock: { [weak self] in
-                self?.hide()
-                onBlock()
-            },
-            onDismiss: { [weak self] in self?.hide() },
+            content: content,
+            onDismiss: isHint ? { [weak self] in self?.hide() } : nil,
             onHoverChange: { [weak self] hovering in
-                hovering ? self?.cancelAutoDismiss() : self?.scheduleAutoDismiss()
+                guard isHint else { return }
+                hovering ? self?.cancelAutoDismiss() : self?.scheduleAutoDismiss(after: self?.hintDuration ?? .seconds(5))
             }
         )
 
@@ -44,19 +88,28 @@ final class NudgeHUDController {
         position(panel)
 
         if !panel.isVisible {
+            transitionTask?.cancel()
             panel.alphaValue = 0
             panel.orderFrontRegardless()
-            Task { [panel] in await fade(panel, to: 1) }
+            transitionTask = Task { [panel] in await fade(panel, to: 1) }
+        } else if panel.alphaValue < 1 {
+            transitionTask?.cancel()
+            transitionTask = Task { [panel] in await fade(panel, to: 1) }
         }
 
-        scheduleAutoDismiss()
+        // A ladder rung is replaced by the next one, or taken down by the engine when the
+        // user leaves. The timer is only a backstop against a rung outliving its ladder.
+        scheduleAutoDismiss(after: isHint ? hintDuration : NudgeLadder.interval + .seconds(2))
     }
 
     func hide() {
         cancelAutoDismiss()
+        transitionTask?.cancel()
         guard let panel, panel.isVisible else { return }
-        Task { [panel] in
+        transitionTask = Task { [panel] in
             await fade(panel, to: 0)
+            // A `show` during the fade cancels this, so the panel stays up for the new rung.
+            guard !Task.isCancelled else { return }
             panel.orderOut(nil)
         }
     }
@@ -65,7 +118,7 @@ final class NudgeHUDController {
 
     private func makePanel() -> NSPanel {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: width, height: 90),
+            contentRect: NSRect(x: 0, y: 0, width: width, height: 110),
             // `.nonactivatingPanel` is what keeps the user's keyboard focus where it was.
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -78,23 +131,24 @@ final class NudgeHUDController {
         panel.hidesOnDeactivate = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        // The character carries its own soft glow, so the panel must not clip to a box.
+        panel.hasShadow = false
         panel.isMovable = false
         panel.isReleasedWhenClosed = false
-        panel.animationBehavior = .utilityWindow
+        panel.animationBehavior = .none
         return panel
     }
 
-    /// Bottom centre, clear of the Dock. The same place macOS puts its own volume HUD,
-    /// so it reads as system feedback rather than an app window.
+    /// Flush against the right edge, a little above centre — clear of the Dock, clear of
+    /// the menu bar, and clear of the middle of the screen where the content is.
     private func position(_ panel: NSPanel) {
         guard let screen = NSScreen.main else { return }
         let visible = screen.visibleFrame
         let size = panel.frame.size
         panel.setFrameOrigin(
             NSPoint(
-                x: visible.midX - size.width / 2,
-                y: visible.minY + Theme.Space.vast
+                x: visible.maxX - size.width,
+                y: visible.midY - size.height / 2 + visible.height * 0.06
             )
         )
     }
@@ -119,10 +173,10 @@ final class NudgeHUDController {
         }
     }
 
-    private func scheduleAutoDismiss() {
+    private func scheduleAutoDismiss(after delay: Duration) {
         cancelAutoDismiss()
-        dismissTask = Task { [weak self, visibleDuration] in
-            try? await Task.sleep(for: visibleDuration)
+        dismissTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
             self?.hide()
         }
@@ -137,56 +191,77 @@ final class NudgeHUDController {
 // MARK: - View
 
 private struct NudgeHUDView: View {
-    let reason: String
-    let detail: String
-    let onBlock: () -> Void
-    let onDismiss: () -> Void
+    let content: NudgeContent
+    /// Soft hints can be swatted away. A ladder rung can't, because dismissing it would
+    /// imply it had been dealt with.
+    let onDismiss: (() -> Void)?
     let onHoverChange: (Bool) -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
+    @State private var entered = false
+
+    private var mood: NudgeMood { content.mood }
 
     var body: some View {
-        HStack(alignment: .top, spacing: Theme.Space.snug) {
-            Image(systemName: "arrow.turn.up.left")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.orange)
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: Theme.Space.hair) {
-                Text(reason)
-                    .font(.callout.weight(.medium))
-                    .lineLimit(2)
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+        HStack(alignment: .bottom, spacing: -10) {
+            message
+            NudgeCharacter(mood: mood, animates: !reduceMotion)
+        }
+        .padding(.trailing, Theme.Space.loose)
+        .padding(.vertical, Theme.Space.snug)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        // Slides in from beyond the screen edge. The panel is clipped to its window, so an
+        // offset wider than the content reads as the character walking on from off-screen.
+        .offset(x: entered ? 0 : 470)
+        .onAppear {
+            guard !reduceMotion else {
+                entered = true
+                return
             }
+            withAnimation(.spring(response: 0.44, dampingFraction: 0.74)) { entered = true }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityLabel)
+    }
 
-            Spacer(minLength: Theme.Space.tight)
+    private var accessibilityLabel: String {
+        if let step = content.step {
+            return "Shift nudge \(step) of \(content.total): \(content.headline). \(content.detail)"
+        }
+        return "Shift nudge: \(content.headline). \(content.detail)"
+    }
 
-            if isHovering {
-                HStack(spacing: Theme.Space.tight) {
-                    Button("Block it", action: onBlock)
-                        .buttonStyle(.borderless)
-                        .font(.caption.weight(.semibold))
-                        .help("Raise the shield for this now")
+    private var message: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.tight) {
+            HStack(alignment: .firstTextBaseline, spacing: Theme.Space.tight) {
+                Text(content.headline)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(2)
 
-                    Button {
-                        onDismiss()
-                    } label: {
+                Spacer(minLength: 0)
+
+                if let onDismiss, isHovering {
+                    Button(action: onDismiss) {
                         Image(systemName: "xmark")
-                            .font(.caption.weight(.bold))
+                            .font(.caption2.weight(.bold))
                     }
                     .buttonStyle(.borderless)
                     .help("Dismiss")
                     .accessibilityLabel("Dismiss nudge")
+                    .calmTransition(.opacity)
                 }
-                .calmTransition(.opacity)
             }
+
+            Text(content.detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+
         }
         .padding(.horizontal, Theme.Space.base)
-        .padding(.vertical, Theme.Space.snug + 2)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, Theme.Space.snug + 1)
+        .frame(width: 300, alignment: .leading)
         .background {
             // Behind-window blur rather than Liquid Glass: this panel floats over other
             // apps, so it has to sample the desktop, which only NSVisualEffectView does.
@@ -195,14 +270,46 @@ private struct NudgeHUDView: View {
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.hud, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: Theme.Radius.hud, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                .strokeBorder(mood.tint.opacity(content.step == content.total ? 0.55 : 0.3), lineWidth: 1)
         }
+        .shadow(color: .black.opacity(0.22), radius: 14, y: 5)
         .animation(.easeOut(duration: 0.15), value: isHovering)
         .onHover { hovering in
             isHovering = hovering
             onHoverChange(hovering)
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Shift nudge: \(reason)")
+    }
+
+}
+
+// MARK: - The character
+
+/// Hosts the drawn character and gives it its entrance.
+///
+/// The face itself lives in `NudgeCharacterView`, which owns the idle motion — breathing,
+/// sway, blink. This wrapper only handles the arrival and the drop shadow.
+private struct NudgeCharacter: View {
+    let mood: NudgeMood
+    let animates: Bool
+
+    @State private var landed = false
+
+    var body: some View {
+        NudgeCharacterView(mood: mood, animates: animates)
+            .shadow(color: .black.opacity(0.22), radius: 9, y: 4)
+            // Arrives a beat after the panel, with a little overshoot, so he reads as
+            // stepping in rather than appearing.
+            .scaleEffect(landed ? 1 : 0.82, anchor: .bottom)
+            .opacity(landed ? 1 : 0)
+            .onAppear {
+                guard animates else {
+                    landed = true
+                    return
+                }
+                withAnimation(.spring(response: 0.46, dampingFraction: 0.62).delay(0.08)) {
+                    landed = true
+                }
+            }
+            .accessibilityHidden(true)
     }
 }

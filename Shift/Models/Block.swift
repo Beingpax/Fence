@@ -19,8 +19,7 @@ struct Block: Identifiable, Codable, Equatable {
     var lock: BlockLock = BlockLock()
     var breaks: BreakPlan = BreakPlan()
 
-    /// Optional intent sentence. When set, Shift can judge ambiguous pages against it
-    /// rather than only matching the list.
+    /// Optional goal that gives focus nudges context.
     var goal: String = ""
 
     /// When a `.manual` block is running, the instant it stops. Runtime state, persisted
@@ -86,7 +85,6 @@ struct Block: Identifiable, Codable, Equatable {
         var parts: [String] = []
         if list.siteCount > 0 { parts.append("\(list.siteCount) site\(list.siteCount == 1 ? "" : "s")") }
         if !list.apps.isEmpty { parts.append("\(list.apps.count) app\(list.apps.count == 1 ? "" : "s")") }
-        if !goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append("Focus goal") }
         if parts.isEmpty { return "Nothing blocked yet" }
         return parts.joined(separator: " · ")
     }
