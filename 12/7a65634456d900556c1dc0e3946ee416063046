@@ -1,0 +1,27 @@
+Shift/UI/Main/DashboardView.swift
+  s_f5ff348049a200::t_7968dfcb734be2 33-35
+Shift/UI/Design/Materials.swift
+  s_f5ff348049a200::t_ef87e309adc7f4 360-364,375-377,379-396,399-400,403-404,406,410,412-413,417-418
+  s_f5ff348049a200::t_7968dfcb734be2 171,208-209,211,215
+Shift/UI/Main/MainWindowView.swift
+  s_f5ff348049a200::t_7968dfcb734be2 584-585,621-622
+  s_f5ff348049a200::t_ef87e309adc7f4 61,64-66,72-74
+Shift/UI/SettingsView.swift
+  s_f5ff348049a200::t_7968dfcb734be2 22-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "127a65634456d900556c1dc0e3946ee416063046",
+  "prompts": {},
+  "sessions": {
+    "s_f5ff348049a200": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "24ef5e58-3c13-4773-98cb-ef9a0ab3390a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Prakash Joshi Pax <101010368+Beingpax@users.noreply.github.com>"
+    }
+  }
+}
