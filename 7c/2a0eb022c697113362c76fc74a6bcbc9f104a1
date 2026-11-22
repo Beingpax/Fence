@@ -1,0 +1,21 @@
+Shift/UI/NudgeHUD.swift
+  s_69b7527f61fa3d::t_e04ef6ef3a32d3 83-84,270-272
+Shift/UI/DesignSystem.swift
+  s_69b7527f61fa3d::t_e04ef6ef3a32d3 137-146,152-155,161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7c2a0eb022c697113362c76fc74a6bcbc9f104a1",
+  "prompts": {},
+  "sessions": {
+    "s_69b7527f61fa3d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d1c6e29d-d63b-44e1-b385-ebd8b9ab9f38",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Prakash Joshi Pax <101010368+Beingpax@users.noreply.github.com>"
+    }
+  }
+}
