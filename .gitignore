@@ -5,3 +5,4 @@ DerivedData/
 xcuserdata/
 *.xcscmblueprint
 .swiftpm/
+start-claude-code.command
