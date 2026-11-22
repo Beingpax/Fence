@@ -13,21 +13,42 @@ enum WindowInspector {
         case present, absent, unavailable
     }
 
+    private struct AddressBarReading {
+        let url: URL
+        let isHostOnly: Bool
+    }
+
     private static let addressFieldIDs: Set<String> = [
         "addressbar", "omnibox", "urlbar", "urlbar-input", "urlfieldinput", "web_browser_address_and_search_field",
     ]
     private static let addressFieldLabels: Set<String> = [
         "address and search bar", "address and search field", "address bar", "search or enter website name",
+        "address field", "enter search or web address", "smart search field",
     ]
+    private static let vivaldiInterfaceURL = "chrome-extension://mpognobbkildjkofajifpdfhcoklimli/window.html"
+    private static let webAreaRoles: Set<String> = ["AXWebArea", "AXDocument"]
 
-    static func snapshot(pid: pid_t, browser: Browser?, prepareAccessibility: Bool) async -> Snapshot {
+    static func snapshot(
+        pid: pid_t, browser: Browser?, prepareAccessibility: Bool, verifyURL: Bool = false
+    ) async -> Snapshot {
         await Task.detached(priority: .userInitiated) {
             var window = focusedWindow(pid: pid, browser: browser, enableWebAccessibility: prepareAccessibility)
-            var url = browser.flatMap { _ in window.flatMap { pageURL(in: $0) } }
-            if browser != nil, prepareAccessibility, url == nil {
-                try? await Task.sleep(for: .milliseconds(150))
-                window = focusedWindow(pid: pid, browser: browser)
-                url = window.flatMap { pageURL(in: $0) }
+            var url: URL?
+            if let browser {
+                if verifyURL {
+                    if let focused = window,
+                       let address = verifiedPageURL(in: focused, browser: browser),
+                       let latestWindow = focusedWindow(pid: pid, browser: browser), CFEqual(focused, latestWindow) {
+                        url = address
+                    }
+                } else {
+                    url = window.flatMap { pageURL(in: $0, browser: browser) }
+                    if prepareAccessibility, url == nil {
+                        try? await Task.sleep(for: .milliseconds(150))
+                        window = focusedWindow(pid: pid, browser: browser)
+                        url = window.flatMap { pageURL(in: $0, browser: browser) }
+                    }
+                }
             }
             let title = window.flatMap { string($0, "AXTitle") }
             return Snapshot(title: title, url: url, windowID: frontWindowID(pid: pid, bounds: window.flatMap(bounds)))
@@ -81,6 +102,9 @@ enum WindowInspector {
         guard AXIsProcessTrusted() else { return nil }
         let application = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(application, 0.15)
+        if enableWebAccessibility, browser == .dia {
+            AXUIElementSetAttributeValue(application, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        }
         if enableWebAccessibility, let browser, browser.isChromium,
            (attribute(application, "AXEnhancedUserInterface") as? Bool) != true {
             // Chromium may report an error even when this succeeds. A later read verifies it
@@ -96,19 +120,49 @@ enum WindowInspector {
         return window
     }
 
-    static func webArea(in window: AXUIElement) -> AXUIElement? {
-        var queue = [window]
-        let deadline = ContinuousClock.now.advanced(by: .milliseconds(130))
-        var index = 0
-        while index < queue.count, index < 72, ContinuousClock.now < deadline {
-            let element = queue[index]
-            index += 1
-            let role = string(element, "AXRole")
-            if role == "AXWebArea" { return element }
-            if role == "AXToolbar" || role == "AXMenuBar" || role == "AXTabGroup" { continue }
-            queue.append(contentsOf: children(of: element, limit: 24))
+    static func webArea(in window: AXUIElement, browser: Browser) -> AXUIElement? {
+        guard let root = browserRoot(in: window, browser: browser) else { return nil }
+        return webAreas(in: root, vivaldi: browser == .vivaldi, limit: 1).first
+    }
+
+    private static func browserRoot(in window: AXUIElement, browser: Browser) -> AXUIElement? {
+        guard browser == .vivaldi else { return window }
+        return webAreas(in: window, vivaldi: false, limit: 4).first {
+            url(attribute($0, "AXURL"))?.absoluteString == vivaldiInterfaceURL
         }
-        return nil
+    }
+
+    private static func webAreas(in root: AXUIElement, vivaldi: Bool, limit: Int) -> [AXUIElement] {
+        var queue = vivaldi ? children(of: root, limit: 40).map { ($0, false) } : [(root, true)]
+        var found: [AXUIElement] = []
+        let deadline = ContinuousClock.now.advanced(by: .milliseconds(vivaldi ? 200 : 130))
+        let nodeLimit = vivaldi ? 240 : 96
+        var index = 0
+        while index < queue.count, index < nodeLimit, ContinuousClock.now < deadline {
+            let (element, activePage) = queue[index]
+            index += 1
+            guard let role = string(element, "AXRole") else { continue }
+            if role == "AXWebArea" || (role == "AXDocument" && pageAddress(element) != nil) {
+                if activePage, !found.contains(where: { CFEqual($0, element) }) {
+                    found.append(element)
+                    if found.count == limit { break }
+                }
+                continue
+            }
+            if ["AXToolbar", "AXMenuBar", "AXMenu", "AXSheet", "AXDialog"].contains(role) { continue }
+
+            var belongsToActivePage = activePage
+            if vivaldi, role == "AXGroup" {
+                if string(element, "AXDOMIdentifier") == "panels-container" { continue }
+                let classes = attribute(element, "AXDOMClassList") as? [String] ?? []
+                if classes.contains("webpageview") {
+                    guard classes.contains("active") else { continue }
+                    belongsToActivePage = true
+                }
+            }
+            queue.append(contentsOf: children(of: element, limit: vivaldi ? 40 : 24).map { ($0, belongsToActivePage) })
+        }
+        return found
     }
 
     static func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
@@ -137,31 +191,63 @@ enum WindowInspector {
         return []
     }
 
-static func pageURL(in window: AXUIElement, area: AXUIElement? = nil) -> URL? {
-        let document = url(attribute(window, "AXDocument"))
-        if let document, isWebURL(document) { return document }
-        if let area = area ?? webArea(in: window), let page = url(attribute(area, "AXURL")), page.scheme != nil {
+    static func pageURL(in window: AXUIElement, browser: Browser, area: AXUIElement? = nil) -> URL? {
+        if browser != .vivaldi, let primary = windowURLs(window).first {
+            return isWebURL(primary) ? primary : nil
+        }
+        guard let root = browserRoot(in: window, browser: browser) else { return nil }
+        let areas = area.map { [$0] } ?? webAreas(in: root, vivaldi: browser == .vivaldi, limit: 2)
+        if areas.count > 1 { return nil }
+        if let page = areas.first.flatMap(pageAddress) {
             return isWebURL(page) ? page : nil
         }
-        guard document?.scheme == nil else { return nil }
-        return addressBarURL(in: window)
+        return addressBarReading(in: root)?.url
     }
 
-    private static func addressBarURL(in window: AXUIElement) -> URL? {
+    private static func verifiedPageURL(in window: AXUIElement, browser: Browser) -> URL? {
+        guard let root = browserRoot(in: window, browser: browser) else { return nil }
+        let areas = webAreas(in: root, vivaldi: browser == .vivaldi, limit: 3)
+        let areaURLs = areas.compactMap(pageAddress)
+        // Multiple documents may represent a split view. An unreadable document cannot corroborate the others.
+        guard areas.count < 3, areas.count <= 1 || areas.count == areaURLs.count else { return nil }
+        let primary = (browser == .vivaldi ? [] : windowURLs(window)) + areaURLs
+        let addressBar = addressBarReading(in: root)
+        guard let first = primary.first else { return addressBar?.url }
+        guard let address = WebsiteAddress(url: first),
+              primary.dropFirst().allSatisfy({ WebsiteAddress(url: $0) == address }) else { return nil }
+
+        if let addressBar {
+            guard let displayed = WebsiteAddress(url: addressBar.url),
+                  displayed == address || (browser == .webKit && addressBar.isHostOnly && displayed.host == address.host)
+            else { return nil }
+        }
+        return first
+    }
+
+    private static func windowURLs(_ window: AXUIElement) -> [URL] {
+        ["AXDocument", "AXURL"].compactMap { url(attribute(window, $0)) }.filter { $0.scheme != nil }
+    }
+
+    private static func pageAddress(_ area: AXUIElement) -> URL? {
+        guard let candidate = url(attribute(area, "AXURL")), candidate.scheme != nil else { return nil }
+        return candidate
+    }
+
+    private static func addressBarReading(in window: AXUIElement) -> AddressBarReading? {
         // Search browser chrome only. Never interpret page content as a location.
-        let excludedRoles: Set<String> = ["AXWebArea", "AXMenu", "AXMenuBar", "AXSheet", "AXDialog"]
-        var queue = [(element: window, inToolbar: false)]
+        let excludedRoles = webAreaRoles.union(["AXMenu", "AXMenuBar", "AXSheet", "AXDialog"])
+        var queue = children(of: window, limit: 32).map { (element: $0, inToolbar: false) }
         let deadline = ContinuousClock.now.advanced(by: .milliseconds(130))
         var index = 0
-        while index < queue.count, index < 60, ContinuousClock.now < deadline {
+        while index < queue.count, index < 96, ContinuousClock.now < deadline {
             let (element, inToolbar) = queue[index]
             index += 1
             guard let role = string(element, "AXRole"), !excludedRoles.contains(role) else { continue }
-            if (role == "AXTextField" || role == "AXComboBox"),
+            if (role == "AXTextField" || role == "AXComboBox" || role == "AXSearchField"),
                isAddressField(element, inToolbar: inToolbar),
                attribute(element, "AXFocused") as? Bool == false,
-               let value = string(element, "AXValue"), let url = addressBarValue(value) {
-                return url
+               let value = string(element, "AXValue"), let reading = addressBarValue(value) {
+                return reading
             }
             let childIsInToolbar = inToolbar || role == "AXToolbar"
             queue.append(contentsOf: children(of: element, limit: 24).map { ($0, childIsInToolbar) })
@@ -178,14 +264,16 @@ static func pageURL(in window: AXUIElement, area: AXUIElement? = nil) -> URL? {
         })
     }
 
-    private static func addressBarValue(_ value: String) -> URL? {
+    private static func addressBarValue(_ value: String) -> AddressBarReading? {
         guard value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else { return nil }
-        if let url = URL(string: value), isWebURL(url) { return url }
+        if let url = URL(string: value), isWebURL(url) {
+            return AddressBarReading(url: url, isHostOnly: false)
+        }
         // Browsers can omit the scheme. Require a recognizable host before assuming HTTPS.
-        guard let url = URL(string: "https://\(value)"), let host = url.host(),
+        guard !value.contains("://"), let url = URL(string: "https://\(value)"), let host = url.host(),
               url.user() == nil, url.password() == nil,
               host.contains(".") || host.contains(":") || host.lowercased() == "localhost" else { return nil }
-        return url
+        return AddressBarReading(url: url, isHostOnly: !value.contains { "/?#".contains($0) })
     }
 
     private static func url(_ value: CFTypeRef?) -> URL? {

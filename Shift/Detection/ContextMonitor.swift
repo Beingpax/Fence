@@ -57,6 +57,29 @@ final class ContextMonitor {
         onInvalidation?()
     }
 
+    /// Checks the live foreground app and, for a site rule, reads the browser again.
+    func confirm(_ context: ScreenContext, readWebsite: Bool) async -> ScreenContext? {
+        guard isRunning, !Task.isCancelled,
+              let app = NSWorkspace.shared.frontmostApplication, !app.isTerminated,
+              app.processIdentifier == context.processID, app.bundleIdentifier == context.bundleID else { return nil }
+        if !readWebsite { return context }
+
+        guard let browser = Browser(bundleID: context.bundleID) else { return nil }
+        let expectedRevision = revision
+        let snapshot = await WindowInspector.snapshot(
+            pid: context.processID, browser: browser, prepareAccessibility: false, verifyURL: true
+        )
+        guard isRunning, !Task.isCancelled, revision == expectedRevision, !app.isTerminated,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == context.processID,
+              let url = snapshot.url else { return nil }
+
+        var refreshed = context
+        refreshed.url = url
+        refreshed.windowTitle = snapshot.title
+        refreshed.windowID = snapshot.windowID
+        return refreshed
+    }
+
     private func sample() {
         guard samplingTask == nil, isRunning else { return }
 
@@ -76,7 +99,10 @@ final class ContextMonitor {
         samplingTask = Task { [weak self] in
             defer {
                 // A cancelled sample may finish after a new timer has started.
-                if !Task.isCancelled { self?.samplingTask = nil }
+                if !Task.isCancelled, let self {
+                    self.samplingTask = nil
+                    if self.revision != sampleRevision { self.sample() }
+                }
             }
             let snapshot = await WindowInspector.snapshot(pid: pid, browser: browser, prepareAccessibility: prepareAccessibility)
 

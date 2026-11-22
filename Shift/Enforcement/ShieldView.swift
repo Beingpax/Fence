@@ -14,8 +14,8 @@ struct ShieldView: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     @State private var secondsLeft: Int
-    @State private var typedPhrase = ""
-    @FocusState private var phraseFocused: Bool
+    @State private var reflection = ""
+    @FocusState private var reflectionFocused: Bool
 
     init(request: ShieldRequest, showsControls: Bool, onResolve: @escaping (ShieldResolution) -> Void) {
         self.request = request
@@ -24,19 +24,13 @@ struct ShieldView: View {
         _secondsLeft = State(initialValue: ShieldPolicy.countdownSeconds)
     }
 
+    private var wordCount: Int { ShieldPolicy.wordCount(reflection) }
+    private var wordsRemaining: Int { max(0, ShieldPolicy.minimumWords - wordCount) }
+
     private var unlocked: Bool {
-        let phraseMatches = typedPhrase.trimmingCharacters(in: .whitespacesAndNewlines)
-            .caseInsensitiveCompare(ShieldPolicy.phrase) == .orderedSame
-        return secondsLeft == 0 && phraseMatches
+        secondsLeft == 0 && wordCount >= ShieldPolicy.minimumWords
     }
 
-    /// One hue, lit from one direction.
-    ///
-    /// The old backdrop stacked a maroon bloom and an indigo bloom over a navy ground;
-    /// three hues at low saturation average out to mud, and the action button was so dark
-    /// against it that an enabled button looked disabled. So: a neutral near-black ground,
-    /// a single rose bloom behind the headline, and an action colour bright enough that
-    /// dimming it to 0.48 still reads as "not yet" rather than "broken".
     /// A sunrise, not an alarm.
     ///
     /// The old backdrop was a dark red bloom, which made the shield read as a punishment
@@ -138,7 +132,7 @@ struct ShieldView: View {
                 .foregroundStyle(.white.opacity(0.85))
 
             VStack(spacing: Theme.Space.base) {
-                phraseField
+                reflectionField
                 actions
             }
             .padding(Theme.Space.loose)
@@ -163,20 +157,49 @@ struct ShieldView: View {
         .multilineTextAlignment(.center)
     }
 
-    private var phraseField: some View {
-        VStack(spacing: Theme.Space.tight) {
-            Text("Type “\(ShieldPolicy.phrase)” to continue")
-                .font(.callout)
-                .foregroundStyle(.white.opacity(0.82))
-            TextField("Type the phrase", text: $typedPhrase)
+    private var reflectionField: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.snug) {
+            Text("What were you trying to do, and what pulled you away?")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.white.opacity(0.92))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            TextField("", text: $reflection, axis: .vertical)
                 .textFieldStyle(.plain)
+                .font(.callout)
+                .lineLimit(3...5)
                 .padding(Theme.Space.snug)
                 .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: Theme.Radius.control))
-                .focused($phraseFocused)
-                .onAppear { phraseFocused = true }
+                .focused($reflectionFocused)
+                .onAppear { reflectionFocused = true }
+
+            HStack(spacing: Theme.Space.tight) {
+                // A quiet progress bar rather than a scold. It fills as you write.
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.14))
+                        Capsule()
+                            .fill(unlockedWords ? Color.green.opacity(0.75) : Palette.accent)
+                            .frame(width: geometry.size.width *
+                                   min(1, Double(wordCount) / Double(ShieldPolicy.minimumWords)))
+                    }
+                }
+                .frame(height: 4)
+
+                Text(wordsRemaining == 0
+                     ? "Enough — thank you"
+                     : "\(wordsRemaining) more word\(wordsRemaining == 1 ? "" : "s")")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.7))
+                    .fixedSize()
+            }
+            .animation(.easeOut(duration: 0.2), value: wordCount)
         }
-        .frame(maxWidth: 380)
+        .frame(maxWidth: 420)
+        .multilineTextAlignment(.leading)
     }
+
+    private var unlockedWords: Bool { wordCount >= ShieldPolicy.minimumWords }
 
     private var actions: some View {
         VStack(spacing: Theme.Space.snug) {

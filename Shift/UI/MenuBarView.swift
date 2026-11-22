@@ -253,7 +253,8 @@ private struct LiveContextView: View {
                     if let verdict = model.lastVerdict {
                         VerdictPill(kind: verdict.kind)
                     }
-                    Text(context.displayLocation)
+                    Text(context.host == nil && Browser(bundleID: context.bundleID) != nil
+                         ? "\(context.appName) · Website address unavailable" : context.displayLocation)
                         .font(.caption)
                         .lineLimit(1)
                         .truncationMode(.middle)

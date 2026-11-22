@@ -242,11 +242,10 @@ final class AppModel {
             considerNudge(verdict, on: context)
         case .block:
             nudgeHysteresis.reset()
-            guard let target = verdict.ruleTarget, let blockID = verdict.blockID else { return }
+            guard let key = ladderKey(for: verdict, context: context) else { return }
             // Keyed on the rule and the app, not the window signature: a page's title can
             // churn while the user sits on the same blocked site, and that must not restart
             // the ladder — otherwise it never reaches the shield.
-            let key = "\(blockID.uuidString)|\(target.identifier)|\(context.processID)"
             // A new encounter still has to read consistently once, so a stray frame can't
             // open with a nudge. After that the ladder owns the timing.
             if key != nudgeLadder.key {
@@ -280,23 +279,46 @@ final class AppModel {
                 self?.nudgeHUD.hide()
             },
             isStillHere: { [weak self] in
-                self?.isStillBlocked(context) ?? false
+                self?.currentBlockedContext(key: key) != nil
             },
             onExhausted: { [weak self] in
-                guard let self, self.isStillBlocked(context) else { return }
-                self.enforce(verdict, on: context)
+                await self?.confirmAndEnforce(key: key, target: verdict.ruleTarget)
             }
         )
     }
 
-    /// The ladder only advances while the user is still looking at the same blocked thing.
-    private func isStillBlocked(_ context: ScreenContext) -> Bool {
-        guard !shield.isShowing, monitor.isRunning, lastContext == context,
+    private func ladderKey(for verdict: Verdict, context: ScreenContext) -> String? {
+        guard verdict.kind == .block, verdict.source == .rules,
+              let blockID = verdict.blockID, let target = verdict.ruleTarget else { return nil }
+        return "\(blockID.uuidString)|\(target.identifier)|\(context.processID)"
+    }
+
+    /// Use the latest sample during the warnings so a title change alone cannot stall them.
+    private func currentBlockedContext(key: String) -> ScreenContext? {
+        guard !shield.isShowing, monitor.isRunning, let context = lastContext,
               !resolvingProcesses.contains(context.processID),
               NSWorkspace.shared.frontmostApplication?.processIdentifier == context.processID
-        else { return false }
+        else { return nil }
         let evaluator = BlockEvaluator(blocks: store.activeBlocks, driftKeywords: driftKeywords)
-        return evaluator.ruleVerdict(for: context)?.kind == .block
+        guard let verdict = evaluator.ruleVerdict(for: context), ladderKey(for: verdict, context: context) == key
+        else { return nil }
+        return context
+    }
+
+    private func confirmAndEnforce(key: String, target: RuleTarget?) async {
+        guard let target, let context = currentBlockedContext(key: key) else { return }
+        let readWebsite: Bool
+        switch target {
+        case .app: readWebsite = false
+        case .website, .path: readWebsite = true
+        }
+
+        guard let fresh = await monitor.confirm(context, readWebsite: readWebsite), !Task.isCancelled,
+              nudgeLadder.key == key, currentBlockedContext(key: key) != nil else { return }
+        let evaluator = BlockEvaluator(blocks: store.activeBlocks, driftKeywords: driftKeywords)
+        guard let verdict = evaluator.ruleVerdict(for: fresh), ladderKey(for: verdict, context: fresh) == key
+        else { return }
+        enforce(verdict, on: fresh)
     }
 
     /// Drops any ladder in progress and takes its nudge down with it.

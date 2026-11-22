@@ -73,6 +73,20 @@ struct NudgeCharacterView: View {
         return amount
     }
 
+    /// Quick eye flicks on a jittered schedule, on top of the slow drift. Eyes that only
+    /// glide look painted on; a real one snaps somewhere and holds.
+    private func saccade(at t: Double) -> CGSize {
+        let base = 2.3
+        let index = (t / base).rounded(.down)
+        let nx = (sin(index * 91.17) * 7919.3).truncatingRemainder(dividingBy: 1)
+        let ny = (sin(index * 47.31) * 3571.7).truncatingRemainder(dividingBy: 1)
+        let local = t - index * base
+        // Snap over ~80 ms, hold, then ease back over the last third.
+        let travel = min(1, local / 0.08)
+        let settle = local > base * 0.62 ? max(0, 1 - (local - base * 0.62) / 0.5) : 1
+        return CGSize(width: nx * 2.2 * travel * settle, height: ny * 1.1 * travel * settle)
+    }
+
     private func draw(in context: inout GraphicsContext, time t: Double) {
         let spec = mood.face
         let bob = sin(t * spec.tempo)
@@ -196,7 +210,9 @@ struct NudgeCharacterView: View {
     private func drawFace(in context: inout GraphicsContext, spec: FaceSpec,
                           lid: CGFloat, t: Double) {
         // The pupils drift, as if reading the message beside them.
-        let drift = CGSize(width: sin(t * 0.43) * 0.6, height: cos(t * 0.36) * 0.35)
+        let wander = saccade(at: t)
+        let drift = CGSize(width: sin(t * 0.43) * 0.6 + wander.width,
+                           height: cos(t * 0.36) * 0.35 + wander.height)
         let openness = max(0.06, 1 - lid * 0.94)
 
         for side in [-1.0, 1.0] {
@@ -331,7 +347,7 @@ extension NudgeMood {
         switch self {
         case .calm:
             // Ears up and fluttering, bouncing, blushing. Nothing is wrong yet.
-            FaceSpec(earAngle: 0, earAsymmetry: 0, earFlutter: 13, earTempo: 3.4,
+            FaceSpec(earAngle: 0, earAsymmetry: 0, earFlutter: 16, earTempo: 3.2,
                      width: 32, lean: -1.5, bobAmount: 3.0, swayAmount: 1.3, tempo: 1.6,
                      shiver: 0,
                      eyeOpen: 1.0, pupilOffset: CGSize(width: -0.6, height: -0.9),
@@ -342,7 +358,7 @@ extension NudgeMood {
 
         case .concerned:
             // One ear cocked back, head tilted, eyes narrowed and looking away: "really?"
-            FaceSpec(earAngle: 10, earAsymmetry: 34, earFlutter: 4, earTempo: 1.3,
+            FaceSpec(earAngle: 10, earAsymmetry: 34, earFlutter: 10, earTempo: 2.1,
                      width: 32, lean: 8, bobAmount: 1.6, swayAmount: 0.6, tempo: 0.95,
                      shiver: 0,
                      eyeOpen: 0.82, pupilOffset: CGSize(width: -2.2, height: -1.8),
@@ -353,7 +369,7 @@ extension NudgeMood {
 
         case .alarmed:
             // Both ears pinned flat back, wider stance, shivering. Out of patience.
-            FaceSpec(earAngle: 96, earAsymmetry: 0, earFlutter: 3, earTempo: 14,
+            FaceSpec(earAngle: 96, earAsymmetry: 0, earFlutter: 6, earTempo: 13,
                      width: 34, lean: 0, bobAmount: 0.8, swayAmount: 0.2, tempo: 2.8,
                      shiver: 0.5,
                      // Eyes narrowed hard and pupils fixed on you. Showing white under a

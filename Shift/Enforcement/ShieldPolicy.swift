@@ -11,7 +11,18 @@ enum ShieldPolicy {
     /// How long the shield's actions stay disabled. Long enough to be a decision.
     static let countdownSeconds = 10
 
-    static let phrase = "I am choosing to get distracted"
+    /// How much you have to write before the shield will let you act.
+    ///
+    /// This replaced copying out a fixed sentence. Transcribing "I am choosing to get
+    /// distracted" is friction you can perform without reading it — by the third time it
+    /// is muscle memory. Writing your own sentences about what you were doing and what
+    /// pulled you away cannot be performed absently, and it leaves you with the answer.
+    static let minimumWords = 20
+
+    /// Counts words the way a person would: runs of non-whitespace.
+    static func wordCount(_ text: String) -> Int {
+        text.split(whereSeparator: \.isWhitespace).count
+    }
 }
 
 /// Everything the shield needs to render and act.

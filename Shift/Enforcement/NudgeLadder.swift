@@ -12,8 +12,7 @@ import Foundation
 /// every step, and the caller resets the ladder the moment the foreground context changes.
 @MainActor
 final class NudgeLadder {
-    /// How many nudges the user gets before the shield. The whole ladder is
-    /// `stepCount * interval` seconds long.
+    /// How many nudges the user gets before the shield.
     /// `nonisolated` because the views and the HUD copy read these while describing the
     /// ladder, and neither needs to touch its state to do that.
     nonisolated static let stepCount = 3
@@ -41,13 +40,13 @@ final class NudgeLadder {
     ///   - onStep: shows nudge `n` of `stepCount`. Called immediately for step 1.
     ///   - onRest: takes the nudge off screen, between rungs and before the shield.
     ///   - isStillHere: re-checked at every transition. A `false` ends the ladder quietly.
-    ///   - onExhausted: the nudges are spent — raise the shield.
+    ///   - onExhausted: recheck the foreground and raise the shield if still appropriate.
     func begin(
         key: String,
         onStep: @escaping (Int) -> Void,
         onRest: @escaping () -> Void,
         isStillHere: @escaping () -> Bool,
-        onExhausted: @escaping () -> Void
+        onExhausted: @escaping () async -> Void
     ) {
         guard key != self.key else { return }
 
@@ -57,9 +56,16 @@ final class NudgeLadder {
         onStep(1)
 
         task = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if !Task.isCancelled, self.key == key {
+                    self.clear()
+                    onRest()
+                }
+            }
             for rung in 1...Self.stepCount {
                 try? await Task.sleep(for: Self.visible)
-                guard !Task.isCancelled, let self, self.key == key, isStillHere() else { return }
+                guard !Task.isCancelled, self.key == key, isStillHere() else { return }
 
                 // Off screen between rungs, and before the shield.
                 onRest()
@@ -74,9 +80,8 @@ final class NudgeLadder {
             // Let the last nudge actually leave the screen before the shield lands, so
             // it reads as a decision rather than a jump cut.
             try? await Task.sleep(for: .milliseconds(450))
-            guard !Task.isCancelled, let self, self.key == key, isStillHere() else { return }
-            self.clear()
-            onExhausted()
+            guard !Task.isCancelled, self.key == key, isStillHere() else { return }
+            await onExhausted()
         }
     }
 

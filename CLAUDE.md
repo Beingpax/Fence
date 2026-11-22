@@ -130,9 +130,13 @@ Rules that are easy to get wrong, and are covered by the tests:
     objects (plant, gauge, lock, candle). The boy fell into the uncanny valley; the objects
     stopped being someone you could feel anything about. Don't "improve" it toward realism
     and don't swap the creature for a thing.
-  - Idle motion is not decoration. The bob, the sway, the ear flutter and a jittered blink
-    (where roughly every third is a quick double) are what separate a character from a
-    sticker. The blink interval is jittered on purpose — a fixed one reads as a metronome.
+  - Idle motion is not decoration, and **every mood gets all of it**: the bob, the sway,
+    an ear flutter, a jittered blink (roughly every third a quick double), and eye
+    saccades on top of the slow pupil drift. Eyes that only glide look painted on; a real
+    one snaps somewhere and holds. Both the blink and the saccade intervals are jittered
+    on purpose — fixed ones read as a metronome.
+  - The HUD sits **top right, under the menu bar**, where macOS already puts things that
+    want attention without taking it.
 
 - **Name:** "Shift", subtitle "Local App & Website Blocker".
 - **No Dock icon by default,** but there is a "Show Shift in the Dock" switch in Settings → General that flips the activation policy at runtime. `LSUIElement` keeps the default as menu-bar-only.
@@ -148,7 +152,11 @@ Rules that are easy to get wrong, and are covered by the tests:
 - **Shield:** frosted full-screen window on every display and Space; while it's up, the Dock, menu bar and Cmd+Tab are disabled. The text says "Not now." plus a one-line reason.
   - **Quit the entire browser or app.** Let the user respond when the target shows a quit confirmation.
   - **One tier, not three.** The ladder is the escalation now, so the shield is always a
-    10-second wait plus the phrase *"I am choosing to get distracted"*. The old per-day
+    10-second wait plus **20 words in your own hand** about what you were doing and what
+    pulled you away. That replaced copying out a fixed sentence: transcribing "I am
+    choosing to get distracted" is friction you can perform without reading it, and by
+    the third time it is muscle memory. Sentences you have to compose cannot be performed
+    absently, and they leave you with the answer. The old per-day
     Gentle/Firm/Severe strike tiers and `DailyStrikeCounts` are gone — friction that grew
     with a count the user couldn't see explained nothing.
   - **The backdrop is a photograph** (`ShieldDawn`), twilight over dunes, under the

@@ -141,8 +141,9 @@ final class NudgeHUDController {
         return panel
     }
 
-    /// Flush against the right edge, a little above centre — clear of the Dock, clear of
-    /// the menu bar, and clear of the middle of the screen where the content is.
+    /// Top right, just under the menu bar — where macOS already puts things that want
+    /// your attention without taking it. Clear of the Dock, clear of the middle of the
+    /// screen, and clear of whatever you are reading.
     private func position(_ panel: NSPanel) {
         guard let screen = NSScreen.main else { return }
         let visible = screen.visibleFrame
@@ -150,7 +151,7 @@ final class NudgeHUDController {
         panel.setFrameOrigin(
             NSPoint(
                 x: visible.maxX - size.width,
-                y: visible.midY - size.height / 2 + visible.height * 0.06
+                y: visible.maxY - size.height - Theme.Space.tight
             )
         )
     }
