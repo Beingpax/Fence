@@ -25,11 +25,15 @@ struct NudgeCharacterView: View {
     let mood: NudgeMood
     /// False under Reduce Motion: the creature still draws, it just holds still.
     let animates: Bool
-    var height: CGFloat = 168
+    var height: CGFloat = 186
 
     @State private var start = Date()
 
-    private static let design = CGSize(width: 100, height: 120)
+    /// Wider than the 100-unit body needs, because at the last rung the ears swing out
+    /// to horizontal and would otherwise be clipped at the edges. Geometry below is still
+    /// written against a 100-wide body; `draw` shifts it into the middle.
+    private static let design = CGSize(width: 128, height: 120)
+    private static let inset: CGFloat = (design.width - 100) / 2
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !animates)) { timeline in
@@ -75,7 +79,10 @@ struct NudgeCharacterView: View {
         let sway = sin(t * 0.55)
         let shiver = spec.shiver > 0 ? sin(t * 18) * spec.shiver : 0
 
+        context.translateBy(x: Self.inset, y: 0)
+
         drawShadow(in: &context, bob: bob)
+        drawHeat(in: &context, spec: spec, t: t)
 
         context.translateBy(x: 50, y: 104)
         context.rotate(by: .degrees(spec.lean + sway * spec.swayAmount))
@@ -95,6 +102,32 @@ struct NudgeCharacterView: View {
             let w = 48 * spread
             layer.fill(Path(ellipseIn: CGRect(x: 50 - w / 2, y: 103, width: w, height: 9)),
                        with: .color(.black.opacity(0.24 / spread)))
+        }
+    }
+
+    /// A translucent wash of heat around the body. Only the last rung has any: it reads
+    /// as temperature rather than as a drawn outline, which is what stops the angry pose
+    /// looking merely grumpy.
+    private func drawHeat(in context: inout GraphicsContext, spec: FaceSpec, t: Double) {
+        guard spec.heat > 0.01 else { return }
+        let pulse = 0.8 + 0.2 * sin(t * 5.5)
+        context.drawLayer { layer in
+            layer.addFilter(.blur(radius: 10))
+            layer.fill(Path(ellipseIn: CGRect(x: 8, y: 32, width: 84, height: 84)),
+                       with: .radialGradient(
+                        Gradient(colors: [spec.blush.opacity(spec.heat * pulse), .clear]),
+                        center: CGPoint(x: 50, y: 74), startRadius: 22, endRadius: 46))
+        }
+        // Two puffs rising off the top, fading as they go.
+        for (i, x) in [20.0, 80.0].enumerated() {
+            let phase = (t * 0.9 + Double(i) * 0.5).truncatingRemainder(dividingBy: 1)
+            let r = 7.0 + phase * 9
+            context.drawLayer { layer in
+                layer.addFilter(.blur(radius: 2.5))
+                layer.fill(Path(ellipseIn: CGRect(x: x - r / 2, y: 40 - phase * 30 - r / 2,
+                                                  width: r, height: r * 0.85)),
+                           with: .color(spec.blush.opacity(0.55 * (1 - phase))))
+            }
         }
     }
 
@@ -204,15 +237,29 @@ struct NudgeCharacterView: View {
             }
         }
 
-        // Brows, only when something is wrong.
+        // Brows, only when something is wrong. Tapered rather than a uniform stroke:
+        // heavy at the inner end, thin at the temple, is what reads as a scowl instead
+        // of as two sticks laid on the face.
         if spec.browTilt > 0.1 {
             for side in [-1.0, 1.0] {
                 let cx = 50 + side * 11
+                let inner = CGPoint(x: cx + side * -11, y: 59 + spec.browTilt)
+                let outer = CGPoint(x: cx + side * 10, y: 59 - spec.browTilt * 0.55)
+                let thick = spec.browWeight, thin = spec.browWeight * 0.38
                 var brow = Path()
-                brow.move(to: CGPoint(x: cx + side * -10, y: 59 + spec.browTilt))
-                brow.addLine(to: CGPoint(x: cx + side * 10, y: 59 - spec.browTilt * 0.55))
-                context.stroke(brow, with: .color(spec.ink),
-                               style: StrokeStyle(lineWidth: spec.browWeight, lineCap: .round))
+                brow.move(to: CGPoint(x: inner.x, y: inner.y - thick / 2))
+                brow.addLine(to: CGPoint(x: outer.x, y: outer.y - thin / 2))
+                brow.addLine(to: CGPoint(x: outer.x, y: outer.y + thin / 2))
+                brow.addLine(to: CGPoint(x: inner.x, y: inner.y + thick / 2))
+                brow.closeSubpath()
+                context.fill(brow, with: .color(spec.ink))
+                // Round off the ends so the taper doesn't look chopped.
+                context.fill(Path(ellipseIn: CGRect(x: inner.x - thick / 2, y: inner.y - thick / 2,
+                                                    width: thick, height: thick)),
+                             with: .color(spec.ink))
+                context.fill(Path(ellipseIn: CGRect(x: outer.x - thin / 2, y: outer.y - thin / 2,
+                                                    width: thin, height: thin)),
+                             with: .color(spec.ink))
             }
         }
 
@@ -228,12 +275,13 @@ struct NudgeCharacterView: View {
             mouth.addQuadCurve(to: CGPoint(x: 60, y: 89), control: CGPoint(x: 57, y: 87))
         case .frown:
             // A stroke, never a filled shape. Filled, at this scale, it stops reading as
-            // a mouth and starts reading as lipstick.
-            mouth.move(to: CGPoint(x: 42, y: 95))
-            mouth.addQuadCurve(to: CGPoint(x: 58, y: 95), control: CGPoint(x: 50, y: 86))
+            // a mouth and starts reading as lipstick. Wide and deep, though — a shallow
+            // frown reads as sulking rather than as anger.
+            mouth.move(to: CGPoint(x: 38, y: 97))
+            mouth.addQuadCurve(to: CGPoint(x: 62, y: 97), control: CGPoint(x: 50, y: 82))
         }
         context.stroke(mouth, with: .color(spec.ink),
-                       style: StrokeStyle(lineWidth: 2.6, lineCap: .round))
+                       style: StrokeStyle(lineWidth: spec.mouthWeight, lineCap: .round))
     }
 }
 
@@ -265,6 +313,9 @@ struct FaceSpec {
     var browTilt: CGFloat
     var browWeight: CGFloat
     var mouth: Mouth
+    var mouthWeight: CGFloat
+    /// Strength of the translucent heat wash. Only the last rung has any.
+    var heat: Double
     var cheek: Double
 
     var body: Color
@@ -283,8 +334,9 @@ extension NudgeMood {
             FaceSpec(earAngle: 0, earAsymmetry: 0, earFlutter: 13, earTempo: 3.4,
                      width: 32, lean: -1.5, bobAmount: 3.0, swayAmount: 1.3, tempo: 1.6,
                      shiver: 0,
-                     eyeOpen: 1.0, pupilOffset: CGSize(width: -0.6, height: 0),
-                     lidWedge: 0, browTilt: 0, browWeight: 3, mouth: .smile, cheek: 0.7,
+                     eyeOpen: 1.0, pupilOffset: CGSize(width: -0.6, height: -0.9),
+                     lidWedge: 0, browTilt: 0, browWeight: 3, mouth: .smile,
+                     mouthWeight: 2.6, heat: 0, cheek: 0.7,
                      body: Palette.calm, lit: Palette.calmLit, shade: Palette.calmShade,
                      earFill: Palette.calmEar, ink: Palette.calmInk, blush: Palette.blush)
 
@@ -293,9 +345,9 @@ extension NudgeMood {
             FaceSpec(earAngle: 10, earAsymmetry: 34, earFlutter: 4, earTempo: 1.3,
                      width: 32, lean: 8, bobAmount: 1.6, swayAmount: 0.6, tempo: 0.95,
                      shiver: 0,
-                     eyeOpen: 0.82, pupilOffset: CGSize(width: -2.2, height: -1.0),
-                     lidWedge: 0.2, browTilt: 3.0, browWeight: 3.2, mouth: .wavy,
-                     cheek: 0.2,
+                     eyeOpen: 0.82, pupilOffset: CGSize(width: -2.2, height: -1.8),
+                     lidWedge: 0.2, browTilt: 3.0, browWeight: 3.4, mouth: .wavy,
+                     mouthWeight: 2.6, heat: 0, cheek: 0.2,
                      body: Palette.warn, lit: Palette.warnLit, shade: Palette.warnShade,
                      earFill: Palette.warnEar, ink: Palette.warnInk, blush: Palette.blush)
 
@@ -304,9 +356,11 @@ extension NudgeMood {
             FaceSpec(earAngle: 96, earAsymmetry: 0, earFlutter: 3, earTempo: 14,
                      width: 34, lean: 0, bobAmount: 0.8, swayAmount: 0.2, tempo: 2.8,
                      shiver: 0.5,
-                     eyeOpen: 0.94, pupilOffset: CGSize(width: 0, height: -0.6),
-                     lidWedge: 0.58, browTilt: 6.0, browWeight: 4.2, mouth: .frown,
-                     cheek: 0.28,
+                     // Eyes narrowed hard and pupils fixed on you. Showing white under a
+                     // pupil reads as fear; a narrow slit with a deep lid reads as fury.
+                     eyeOpen: 0.66, pupilOffset: CGSize(width: 0, height: -2.4),
+                     lidWedge: 0.72, browTilt: 9.0, browWeight: 5.4, mouth: .frown,
+                     mouthWeight: 3.2, heat: 0.5, cheek: 0.42,
                      body: Palette.cross, lit: Palette.crossLit, shade: Palette.crossShade,
                      earFill: Palette.crossEar, ink: Palette.crossInk, blush: Palette.flush)
         }

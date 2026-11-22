@@ -53,7 +53,7 @@ final class NudgeHUDController {
 
     /// How long a soft hint stays up before fading.
     private let hintDuration: Duration = .seconds(5)
-    private let width: CGFloat = 512
+    private let width: CGFloat = 580
 
     var isShowing: Bool { panel?.isVisible ?? false }
 
@@ -211,7 +211,7 @@ private struct NudgeHUDView: View {
             NudgeCharacter(mood: mood, animates: !reduceMotion)
         }
         .padding(.trailing, Theme.Space.loose)
-        .padding(.vertical, Theme.Space.snug)
+        .padding(.vertical, Theme.Space.loose)
         .frame(maxWidth: .infinity, alignment: .trailing)
         // Slides in from beyond the screen edge. The panel is clipped to its window, so an
         // offset wider than the content reads as the character walking on from off-screen.
@@ -276,7 +276,9 @@ private struct NudgeHUDView: View {
             RoundedRectangle(cornerRadius: Theme.Radius.hud, style: .continuous)
                 .strokeBorder(mood.tint.opacity(content.step == content.total ? 0.55 : 0.3), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.22), radius: 14, y: 5)
+        // No drop shadow. NSHostingView clips at the window bounds, so any shadow wide
+        // enough to be worth having gets sliced off at the edge and leaves a hard grey
+        // line across the desktop. The tinted border is what separates the card instead.
         .animation(.easeOut(duration: 0.15), value: isHovering)
         .onHover { hovering in
             isHovering = hovering
@@ -291,7 +293,7 @@ private struct NudgeHUDView: View {
 /// Hosts the drawn character and gives it its entrance.
 ///
 /// The face itself lives in `NudgeCharacterView`, which owns the idle motion — breathing,
-/// sway, blink. This wrapper only handles the arrival and the drop shadow.
+/// sway, blink. This wrapper only handles the arrival.
 private struct NudgeCharacter: View {
     let mood: NudgeMood
     let animates: Bool
@@ -300,7 +302,6 @@ private struct NudgeCharacter: View {
 
     var body: some View {
         NudgeCharacterView(mood: mood, animates: animates)
-            .shadow(color: .black.opacity(0.22), radius: 9, y: 4)
             // Arrives a beat after the panel, with a little overshoot, so he reads as
             // stepping in rather than appearing.
             .scaleEffect(landed ? 1 : 0.82, anchor: .bottom)
