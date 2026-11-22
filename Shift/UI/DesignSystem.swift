@@ -134,16 +134,31 @@ struct SectionLabel: View {
 struct BehindWindowBlur: NSViewRepresentable {
     var material: NSVisualEffectView.Material = .fullScreenUI
 
+    /// Corner radius applied on the AppKit side. Leave at 0 for a full-bleed surface.
+    ///
+    /// This is not a convenience. `.behindWindow` blending is composited by the window
+    /// server, outside SwiftUI's render tree, so wrapping this view in a SwiftUI
+    /// `.clipShape` does **not** constrain the blurred region — the rounded card gets
+    /// drawn correctly while the blur keeps processing the full rectangle behind it,
+    /// which shows up as a faint rectangular panel floating around the content. Masking
+    /// the layer here is the only thing that actually clips it.
+    var cornerRadius: CGFloat = 0
+
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.material = material
         view.blendingMode = .behindWindow
         view.state = .active
+        view.wantsLayer = true
+        view.layer?.cornerCurve = .continuous
+        view.layer?.cornerRadius = cornerRadius
+        view.layer?.masksToBounds = true
         return view
     }
 
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
         nsView.material = material
+        nsView.layer?.cornerRadius = cornerRadius
     }
 }
 

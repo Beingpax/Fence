@@ -80,6 +80,8 @@ final class NudgeHUDController {
 
         let hosting = NSHostingView(rootView: view)
         hosting.frame = NSRect(x: 0, y: 0, width: width, height: hosting.fittingSize.height)
+        hosting.wantsLayer = true
+        hosting.layer?.backgroundColor = .clear
 
         let panel = self.panel ?? makePanel()
         self.panel = panel
@@ -265,7 +267,9 @@ private struct NudgeHUDView: View {
         .background {
             // Behind-window blur rather than Liquid Glass: this panel floats over other
             // apps, so it has to sample the desktop, which only NSVisualEffectView does.
-            BehindWindowBlur(material: .hudWindow)
+            // The radius has to be passed in — a SwiftUI clipShape cannot clip a
+            // behind-window blur, and without it the card sits inside a faint rectangle.
+            BehindWindowBlur(material: .hudWindow, cornerRadius: Theme.Radius.hud)
         }
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.hud, style: .continuous))
         .overlay {
