@@ -137,7 +137,7 @@ enum WindowInspector {
         return []
     }
 
- d    static func pageURL(in window: AXUIElement, area: AXUIElement? = nil) -> URL? {
+static func pageURL(in window: AXUIElement, area: AXUIElement? = nil) -> URL? {
         let document = url(attribute(window, "AXDocument"))
         if let document, isWebURL(document) { return document }
         if let area = area ?? webArea(in: window), let page = url(attribute(area, "AXURL")), page.scheme != nil {
