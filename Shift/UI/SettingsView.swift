@@ -5,8 +5,6 @@ struct SettingsView: View {
         TabView {
             GeneralSettingsView()
                 .tabItem { Label("General", systemImage: "gearshape") }
-            RulesSettingsView()
-                .tabItem { Label("Rules", systemImage: "list.bullet.rectangle") }
             PermissionsSettingsView()
                 .tabItem { Label("Permissions", systemImage: "lock.shield") }
             IntelligenceSettingsView()
@@ -79,6 +77,9 @@ private struct GeneralSettingsView: View {
             }
 
             Section {
+                LabeledContent("Blocks") {
+                    Button("Open Shift…") { model.presentMainWindow() }
+                }
                 LabeledContent("Setup") {
                     Button("Run setup again…") { model.presentOnboarding() }
                 }
@@ -89,79 +90,6 @@ private struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
         .onAppear { model.refreshSystemState() }
-    }
-}
-
-// MARK: - Rules
-
-private struct RulesSettingsView: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        @Bindable var model = model
-        Form {
-            Section("Blocked sites") {
-                listEditor($model.rules.blockedHosts, hint: "One per line, e.g. instagram.com")
-            }
-            Section("Blocked parts of sites") {
-                listEditor($model.rules.blockedPaths, hint: "e.g. youtube.com/shorts keeps the rest of YouTube")
-            }
-            Section("Blocked apps (bundle IDs)") {
-                listEditor($model.rules.blockedApps, hint: "e.g. com.hnc.Discord")
-            }
-            Section {
-                Button("Restore defaults") { model.rules = .default }
-                    .disabled(model.session != nil)
-            } footer: {
-                Text("Rules can't be changed back to defaults during a session.")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-        .disabled(model.session?.strictness == .locked)
-        .overlay {
-            if model.session?.strictness == .locked {
-                LockedOverlay()
-            }
-        }
-    }
-
-    private func listEditor(_ items: Binding<[String]>, hint: String) -> some View {
-        VStack(alignment: .leading, spacing: Theme.Space.hair + 2) {
-            TextEditor(text: Binding(
-                get: { items.wrappedValue.joined(separator: "\n") },
-                set: { text in
-                    items.wrappedValue = text
-                        .split(whereSeparator: \.isNewline)
-                        .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
-                        .filter { !$0.isEmpty }
-                }
-            ))
-            .font(.system(.body, design: .monospaced))
-            .frame(minHeight: 70)
-            Text(hint)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-}
-
-/// Shown over the rules while a Locked session runs, so the reason is obvious
-/// rather than the controls just being mysteriously dead.
-private struct LockedOverlay: View {
-    var body: some View {
-        VStack(spacing: Theme.Space.snug) {
-            Image(systemName: "lock.fill")
-                .font(.largeTitle)
-            Text("Rules are frozen during a Locked session.")
-                .font(.headline)
-            Text("You chose this. It ends when the timer does.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        }
-        .padding(Theme.Space.loose)
-        .glassCard(radius: Theme.Radius.panel)
-        .padding(Theme.Space.wide)
     }
 }
 

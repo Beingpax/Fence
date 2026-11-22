@@ -33,6 +33,8 @@ enum Theme {
     static let settingsSize = CGSize(width: 580, height: 500)
     static let onboardingSize = CGSize(width: 680, height: 560)
 
+    static let mainWindowSize = CGSize(width: 960, height: 640)
+
     /// Verdict colours. Deliberately desaturated so the UI stays calm; the shield is the loud surface.
     static func tint(for kind: Verdict.Kind) -> Color {
         switch kind {
@@ -158,5 +160,43 @@ struct BehindWindowBlur: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
         nsView.material = material
+    }
+}
+
+
+extension BlockTint {
+    var color: Color {
+        switch self {
+        case .indigo: .indigo
+        case .blue: .blue
+        case .teal: .teal
+        case .green: .green
+        case .orange: .orange
+        case .pink: .pink
+        case .purple: .purple
+        case .graphite: .gray
+        }
+    }
+
+    var title: String { rawValue.capitalized }
+}
+
+/// The tinted glyph that identifies a block everywhere it appears.
+struct BlockBadge: View {
+    let symbol: String
+    let tint: BlockTint
+    var size: CGFloat = 34
+    var isActive: Bool = true
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
+            .fill(tint.color.gradient.opacity(isActive ? 1 : 0.35))
+            .frame(width: size, height: size)
+            .overlay {
+                Image(systemName: symbol)
+                    .font(.system(size: size * 0.46, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .accessibilityHidden(true)
     }
 }

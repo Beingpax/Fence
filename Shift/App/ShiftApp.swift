@@ -22,34 +22,28 @@ struct ShiftApp: App {
 
 /// The status item itself.
 ///
-/// HIG: menu bar extras stay narrow and monochrome so they sit correctly next to the
-/// system's own items. The icon carries the state, and a running session adds the minutes
-/// left, which is the one number worth a glance without opening anything.
+/// HIG: menu bar extras stay narrow and monochrome. The icon carries the state, and the
+/// count of active blocks is the one number worth a glance without opening anything.
 private struct MenuBarLabel: View {
     let model: AppModel
 
     var body: some View {
-        if let session = model.session {
-            TimelineView(.periodic(from: .now, by: 30)) { context in
-                HStack(spacing: 3) {
-                    Image(systemName: symbol(for: session))
-                    Text(minutesLeft(of: session, at: context.date))
-                        .monospacedDigit()
-                }
-                .accessibilityLabel("Shift: \(minutesLeft(of: session, at: context.date)) minutes left")
+        let active = model.store.activeBlocks.count
+        HStack(spacing: 3) {
+            Image(systemName: symbol(activeCount: active))
+            if active > 0 {
+                Text("\(active)").monospacedDigit()
             }
-        } else {
-            Image(systemName: "scope")
-                .accessibilityLabel("Shift: no session running")
         }
+        .accessibilityLabel(
+            active == 0
+                ? "Shift: nothing blocked"
+                : "Shift: \(active) block\(active == 1 ? "" : "s") active"
+        )
     }
 
-    private func symbol(for session: FocusSession) -> String {
-        session.strictness == .locked ? "lock.fill" : "scope"
-    }
-
-    private func minutesLeft(of session: FocusSession, at date: Date) -> String {
-        let minutes = Int((session.remaining(at: date) / 60).rounded(.up))
-        return "\(max(minutes, 0))m"
+    private func symbol(activeCount: Int) -> String {
+        if model.store.hasLockedBlock { return "lock.fill" }
+        return activeCount > 0 ? "shield.lefthalf.filled" : "shield"
     }
 }

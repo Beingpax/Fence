@@ -13,7 +13,8 @@ struct OnboardingView: View {
     @State private var selected: Set<String> = []
     @State private var customEntry = ""
     @State private var customList: [String] = []
-    @State private var firstGoal = ""
+    @State private var blockName = "Distractions"
+    @State private var lockChoice = LockMethod.none
     @State private var hasSeenDemo = false
 
     enum Step: Int, CaseIterable {
@@ -99,7 +100,7 @@ struct OnboardingView: View {
         case .distractions: selected.isEmpty && customList.isEmpty ? "Skip for now" : "Use these rules"
         case .permissions: model.accessibilityGranted ? "Continue" : "Skip for now"
         case .demo: hasSeenDemo ? "Continue" : "Show me"
-        case .ready: firstGoal.trimmingCharacters(in: .whitespaces).isEmpty ? "Finish" : "Start focusing"
+        case .ready: "Create this block"
         }
     }
 
@@ -227,16 +228,30 @@ struct OnboardingView: View {
     private var readyStep: some View {
         VStack(alignment: .leading, spacing: Theme.Space.base) {
             VStack(alignment: .leading, spacing: Theme.Space.tight) {
-                SectionLabel(text: "First session goal")
-                TextField("e.g. Finish chapter 3 of my thesis", text: $firstGoal)
+                SectionLabel(text: "Name this block")
+                TextField("e.g. Distractions", text: $blockName)
                     .textFieldStyle(.roundedBorder)
-                    .onSubmit(goForward)
-                Text("A 25-minute Firm session. Shift judges the screen against this sentence.")
+                Text("A block is a named set of sites and apps with its own schedule and lock. You can add more later, and keep them on different terms.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            Label("Shift lives in the menu bar. Click the ◎ icon any time.", systemImage: "menubar.arrow.up.rectangle")
+            VStack(alignment: .leading, spacing: Theme.Space.tight) {
+                SectionLabel(text: "How hard should it be to switch off?")
+                Picker("Lock", selection: $lockChoice) {
+                    ForEach(LockMethod.allCases) { method in
+                        Text(method.title).tag(method)
+                    }
+                }
+                .labelsHidden()
+                Text(lockChoice.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Label("It starts switched off. Turn it on from the menu bar when you want it.", systemImage: "power")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -245,8 +260,8 @@ struct OnboardingView: View {
     // MARK: Actions
 
     private func seedFromExistingRules() {
-        guard selected.isEmpty else { return }
-        selected = Set(model.rules.matchingPresets.map(\.id))
+        guard selected.isEmpty, let first = model.store.blocks.first else { return }
+        selected = Set(first.list.matchingPresets.map(\.id))
     }
 
     private func toggle(_ preset: DistractionPreset) {
@@ -294,18 +309,27 @@ struct OnboardingView: View {
     }
 
     private func applyRules() {
-        let presets = DistractionPreset.all.filter { selected.contains($0.id) }
-        guard !presets.isEmpty || !customList.isEmpty else { return }
-        model.rules = .from(presets: presets, custom: customList)
+        // Nothing to do here any more: the list is built when the block is created.
     }
 
     private func finish() {
         model.completeOnboarding()
-        let goal = firstGoal.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !goal.isEmpty {
-            model.startSession(goal: goal, minutes: 25, strictness: .firm)
+
+        let presets = DistractionPreset.all.filter { selected.contains($0.id) }
+        let list = BlockList.from(presets: presets, custom: customList)
+
+        if !list.isEmpty {
+            var block = Block(name: blockName.trimmingCharacters(in: .whitespaces).isEmpty ? "Distractions" : blockName)
+            block.list = list
+            block.schedule = .always
+            block.lock.method = lockChoice
+            block.friction = .firm
+            model.store.add(block)
+            model.log("Created “\(block.name)”", symbol: "plus.circle")
         }
+
         onFinish()
+        model.presentMainWindow()
     }
 }
 

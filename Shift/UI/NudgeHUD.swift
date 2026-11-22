@@ -20,10 +20,10 @@ final class NudgeHUDController {
     var isShowing: Bool { panel?.isVisible ?? false }
 
     /// Shows or replaces the current nudge.
-    func show(reason: String, goal: String, onBlock: @escaping () -> Void) {
+    func show(reason: String, detail: String, onBlock: @escaping () -> Void) {
         let view = NudgeHUDView(
             reason: reason,
-            goal: goal,
+            detail: detail,
             onBlock: { [weak self] in
                 self?.hide()
                 onBlock()
@@ -46,7 +46,7 @@ final class NudgeHUDController {
         if !panel.isVisible {
             panel.alphaValue = 0
             panel.orderFrontRegardless()
-            fade(panel, to: 1)
+            Task { [panel] in await fade(panel, to: 1) }
         }
 
         scheduleAutoDismiss()
@@ -55,7 +55,10 @@ final class NudgeHUDController {
     func hide() {
         cancelAutoDismiss()
         guard let panel, panel.isVisible else { return }
-        fade(panel, to: 0) { panel.orderOut(nil) }
+        Task { [panel] in
+            await fade(panel, to: 0)
+            panel.orderOut(nil)
+        }
     }
 
     // MARK: Panel
@@ -98,18 +101,21 @@ final class NudgeHUDController {
 
     // MARK: Fade and timing
 
-    private func fade(_ panel: NSPanel, to alpha: CGFloat, completion: (() -> Void)? = nil) {
+    /// Awaitable so callers can sequence work after the animation without passing a
+    /// non-Sendable completion closure into AppKit's `@Sendable` handler.
+    private func fade(_ panel: NSPanel, to alpha: CGFloat) async {
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             panel.alphaValue = alpha
-            completion?()
             return
         }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.22
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().alphaValue = alpha
-        } completionHandler: {
-            completion?()
+        await withCheckedContinuation { continuation in
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.22
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().alphaValue = alpha
+            } completionHandler: {
+                continuation.resume()
+            }
         }
     }
 
@@ -132,7 +138,7 @@ final class NudgeHUDController {
 
 private struct NudgeHUDView: View {
     let reason: String
-    let goal: String
+    let detail: String
     let onBlock: () -> Void
     let onDismiss: () -> Void
     let onHoverChange: (Bool) -> Void
@@ -150,7 +156,7 @@ private struct NudgeHUDView: View {
                 Text(reason)
                     .font(.callout.weight(.medium))
                     .lineLimit(2)
-                Text("You're here to: \(goal)")
+                Text(detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

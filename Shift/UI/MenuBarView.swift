@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// The menu bar popover: start a session, see the live verdict, get out.
+/// The menu bar popover: see what's on, flip a block, get to the window.
 ///
-/// HIG: a menu bar extra is a quick-access surface, not an app window. Everything here is
-/// one glance or one click deep, the width stays narrow, and anything longer lives in Settings.
+/// Deliberately not a second copy of the app. Anything that needs more than a switch
+/// lives in the main window.
 struct MenuBarView: View {
     @Environment(AppModel.self) private var model
 
@@ -13,33 +13,27 @@ struct MenuBarView: View {
 
             Divider()
 
-            if let session = model.session {
-                ActiveSessionView(session: session)
+            if model.store.blocks.isEmpty {
+                emptyState
             } else {
-                StartSessionView()
+                blockList
             }
 
-            Divider()
-
-            VStack(alignment: .leading, spacing: Theme.Space.base) {
+            if model.isWatching {
+                Divider()
                 LiveContextView()
-                if !model.activity.isEmpty {
-                    ActivityListView()
-                }
             }
 
             Divider()
 
             footer
         }
-        .padding(Theme.Space.base + 2)
+        .padding(Theme.Space.base)
         .frame(width: Theme.menuWidth)
         .onAppear {
             model.refreshPermissions()
             model.refreshSystemState()
         }
-        // Permissions are granted in System Settings while this popover is open, so keep
-        // reading them rather than trusting the value from the moment it appeared.
         .task {
             while !Task.isCancelled {
                 model.refreshPermissions()
@@ -53,13 +47,11 @@ struct MenuBarView: View {
             Text("Shift")
                 .font(.system(.title2, design: .rounded).weight(.bold))
             Spacer()
-            if let session = model.session {
-                Label(session.strictness.title, systemImage: session.strictness.symbol)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .labelStyle(.titleAndIcon)
-            } else {
-                Text("On-device")
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(model.isWatching ? Color.green : Color.secondary.opacity(0.4))
+                    .frame(width: 6, height: 6)
+                Text(model.isWatching ? "Watching" : "Idle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -67,25 +59,53 @@ struct MenuBarView: View {
         .accessibilityAddTraits(.isHeader)
     }
 
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.snug) {
+            Text("No blocks yet")
+                .font(.callout.weight(.medium))
+            Text("Create one in the main window.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("Open Shift") { model.presentMainWindow() }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var blockList: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.tight) {
+            SectionLabel(text: "Blocks")
+            ForEach(model.store.blocks) { block in
+                MenuBlockRow(block: block)
+            }
+        }
+    }
+
     private var footer: some View {
         HStack(spacing: Theme.Space.tight) {
-            Menu("Preview shield") {
-                ForEach(1...3, id: \.self) { strike in
-                    Button("Strike \(strike)") { model.previewShield(strike: strike) }
-                }
-            }
-            .menuStyle(.button)
-            .buttonStyle(.borderless)
-            .fixedSize()
+            Button("Open Shift") { model.presentMainWindow() }
+                .buttonStyle(.borderless)
 
             Spacer()
+
+            Menu {
+                ForEach(1...3, id: \.self) { strike in
+                    Button("Shield · strike \(strike)") { model.previewShield(strike: strike) }
+                }
+                Button("Nudge") { model.previewNudge() }
+            } label: {
+                Image(systemName: "eye")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Preview")
 
             SettingsLink {
                 Image(systemName: "gearshape")
             }
             .buttonStyle(.borderless)
             .help("Settings")
-            .accessibilityLabel("Settings")
 
             Button {
                 NSApp.terminate(nil)
@@ -94,154 +114,63 @@ struct MenuBarView: View {
             }
             .buttonStyle(.borderless)
             .disabled(!model.canQuitApp)
-            .help(model.canQuitApp ? "Quit Shift" : "Locked session: Shift can't be quit until it ends")
+            .help(model.canQuitApp ? "Quit Shift" : "A locked block is running: Shift can't be quit")
             .accessibilityLabel("Quit Shift")
         }
         .font(.callout)
     }
 }
 
-// MARK: - Start
-
-private struct StartSessionView: View {
+/// A compact block row with the switch, matching what the main window shows.
+private struct MenuBlockRow: View {
     @Environment(AppModel.self) private var model
-    @State private var goal = ""
-    @State private var minutes = 50
-    @State private var strictness: Strictness = .firm
+    let block: Block
 
-    private var trimmedGoal: String {
-        goal.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
+    @State private var refused = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.snug) {
-            SectionLabel(text: "What are you working on?")
+        HStack(spacing: Theme.Space.snug) {
+            BlockBadge(symbol: block.symbol, tint: block.tint, size: 24, isActive: block.isActive())
 
-            TextField("e.g. Finish chapter 3 of my thesis", text: $goal, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(1...3)
-                .onSubmit(start)
-
-            Picker("Duration", selection: $minutes) {
-                Text("25 min").tag(25)
-                Text("50 min").tag(50)
-                Text("90 min").tag(90)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(block.name)
+                    .font(.callout)
+                    .lineLimit(1)
+                Text(statusLine)
+                    .font(.caption2)
+                    .foregroundStyle(block.lock.isLocked() ? .orange : .secondary)
+                    .lineLimit(1)
             }
-            .pickerStyle(.segmented)
+
+            Spacer(minLength: Theme.Space.tight)
+
+            Toggle("", isOn: Binding(
+                get: { block.isEnabled },
+                set: { toggle(to: $0) }
+            ))
             .labelsHidden()
-
-            Picker("Strictness", selection: $strictness) {
-                ForEach(Strictness.allCases) { level in
-                    Text(level.title).tag(level)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-
-            HStack(alignment: .top, spacing: Theme.Space.tight) {
-                Image(systemName: strictness.symbol)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(strictness.summary)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Button(action: start) {
-                Text(strictness == .locked ? "Start locked session" : "Start focus")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(trimmedGoal.isEmpty)
-            .keyboardShortcut(.defaultAction)
-
-            if strictness == .locked {
-                Label("You won't be able to end this early or quit Shift.", systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .calmTransition(.opacity)
-            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .accessibilityLabel("\(block.name) enabled")
         }
+        .help(refused ? block.lock.statusText() : block.contentsSummary)
     }
 
-    private func start() {
-        guard !trimmedGoal.isEmpty else { return }
-        model.startSession(goal: goal, minutes: minutes, strictness: strictness)
-        goal = ""
+    private var statusLine: String {
+        if block.lock.isLocked() { return block.lock.statusText() }
+        if block.isActive() { return "Active · \(block.contentsSummary)" }
+        return block.scheduleSummary
     }
-}
 
-// MARK: - Active
-
-private struct ActiveSessionView: View {
-    @Environment(AppModel.self) private var model
-    let session: FocusSession
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.snug) {
-            SectionLabel(text: "Focusing on")
-            Text(session.goal)
-                .font(.headline)
-                .fixedSize(horizontal: false, vertical: true)
-
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let remaining = session.remaining(at: context.date)
-                VStack(alignment: .leading, spacing: Theme.Space.tight) {
-                    Text(format(remaining))
-                        .font(.system(size: 42, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .contentTransition(.numericText(countsDown: true))
-                        .accessibilityLabel("\(Int(remaining / 60)) minutes remaining")
-
-                    ProgressView(value: progress(remaining))
-                        .progressViewStyle(.linear)
-                        .tint(session.strictness == .locked ? .orange : .accentColor)
-                        .accessibilityHidden(true)
-                }
-            }
-
-            HStack {
-                StrikeDots(strikes: session.strikes)
-                Spacer()
-                Text("\(session.strikes) strike\(session.strikes == 1 ? "" : "s")")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Button("End session") { model.endSession() }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
-                .disabled(!model.canEndSession)
-                .help(model.canEndSession ? "End this session now" : "Locked: this session can't be ended early")
+    private func toggle(to enabled: Bool) {
+        switch model.store.setEnabled(enabled, for: block.id) {
+        case .changed:
+            refused = false
+        case .refusedLocked, .needsRandomString:
+            // Unlocking needs the main window, where there's room to explain it.
+            refused = true
+            model.presentMainWindow()
         }
-    }
-
-    private func progress(_ remaining: TimeInterval) -> Double {
-        guard session.duration > 0 else { return 1 }
-        return min(max(1 - remaining / session.duration, 0), 1)
-    }
-
-    private func format(_ interval: TimeInterval) -> String {
-        let total = Int(interval.rounded(.up))
-        return String(format: "%02d:%02d", total / 60, total % 60)
-    }
-}
-
-private struct StrikeDots: View {
-    let strikes: Int
-
-    var body: some View {
-        HStack(spacing: Theme.Space.hair + 2) {
-            ForEach(1...3, id: \.self) { index in
-                Circle()
-                    .fill(index <= strikes ? Color.orange : Color.secondary.opacity(0.22))
-                    .frame(width: 7, height: 7)
-            }
-        }
-        .accessibilityHidden(true)
     }
 }
 
@@ -273,7 +202,7 @@ private struct LiveContextView: View {
                     }
                 }
             } else {
-                Text(model.session == nil ? "Start a session to see live context." : "Waiting for the first reading…")
+                Text("Waiting for the first reading…")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -288,34 +217,6 @@ private struct LiveContextView: View {
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.orange)
-            }
-        }
-    }
-}
-
-// MARK: - Activity
-
-private struct ActivityListView: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.hair + 2) {
-            SectionLabel(text: "Recent")
-            ForEach(model.activity.prefix(5)) { event in
-                HStack(spacing: Theme.Space.tight) {
-                    Image(systemName: event.symbol)
-                        .frame(width: 14)
-                        .foregroundStyle(.secondary)
-                    Text(event.text)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer(minLength: Theme.Space.tight)
-                    Text(event.date, style: .time)
-                        .foregroundStyle(.tertiary)
-                        .monospacedDigit()
-                }
-                .font(.caption)
-                .accessibilityElement(children: .combine)
             }
         }
     }

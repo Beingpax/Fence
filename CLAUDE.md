@@ -6,13 +6,21 @@ Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (br
 
 ## Current status (read first)
 
-- **M1 is written and compiles clean** (zero errors, zero warnings), but it has **not been run or verified yet**. Runtime verification is the first job in the next session: see "M1 verification checklist" below.
-- **PRD is at v0.2** after a competitive and technical research pass. §18 of the PRD lists every change from v0.1.
-- **Next after verification is M2**, the AI tiers. Nothing in the AI path has been written yet.
-- Built and wired: menu bar app with live countdown, focus sessions, context monitor, rule-based classifier, hysteresis, full-screen shield with escalation, nudge HUD, five-step onboarding, launch at login, watchdog pair, quit and uninstall protection, four settings tabs.
-- Stubs only: `ScreenTextReader` (OCR) and `LocalIntentModel` (the model tier, to be replaced by a Foundation Models judge).
-- **Deployment target is 26.0** in `project.pbxproj`.
-- **The binary has two entry points.** `Shift` is the app; `Shift --watchdog` is the headless watchdog. `main.swift` does the branching, which is why `ShiftApp` no longer carries `@main`.
+- **The app is organised around blocks, not sessions** as of 22 Nov 2026. This replaced the
+  original focus-session model. See "The block model" below; it is the most important
+  thing to understand before changing anything.
+- **Builds clean** with zero errors and zero warnings, including under
+  `SWIFT_STRICT_CONCURRENCY = complete`, which is now switched on in the project.
+- **Runtime verification is still thin.** The app launches and stays up, and the schedule
+  and lock maths have standalone tests (`./Tools/run-block-tests.sh`, 22 assertions). The
+  UI flows have not been walked through by hand.
+- Built: main window (Dashboard, Blocks, Activity), block editor, menu bar popover,
+  full-screen shield with escalation and breaks, nudge HUD, onboarding, launch at login,
+  watchdog pair, quit and Trash protection, real ScreenCaptureKit and Vision text reading.
+- Not built: the intent tiers. There is still no AI. `Block.goal` is captured and shown
+  but nothing judges against it yet.
+- **The binary has two entry points.** `Shift` is the app; `Shift --watchdog` is the
+  headless watchdog. `main.swift` branches, which is why `ShiftApp` has no `@main`.
 
 ## Build and run
 
@@ -27,24 +35,76 @@ xcodebuild -project Shift.xcodeproj -scheme Shift -configuration Debug -destinat
 - **Signing is load-bearing for permissions.** `DEVELOPMENT_TEAM = V6J6A3VWY2` is set on both configurations, so builds are signed with a real identity. Do not let this fall back to ad-hoc. macOS keys TCC grants to the designated requirement, and an ad-hoc signature puts the binary's `cdhash` in that requirement, so **every rebuild silently voids the Accessibility grant** and the app reports "not granted" while System Settings still shows it enabled. Verify with `codesign -d -r- <app>`: the requirement must name the certificate, not a `cdhash`. If a grant ever does go stale, `tccutil reset Accessibility com.beingpax.Shift` and grant it again.
 - Automated GUI testing needs Accessibility and Screen Recording granted to the terminal running Claude Code. Without them, `osascript` UI scripting fails with -1719 and `screencapture` fails outright, so shield verification has to be manual.
 
-## M1 verification checklist (nothing here has been run yet)
+## Verification checklist (not yet walked through by hand)
 
-1. **Menu bar.** Icon appears; a running session shows minutes left next to it.
-2. **Onboarding.** Delete `Shift.hasCompletedOnboarding.v1` from defaults to replay first run:
-   `defaults delete com.beingpax.Shift Shift.hasCompletedOnboarding.v1`
-3. **Preview shield** strikes 1–3, and **Settings → General → Show a nudge** for the HUD.
-4. **Nudge HUD** must never take keyboard focus. Type in another app while it's up.
-5. **Launch at login.** Toggle in Settings → General, then confirm in System Settings → General → Login Items.
-6. **Watchdog.** Start a Locked session, then `pkill -f 'Shift.app/Contents/MacOS/Shift$'`. Shift should come back within ~5 s. Inspect with
-   `launchctl print gui/$UID/com.beingpax.Shift.watchdog` and `log stream --predicate 'subsystem == "com.beingpax.Shift"'`.
-7. **Quit protection.** Cmd+Q during a Locked session should show the "session is locked" alert. `kill -15` should be ignored; `kill -9` is expected to win.
-8. **Trash protection.** Move Shift.app to the Trash during a Locked session; the watchdog should put it back.
-9. **Clock hardening.** Winding the system clock forward should not end a session early.
-10. **Clean up after testing:** `launchctl bootout gui/$UID/com.beingpax.Shift.watchdog`, delete
-    `~/Library/LaunchAgents/com.beingpax.Shift.watchdog.plist`, and remove `~/Library/Application Support/Shift/guard.json`.
+1. **Menu bar.** Icon appears; the count next to it matches the number of active blocks.
+2. **Main window.** Menu bar → Open Shift. Create a block, add sites and apps, save.
+3. **Blocking.** Switch the block on, visit a listed site in Safari and Chrome. The shield
+   should appear within about 3 s and close the tab, not the browser.
+4. **Schedules.** Set a window that starts a minute from now and confirm it self-activates.
+5. **On-screen words.** Add a keyword, grant Screen Recording, and confirm it fires on a
+   page whose address says nothing. Confirm capture stays off when no block has keywords.
+6. **Locks.** Each of duration, until-time, random-string and restart. Check that the
+   switch, the editor and Delete all refuse while locked.
+7. **Breaks.** Enable breaks, hit the block, take a break, confirm the block goes quiet and
+   comes back.
+8. **Quit protection.** Cmd+Q with a locked block should explain itself. `kill -15` should
+   be ignored; `kill -9` is expected to win.
+9. **Watchdog.** With a lock engaged, `pkill -f 'Shift.app/Contents/MacOS/Shift$'`. Shift
+   should return within ~5 s. Also try moving the app to the Trash.
+10. **Onboarding.** `defaults delete com.beingpax.Shift Shift.hasCompletedOnboarding.v1`.
+11. **Clean up after testing:** `launchctl bootout gui/$UID/com.beingpax.Shift.watchdog`,
+    delete `~/Library/LaunchAgents/com.beingpax.Shift.watchdog.plist`, and remove
+    `~/Library/Application Support/Shift/`.
+
+Run the model tests any time with `./Tools/run-block-tests.sh`.
+
+## The block model
+
+A **block** is the unit of everything. It owns:
+
+- a **list**: websites, paths, apps, on-screen keywords, and exceptions that always win,
+  in either `blocklist` or `allowlist` mode;
+- a **schedule**: `.always`, `.scheduled([ScheduleWindow])`, or `.manual(minutes:)`;
+- a **lock**: `none`, `duration`, `untilTime`, `randomString`, or `restart`, which engages
+  the moment the block is switched on;
+- **breaks**: optional, length and per-day allowance fixed in advance;
+- **friction**: how hard the shield pushes back, independent of the lock.
+
+Several blocks can be active at once. `BlockEvaluator` asks each active block in order and
+the first with an opinion wins. A block is active when it is enabled or locked on, is
+inside its schedule, and is not on a break.
+
+Rules that are easy to get wrong, and are covered by the tests:
+
+- Schedule windows may run past midnight; the window belongs to the day it started on.
+- An `untilTime` lock set to a time already past today rolls to tomorrow.
+- A `restart` lock is released by comparing boot time, not app lifetime.
+- While locked, a block may be edited only to become stricter. Entries can be added,
+  exceptions can only be removed, and schedule, mode and lock method are frozen.
+- `Finder`, System Settings and Shift itself are never blocked, so a bad allow-list can't
+  lock someone out of fixing it.
+
+## Threading rules
+
+`SWIFT_STRICT_CONCURRENCY = complete` is on. Keep the build warning-free under it.
+
+- `AppModel`, `BlockStore` and the window controllers are `@MainActor`. SwiftUI reads them.
+- Anything that talks to another process runs off the main actor and is awaited:
+  Accessibility reads (`WindowInspector`, 0.5 s messaging timeout), Apple Events
+  (`AppleScriptRunner`, one serial queue plus a 1.5 s deadline), and screen capture
+  (`ScreenTextReader`, an actor).
+- `ContextMonitor` drops overlapping samples rather than queueing them, so a slow reading
+  can't build a backlog behind it.
+- Block writes are debounced and encoded off the main actor. `saveNow()` is for the cases
+  where losing the write would hand the user a way out.
 
 ## Product decisions (don't relitigate without asking)
 
+- **Blocks, not sessions.** A timer can't express "never Instagram" or "no games on
+  weeknights". The old `FocusSession`, `BlockRules` and `Strictness` types are gone.
+- **Locking and friction are different things.** The lock decides whether the switch works.
+  Friction decides what the shield does when you hit it. Don't merge them.
 - **The app icon is generated, not drawn by hand.** `Tools/make-icon.swift` renders every size and rewrites the appiconset's `Contents.json`. Edit the script, not the PNGs.
 
 - **Name:** "Shift", subtitle "Local AI App & Website Blocker".
@@ -53,6 +113,7 @@ xcodebuild -project Shift.xcodeproj -scheme Shift -configuration Debug -destinat
 - **Everything is local.** Never send screen content, OCR text, accessibility text or URLs off the device. No cloud fallback, not even optional.
 - **Nothing to download.** The model tier is Apple's built-in Foundation Models, not a 300 MB MLX classifier. This deleted the model downloader, the CDN, the signed manifest and version management from scope. A downloader only returns in M4 for the optional VLM tier.
 - **Detection is a cheap-first cascade:** rules → page text → embeddings → Foundation Models → VLM (M4, on demand). Rules must work with no model at all.
+- **Screen capture only runs when a rule needs it.** The engine sets `ContextMonitor.wantsScreenText` only when an active block has keywords and Screen Recording is granted. A perceptual-hash gate then skips recognition when the screen hasn't changed. Never put capture on a timer.
 - **Two text channels, compared not assumed.** Tier 1a is page text from the accessibility tree (exact strings, no Screen Recording permission, nearly free). Tier 1b is ScreenCaptureKit + Vision OCR (covers canvas, video, games, hostile apps). Both get built in M2 and compared on real usage against the gates in PRD §8.3 before either becomes the default. Expect AX to win in browsers and OCR to win everywhere else, but prove it.
 - **Read URLs from the accessibility tree**, not Apple Events. That removes the per-browser Automation prompt from onboarding. Apple Events stay only for *closing* a tab.
 - **A Foundation Models guardrail violation counts as evidence for a block**, never as a failure and never as an allow. The content that trips Apple's safety filter is the content a blocker exists to catch. Say so honestly in the reason line.
@@ -90,18 +151,19 @@ Intent-aware blocking has shipped elsewhere, so it is not a differentiator on it
 ```
 Shift/
 ├── App/            main (entry point branch), ShiftApp (MenuBarExtra + Settings),
-│                   AppDelegate (quit protection), AppModel (@Observable, @MainActor orchestrator)
-├── Models/         FocusSession, Strictness, ScreenContext, Verdict, BlockRules,
-│                   ActivityEvent, DistractionPreset (onboarding answers → rules)
-├── Detection/      ContextMonitor, WindowInspector (AX), Browser (close tab),
-│                   AXTextReader (tier 1a, to build), ScreenTextReader (tier 1b, stub)
-├── Intelligence/   DistractionClassifier, CascadeClassifier, RuleBasedClassifier,
-│                   EmbeddingMatcher (tier 2, to build), FoundationModelJudge (tier 3, to build), Hysteresis
-├── Enforcement/    ShieldController (NSWindow at .screenSaver + presentationOptions), ShieldView,
-│                   ShieldPolicy, GuardState (UI ↔ watchdog handshake), LaunchAtLogin,
-│                   WatchdogService (installs the agent), WatchdogRunner (the agent itself)
-└── UI/             DesignSystem (Theme + glass surfaces), MenuBarView, SettingsView,
-                    NudgeHUD, PermissionsManager, Onboarding/
+│                   AppDelegate (quit protection), AppModel (@Observable, @MainActor engine)
+├── Models/         Block (+ BlockList, BlockSchedule, ScheduleWindow, BlockLock, BreakPlan,
+│                   Friction, BlockTint), BlockStore (persistence, locking, CRUD),
+│                   ScreenContext, Verdict, ActivityEvent, DistractionPreset
+├── Detection/      ContextMonitor (async sampling), WindowInspector (AX),
+│                   Browser + AppleScriptRunner (off-main Apple Events),
+│                   ScreenTextReader (ScreenCaptureKit + Vision, an actor)
+├── Intelligence/   BlockEvaluator (tier 0), Hysteresis
+├── Enforcement/    ShieldController, ShieldView, ShieldPolicy, GuardState,
+│                   LaunchAtLogin, WatchdogService, WatchdogRunner
+└── UI/             DesignSystem, MenuBarView, SettingsView, NudgeHUD, PermissionsManager,
+                    Main/ (MainWindowController, MainWindowView, DashboardView,
+                    BlockEditorView), Onboarding/
 ```
 
 ### Where glass belongs
@@ -120,7 +182,10 @@ Reduce Motion. The shield and the nudge HUD use `BehindWindowBlur` rather than L
 because both float over *other apps* and so must sample the desktop, which only
 `NSVisualEffectView` does.
 
-Flow: `ContextMonitor` sample → `AppModel.handle` → `CascadeClassifier` → `Hysteresis` (2 consistent readings) → `ShieldController.present` → resolve (close tab / force quit / wrong call).
+Flow: `AppModel.engineTick` (1 s) decides which blocks are active and starts or stops
+detection → `ContextMonitor` sample → `AppModel.handle` → `BlockEvaluator` over the active
+blocks → `Hysteresis` (2 consistent readings) → `ShieldController.present` → resolve
+(close tab / quit app / wrong call / take a break).
 
 `DistractionClassifier` and `ScreenTextReading` are the seams for every new tier. Adding a tier should not touch `AppModel`.
 
@@ -136,7 +201,7 @@ Flow: `ContextMonitor` sample → `AppModel.handle` → `CascadeClassifier` → 
 ## Roadmap (PRD §16)
 
 - **M0 Skeleton:** done. Builds clean, runs, shield preview wired.
-- **M1 Strict MVP:** written, compiles clean, **not yet verified at runtime**. Launch at login (`SMAppService`), headless watchdog as a keep-alive launch agent, quit and Trash protection during Locked, monotonic clock hardening, five-step onboarding, nudge HUD, four settings tabs, Liquid Glass design pass.
-- **M2 AI v1:** `AXTextReader` and `ScreenTextReader` both built, instrumented and compared per PRD §8.3; `EmbeddingMatcher`; `FoundationModelJudge` with guided generation; rabbit-hole detection.
+- **M1 Strict MVP:** done in code, **not yet verified by hand**. Reworked in v0.3 around blocks: main window, block editor, per-block schedules, locks and breaks, launch at login, headless watchdog, quit and Trash protection, onboarding, nudge HUD, settings, screen-text reading.
+- **M2 AI v1:** `ScreenTextReader` is built (tier 1b). Still to do: `AXTextReader` (tier 1a) and the bake-off in PRD §8.3, `EmbeddingMatcher`, `FoundationModelJudge` with guided generation judging `Block.goal`, rabbit-hole detection.
 - **M3 Beta:** Network Extension hostname backstop (verify the non-MDM approval path first), weekly insights, Sparkle, notarized beta.
 - **M4 AI v2:** VLM tier (and the downloader it needs), doomscroll detection, on-device adapter from "wrong call" feedback.

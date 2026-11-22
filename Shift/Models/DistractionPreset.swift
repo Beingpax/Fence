@@ -1,6 +1,6 @@
 import Foundation
 
-/// A plain-language answer to "what steals your time?", compiled into `BlockRules`.
+/// A plain-language answer to "what steals your time?", compiled into a `BlockList`.
 ///
 /// Onboarding never shows the user a hostname or a bundle ID. They pick the things they
 /// recognise, and Shift turns those into the rules the tier-0 classifier actually runs.
@@ -120,35 +120,31 @@ struct DistractionPreset: Identifiable, Hashable, Codable {
     ]
 }
 
-extension BlockRules {
-    /// Builds rules from onboarding answers, keeping the work-app allowlist and nudge
-    /// keywords from the defaults because those are safety rails rather than preferences.
-    static func from(presets: [DistractionPreset], custom: [String] = []) -> BlockRules {
-        let defaults = BlockRules.default
-        let cleanedCustom = custom
+extension BlockList {
+    /// Builds a list from onboarding answers. Entries containing a slash become path
+    /// rules, so the useful half of a site survives; everything else is a whole site.
+    static func from(presets: [DistractionPreset], custom: [String] = []) -> BlockList {
+        let cleaned = custom
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
             .filter { !$0.isEmpty }
 
-        // A custom entry containing a slash is a path rule; otherwise it's a whole site.
-        let customPaths = cleanedCustom.filter { $0.contains("/") }
-        let customHosts = cleanedCustom.filter { !$0.contains("/") }
-
-        return BlockRules(
-            blockedHosts: unique(presets.flatMap(\.hosts) + customHosts),
-            blockedPaths: unique(presets.flatMap(\.paths) + customPaths),
-            blockedApps: unique(presets.flatMap(\.apps)),
-            alwaysAllowedApps: defaults.alwaysAllowedApps,
-            nudgeTitleKeywords: defaults.nudgeTitleKeywords
+        return BlockList(
+            mode: .blocklist,
+            hosts: unique(presets.flatMap(\.hosts) + cleaned.filter { !$0.contains("/") }),
+            paths: unique(presets.flatMap(\.paths) + cleaned.filter { $0.contains("/") }),
+            apps: unique(presets.flatMap(\.apps)),
+            keywords: [],
+            exceptions: []
         )
     }
 
-    /// Which presets the current rules already cover, so onboarding can be re-entered
-    /// with the user's previous answers selected.
+    /// Which presets this list already covers, so the picker can be re-entered with the
+    /// previous answers selected.
     var matchingPresets: [DistractionPreset] {
         DistractionPreset.all.filter { preset in
-            let hostsCovered = !preset.hosts.isEmpty && preset.hosts.allSatisfy(blockedHosts.contains)
-            let pathsCovered = !preset.paths.isEmpty && preset.paths.allSatisfy(blockedPaths.contains)
-            let appsCovered = !preset.apps.isEmpty && preset.apps.allSatisfy(blockedApps.contains)
+            let hostsCovered = !preset.hosts.isEmpty && preset.hosts.allSatisfy(hosts.contains)
+            let pathsCovered = !preset.paths.isEmpty && preset.paths.allSatisfy(paths.contains)
+            let appsCovered = !preset.apps.isEmpty && preset.apps.allSatisfy(apps.contains)
             return hostsCovered || pathsCovered || appsCovered
         }
     }
@@ -157,4 +153,10 @@ extension BlockRules {
         var seen = Set<String>()
         return values.filter { seen.insert($0).inserted }
     }
+}
+
+/// Words that only ever nudge. Global rather than per block, because drift isn't about
+/// any one rule the user wrote.
+enum DriftKeywords {
+    static let `default` = ["Shorts", "Reels", "For You", "Trending", "Explore"]
 }

@@ -19,7 +19,9 @@ enum PermissionsManager {
 
     /// Shows the system prompt that deep-links to Privacy & Security → Accessibility.
     static func requestAccessibility() {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        // The constant is a mutable C global, which isn't concurrency-safe to touch.
+        // Its value is a documented, stable key, so use the string directly.
+        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
     }
 

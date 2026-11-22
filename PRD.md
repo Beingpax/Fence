@@ -75,23 +75,45 @@ The category moved while v0.1 was being written. Intent-aware blocking is no lon
 
 ## 6. Core concepts
 
-- **Focus Session:** a goal ("Finish chapter 3 of my thesis"), a duration and a strictness level. Everything Shift decides is relative to the active session's goal.
-- **Rules:** user-written, plain-language constraints ("YouTube only for lectures", "Never Instagram"). They're compiled into fast rules plus model context.
-- **Verdict:** `allow`, `nudge` (uncertain or mild drift) or `block` (confident distraction), each with a one-line reason the user can read.
-- **Strike:** each enforced block in a session. Friction escalates with every strike.
-- **Strictness:** `Gentle`, `Firm` or `Locked` (see §9).
+Shift is organised around **blocks**, not sessions. This changed in v0.3 after testing the
+session model against real use: a one-off timer can't express "social media is never
+allowed", "no news before noon", or "games are off on weeknights", and those are the rules
+people actually want. Cold Turkey got this right, and the block is the correct unit.
+
+- **Block:** a named, independently configured rule set. It owns what it covers, when it
+  applies, how hard it pushes back, and whether it can be switched off at all. Blocks are
+  switched on and off one at a time and several can be active at once.
+- **List:** what a block covers. Websites, parts of websites, apps, on-screen words, and
+  exceptions that always win. A list runs in one of two modes: block what's listed, or
+  allow only what's listed.
+- **Schedule:** when a block applies. All the time, on recurring weekly windows, or
+  started on demand for a set number of minutes. The old "focus session" is now just the
+  third of these.
+- **Lock:** whether the user may switch a block off. Engages the moment the block is
+  switched on. Methods: none, for a duration, until a time, after typing a random string,
+  or until the Mac restarts.
+- **Break:** a short, pre-agreed release, decided when setting the block up rather than in
+  the moment of weakness. Limited per day.
+- **Friction:** how hard the shield pushes back when hit. `Gentle`, `Firm` or `Severe`.
+  Separate from the lock: friction is about the moment, the lock is about the switch.
+- **Verdict:** `allow`, `nudge` (mild drift) or `block` (confident), each with a
+  one-line reason and the block that produced it.
+- **Strike:** each enforced block, counted per block. Friction escalates with every strike.
+- **Goal:** an optional intent sentence per block, shown on the shield and the input to
+  the intent tier when it lands.
 
 ## 7. Features
 
 ### P0 — MVP
-- Menu bar app: start a session with a goal, duration and strictness.
+- Menu bar app plus a main window with a sidebar: Dashboard, Blocks, Activity.
+- Create, edit, order and delete blocks, each with its own list, schedule, lock and friction.
 - Context monitor: frontmost app, window title and browser URL.
 - Rule-based classifier with sensible defaults, plus a user blocklist and allowlist.
 - Path-aware rules (`youtube.com/shorts` blocked while `youtube.com` stays allowed).
 - **Full-screen shield** on all displays and Spaces, with escalating friction.
 - Shield actions: **close tab** (browsers), **force quit** (native apps), **wrong call** (teaches the allowlist).
 - Hysteresis: a block requires two consistent readings.
-- Locked sessions can't be ended or quit early.
+- Locked blocks can't be switched off, edited loosely, deleted, and Shift can't be quit.
 - "What Shift sees" panel: live view of the current context and verdict.
 
 ### P1 — Strict MVP

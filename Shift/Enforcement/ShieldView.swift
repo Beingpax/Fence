@@ -81,10 +81,17 @@ struct ShieldView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Label("You're here to: \(request.goal)", systemImage: "scope")
-                .font(.headline)
-                .foregroundStyle(.white.opacity(0.72))
-                .labelStyle(.titleAndIcon)
+            VStack(spacing: Theme.Space.tight) {
+                Label(request.blockName, systemImage: "shield.lefthalf.filled")
+                    .font(.headline)
+                    .foregroundStyle(.white.opacity(0.78))
+                    .labelStyle(.titleAndIcon)
+                if !request.goal.isEmpty {
+                    Text("You're here to: \(request.goal)")
+                        .font(.callout)
+                        .foregroundStyle(.white.opacity(0.62))
+                }
+            }
 
             strikeBadge
 
@@ -134,15 +141,27 @@ struct ShieldView: View {
             .disabled(!unlocked)
             .keyboardShortcut(.defaultAction)
 
-            // PRD §9: "wrong call" must not be an escape hatch, so it stays locked until
-            // the countdown is done, exactly like the primary action.
-            Button("Wrong call? This is part of my work") {
-                onResolve(.wrongCall)
+            HStack(spacing: Theme.Space.loose) {
+                // "Wrong call" must not be an escape hatch, so it stays locked until the
+                // countdown is done, exactly like the primary action.
+                Button("Wrong call? This is part of my work") {
+                    onResolve(.wrongCall)
+                }
+                .buttonStyle(.plain)
+                .font(.callout)
+                .foregroundStyle(.white.opacity(unlocked ? 0.72 : 0.3))
+                .disabled(!unlocked)
+
+                if request.offersBreak {
+                    Button("Take a break") {
+                        onResolve(.takeBreak)
+                    }
+                    .buttonStyle(.plain)
+                    .font(.callout)
+                    .foregroundStyle(.white.opacity(unlocked ? 0.72 : 0.3))
+                    .disabled(!unlocked)
+                }
             }
-            .buttonStyle(.plain)
-            .font(.callout)
-            .foregroundStyle(.white.opacity(unlocked ? 0.72 : 0.3))
-            .disabled(!unlocked)
         }
     }
 
