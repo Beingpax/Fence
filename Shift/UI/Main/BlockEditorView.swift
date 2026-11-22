@@ -413,11 +413,10 @@ struct BlockInspector: View {
             _ = model.store.delete(id: id)
         } label: {
             Label("Delete this block", systemImage: "trash")
-                .font(.callout)
                 .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.shiftSoft)
-        .foregroundStyle(isLocked ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.red))
+        .buttonStyle(.shiftProminent(.red))
+        .opacity(isLocked ? 0.4 : 1)
         .disabled(isLocked)
         .padding(.top, Theme.Space.tight)
     }

@@ -83,6 +83,8 @@ struct SegmentedSelector<Value: Hashable>: View {
 /// the room. Locked blocks show a keyhole instead of a knob.
 struct ShiftSwitch: View {
     @Binding var isOn: Bool
+    /// Deliberately one colour across the app rather than per block. A switch is a
+    /// control, and controls should agree; the block's own colour lives on its badge.
     var tint: Color = .accentColor
     var isLocked: Bool = false
     var action: ((Bool) -> Void)?
@@ -103,8 +105,19 @@ struct ShiftSwitch: View {
         } label: {
             ZStack(alignment: isOn ? .trailing : .leading) {
                 Capsule(style: .continuous)
-                    .fill(isOn ? AnyShapeStyle(tint.gradient) : AnyShapeStyle(Color.primary.opacity(0.14)))
+                    .fill(
+                        isOn
+                            ? AnyShapeStyle(
+                                LinearGradient(
+                                    colors: [tint.opacity(0.92), tint],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                            : AnyShapeStyle(Color.primary.opacity(0.14))
+                    )
                     .frame(width: width, height: height)
+                    .shadow(color: isOn ? tint.opacity(0.35) : .clear, radius: 4, y: 1)
 
                 Circle()
                     .fill(.white)

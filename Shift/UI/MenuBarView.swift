@@ -179,7 +179,6 @@ private struct MenuBlockRow: View {
 
             ShiftSwitch(
                 isOn: .constant(block.isEnabled),
-                tint: block.tint.color,
                 isLocked: block.lock.isLocked(),
                 action: { toggle(to: $0) }
             )

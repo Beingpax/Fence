@@ -32,7 +32,6 @@ struct DashboardView: View {
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 26)
-            .frame(maxWidth: 820, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .scrollBounceBehavior(.basedOnSize)
@@ -224,7 +223,6 @@ struct BlockMiniRow: View {
 
             ShiftSwitch(
                 isOn: .constant(block.isEnabled),
-                tint: block.tint.color,
                 isLocked: block.lock.isLocked(),
                 action: { enabled in
                     _ = model.store.setEnabled(enabled, for: block.id)

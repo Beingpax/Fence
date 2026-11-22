@@ -321,7 +321,6 @@ struct BlockCard: View {
 
             ShiftSwitch(
                 isOn: .constant(block.isEnabled),
-                tint: block.tint.color,
                 isLocked: isLocked,
                 action: { toggle(to: $0) }
             )
@@ -329,7 +328,7 @@ struct BlockCard: View {
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
-        .glassSurface(tint: isActive ? block.tint.color : nil, isSelected: isSelected)
+        .glassSurface(tint: isActive ? Color.accentColor : nil, isSelected: isSelected)
         .contextMenu {
             Button("Edit", action: onSelect)
             if case .manual = block.schedule, !block.isEnabled {
