@@ -13,6 +13,7 @@ struct SettingsView: View {
                 PageHeader("Settings")
                 startup
                 nudges
+                previews
                 lockedBlocks
                 permissions
                 detection
@@ -73,9 +74,27 @@ struct SettingsView: View {
             PanelRow(title: "Show nudges") {
                 ShiftSwitch(isOn: $model.showNudges)
             }
-            PanelRow(title: "See what one looks like") {
-                Button("Preview") { model.previewNudge() }
+        }
+    }
+
+    private var previews: some View {
+        Panel(
+            "Previews",
+            subtitle: "Feel each level of friction without waiting to be interrupted. Nothing is closed.",
+            icon: "eye"
+        ) {
+            PanelRow(title: "Nudge", detail: "The quiet HUD, for mild drift.") {
+                Button("Show") { model.previewNudge() }
                     .buttonStyle(.shiftSoft)
+            }
+            PanelRow(title: "Shield", detail: "Friction grows with each strike.") {
+                HStack(spacing: Theme.Space.tight) {
+                    ForEach(1...3, id: \.self) { strike in
+                        Button("\(strike)") { model.previewShield(strike: strike) }
+                            .buttonStyle(.shiftSoft)
+                            .accessibilityLabel("Preview shield, strike \(strike)")
+                    }
+                }
             }
         }
     }

@@ -479,3 +479,54 @@ extension ButtonStyle where Self == ProminentButtonStyle {
 extension ButtonStyle where Self == SoftButtonStyle {
     static var shiftSoft: SoftButtonStyle { SoftButtonStyle() }
 }
+
+// MARK: - Icon button
+
+/// A square icon button with a hover background.
+///
+/// The stock borderless button renders a bare glyph with no hit-target feedback, which
+/// reads as an afterthought in a dense footer. This gives every icon the same size, the
+/// same corner radius and the same hover response.
+struct IconButton: View {
+    let symbol: String
+    let help: String
+    var tint: Color?
+    var isDisabled: Bool = false
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(foreground)
+                .frame(width: 26, height: 26)
+                .background {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(isHovering && !isDisabled ? Color.primary.opacity(0.08) : .clear)
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .onHover { isHovering = $0 }
+        .help(help)
+        .accessibilityLabel(help)
+    }
+
+    private var foreground: AnyShapeStyle {
+        if isDisabled { return AnyShapeStyle(.tertiary) }
+        if let tint { return AnyShapeStyle(tint) }
+        return AnyShapeStyle(.secondary)
+    }
+}
+
+/// A hairline that matches the rest of the surfaces, rather than `Divider`'s hard line.
+struct Hairline: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.08))
+            .frame(height: 1)
+    }
+}
