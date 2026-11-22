@@ -1,0 +1,39 @@
+Shift/Assets.xcassets/AppIcon.appiconset/Contents.json
+  s_f5ff348049a200::t_017cb4037a779f 3-62,68
+CLAUDE.md
+  s_f5ff348049a200::t_d0c94a74330fa6 26-27,48-49,51,107-113
+Tools/README.md
+  s_f5ff348049a200::t_d0c94a74330fa6 1-17
+Tools/make-icon.swift
+  s_f5ff348049a200::t_d0c94a74330fa6 1-156
+Shift/UI/Onboarding/OnboardingView.swift
+  s_f5ff348049a200::t_397bc7ded4a8c8 70-71,83,88,146,175-180,215,448
+Shift/UI/PermissionsManager.swift
+  s_f5ff348049a200::t_2a39123ff13dec 3-4,6-11,13-17,22,26-36,41-44,49-54,56-60
+  s_f5ff348049a200::t_1e5c1ad682ccf8 55
+Shift.xcodeproj/project.pbxproj
+  s_f5ff348049a200::t_211df0882711c0 189,220
+Shift/App/AppModel.swift
+  s_f5ff348049a200::t_61c52dda33e55c 21,46-54,81,92-94,409-425,427-440,488,502-504
+Shift/UI/SettingsView.swift
+  s_f5ff348049a200::t_99276f5035deca 40-42,46,192-195,203-214
+Shift/UI/MenuBarView.swift
+  s_f5ff348049a200::t_f0809b5f72e236 24-28,155,214
+  s_f5ff348049a200::t_870e7b2ef23ea7 41-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "dfc4e8daeb94731b9c3cb76d70ece03b217c3851",
+  "prompts": {},
+  "sessions": {
+    "s_f5ff348049a200": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "24ef5e58-3c13-4773-98cb-ef9a0ab3390a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Prakash Joshi Pax <101010368+Beingpax@users.noreply.github.com>"
+    }
+  }
+}
