@@ -1,0 +1,39 @@
+Shift/UI/SettingsView.swift
+  s_69b7527f61fa3d::t_e7600617b8f16b 80,102
+Shift/UI/NudgeHUD.swift
+  s_69b7527f61fa3d::t_e7600617b8f16b 102-104
+Shift/Assets.xcassets/ShieldDawn.imageset/Contents.json
+  s_69b7527f61fa3d::t_1bc35e3ee6a851 1-15
+Shift/Enforcement/ShieldView.swift
+  s_69b7527f61fa3d::t_2f6b5de299f98c 118-119,123
+  s_69b7527f61fa3d::t_1bc35e3ee6a851 79-88,110
+  s_69b7527f61fa3d::t_ce3ce06c9c95cf 89-93,96-99,106-107
+  s_69b7527f61fa3d::t_9bcc98f157124a 120-122
+  s_69b7527f61fa3d::t_5f4cd68f7c14bf 40-46,48-56,94-95,100-101,104
+CLAUDE.md
+  s_69b7527f61fa3d::t_4ddac6d116ae50 142-147,154-162
+Shift/App/AppModel.swift
+  s_69b7527f61fa3d::t_e7600617b8f16b 279-281
+Shift/Enforcement/NudgeLadder.swift
+  s_69b7527f61fa3d::t_0a7d8eace65476 20-27
+  s_69b7527f61fa3d::t_e7600617b8f16b 74-77
+  s_69b7527f61fa3d::t_4206778c76cad9 36-39,42-43,48,60-61,64-71,73,78-79
+CREDITS.md
+  s_69b7527f61fa3d::t_1bc35e3ee6a851 1-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9b8d94fac7fddc488d5010457f231ddd53e19f22",
+  "prompts": {},
+  "sessions": {
+    "s_69b7527f61fa3d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d1c6e29d-d63b-44e1-b385-ebd8b9ab9f38",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Prakash Joshi Pax <101010368+Beingpax@users.noreply.github.com>"
+    }
+  }
+}
