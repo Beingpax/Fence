@@ -30,7 +30,6 @@ enum Theme {
 
     /// The menu bar popover width. Matches the HIG guidance to keep menu bar extras narrow.
     static let menuWidth: CGFloat = 352
-    static let settingsSize = CGSize(width: 580, height: 500)
     static let onboardingSize = CGSize(width: 680, height: 560)
 
     static let mainWindowSize = CGSize(width: 960, height: 640)

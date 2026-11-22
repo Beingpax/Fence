@@ -12,10 +12,15 @@ struct ShiftApp: App {
             MenuBarLabel(model: model)
         }
         .menuBarExtraStyle(.window)
-
-        Settings {
-            SettingsView()
-                .environment(model)
+        // Settings is a section of the main window, not a second window. Cmd+, still
+        // works and opens the window there.
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    model.presentMainWindow(section: .settings)
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
         }
     }
 }

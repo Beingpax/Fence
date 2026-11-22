@@ -101,6 +101,10 @@ Rules that are easy to get wrong, and are covered by the tests:
 
 ## Product decisions (don't relitigate without asking)
 
+- **One window.** Settings is a section of the main window, not a `Settings` scene, so a
+  menu bar app never puts two windows on screen. `MainSection` drives the sidebar, the
+  model owns the selection, and Cmd+, opens the window at Settings. Don't reintroduce
+  `SettingsLink`; it needs a `Settings` scene and there isn't one.
 - **Blocks, not sessions.** A timer can't express "never Instagram" or "no games on
   weeknights". The old `FocusSession`, `BlockRules` and `Strictness` types are gone.
 - **Locking and friction are different things.** The lock decides whether the switch works.
@@ -161,9 +165,10 @@ Shift/
 ├── Intelligence/   BlockEvaluator (tier 0), Hysteresis
 ├── Enforcement/    ShieldController, ShieldView, ShieldPolicy, GuardState,
 │                   LaunchAtLogin, WatchdogService, WatchdogRunner
-└── UI/             DesignSystem, MenuBarView, SettingsView, NudgeHUD, PermissionsManager,
-                    Main/ (MainWindowController, MainWindowView, DashboardView,
-                    BlockEditorView), Onboarding/
+└── UI/             DesignSystem, MenuBarView, SettingsView (a pane, not a scene),
+                    NudgeHUD, PermissionsManager, Main/ (MainWindowController,
+                    MainWindowView + MainSection, DashboardView, BlockEditorView),
+                    Onboarding/
 ```
 
 ### Where glass belongs

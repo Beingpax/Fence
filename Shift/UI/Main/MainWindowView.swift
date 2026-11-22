@@ -5,33 +5,36 @@ import SwiftUI
 /// Structure follows the platform rather than the web app it's inspired by. A
 /// `NavigationSplitView` gives the standard sidebar behaviour for free, including the
 /// collapse control, the translucent material, and full-height layout under the title bar.
-struct MainWindowView: View {
-    @Environment(AppModel.self) private var model
-    @State private var section: Section? = .blocks
-    @State private var editing: Block?
-    @State private var isCreating = false
+/// Sections of the main window. Settings is one of these rather than a separate window:
+/// a menu bar app with two windows is one window too many.
+enum MainSection: String, CaseIterable, Identifiable, Hashable {
+    case dashboard, blocks, activity, settings
 
-    enum Section: String, CaseIterable, Identifiable, Hashable {
-        case dashboard, blocks, activity
+    var id: String { rawValue }
 
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .dashboard: "Dashboard"
-            case .blocks: "Blocks"
-            case .activity: "Activity"
-            }
-        }
-
-        var symbol: String {
-            switch self {
-            case .dashboard: "gauge.with.dots.needle.33percent"
-            case .blocks: "shield.lefthalf.filled"
-            case .activity: "list.bullet.rectangle"
-            }
+    var title: String {
+        switch self {
+        case .dashboard: "Dashboard"
+        case .blocks: "Blocks"
+        case .activity: "Activity"
+        case .settings: "Settings"
         }
     }
+
+    var symbol: String {
+        switch self {
+        case .dashboard: "gauge.with.dots.needle.33percent"
+        case .blocks: "shield.lefthalf.filled"
+        case .activity: "list.bullet.rectangle"
+        case .settings: "gearshape"
+        }
+    }
+}
+
+struct MainWindowView: View {
+    @Environment(AppModel.self) private var model
+    @State private var editing: Block?
+    @State private var isCreating = false
 
     var body: some View {
         NavigationSplitView {
@@ -39,6 +42,8 @@ struct MainWindowView: View {
         } detail: {
             detail
         }
+        // The selection lives on the model so the menu bar and Cmd+, can open the
+        // window straight to a section.
         .navigationTitle("Shift")
         .frame(minWidth: 820, minHeight: 520)
         .sheet(item: $editing) { block in
@@ -58,8 +63,12 @@ struct MainWindowView: View {
     }
 
     private var sidebar: some View {
-        List(selection: $section) {
-            ForEach(Section.allCases) { item in
+        let selection = Binding<MainSection?>(
+            get: { model.mainSection },
+            set: { if let new = $0 { model.mainSection = new } }
+        )
+        return List(selection: selection) {
+            ForEach(MainSection.allCases) { item in
                 Label(item.title, systemImage: item.symbol)
                     .tag(item)
             }
@@ -72,13 +81,15 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private var detail: some View {
-        switch section ?? .blocks {
+        switch model.mainSection {
         case .dashboard:
             DashboardView(onCreateBlock: { isCreating = true }, onEdit: { editing = $0 })
         case .blocks:
             BlocksView(onEdit: { editing = $0 }, onCreate: { isCreating = true })
         case .activity:
             ActivityView()
+        case .settings:
+            SettingsView()
         }
     }
 }
@@ -99,7 +110,9 @@ private struct SidebarFooter: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                SettingsLink {
+                Button {
+                    model.mainSection = .settings
+                } label: {
                     Image(systemName: "gearshape")
                 }
                 .buttonStyle(.borderless)

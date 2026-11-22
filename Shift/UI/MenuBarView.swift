@@ -101,11 +101,14 @@ struct MenuBarView: View {
             .fixedSize()
             .help("Preview")
 
-            SettingsLink {
+            Button {
+                model.presentMainWindow(section: .settings)
+            } label: {
                 Image(systemName: "gearshape")
             }
             .buttonStyle(.borderless)
             .help("Settings")
+            .accessibilityLabel("Settings")
 
             Button {
                 NSApp.terminate(nil)

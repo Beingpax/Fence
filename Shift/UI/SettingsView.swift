@@ -1,17 +1,22 @@
 import SwiftUI
 
+/// Settings, as a pane in the main window rather than a separate window.
+///
+/// Everything Shift can be configured with now lives behind one sidebar, so there is only
+/// ever one Shift window on screen. The three groups that used to be tabs are sections of
+/// a single form, which reads better in a detail pane than nested tabs would.
 struct SettingsView: View {
+    @Environment(AppModel.self) private var model
+
     var body: some View {
-        TabView {
+        Form {
             GeneralSettingsView()
-                .tabItem { Label("General", systemImage: "gearshape") }
             PermissionsSettingsView()
-                .tabItem { Label("Permissions", systemImage: "lock.shield") }
             IntelligenceSettingsView()
-                .tabItem { Label("Intelligence", systemImage: "sparkles") }
         }
-        .frame(width: Theme.settingsSize.width, height: Theme.settingsSize.height)
-        .onAppear { NSApp.activate() }
+        .formStyle(.grouped)
+        .navigationTitle("Settings")
+        .onAppear { model.refreshSystemState() }
     }
 }
 
@@ -22,7 +27,7 @@ private struct GeneralSettingsView: View {
 
     var body: some View {
         @Bindable var model = model
-        Form {
+        Group {
             Section {
                 Toggle("Open Shift at login", isOn: Binding(
                     get: { model.launchAtLoginEnabled },
@@ -88,8 +93,6 @@ private struct GeneralSettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
-        .onAppear { model.refreshSystemState() }
     }
 }
 
@@ -99,7 +102,7 @@ private struct PermissionsSettingsView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        Form {
+        Group {
             Section {
                 permissionRow(
                     title: "Accessibility",
@@ -117,7 +120,7 @@ private struct PermissionsSettingsView: View {
                 )
                 permissionRow(
                     title: "Screen Recording",
-                    detail: "Optional. Only used by the on-screen text reader arriving in M2. Shift works fully without it.",
+                    detail: "Only needed by blocks that use on-screen words. Everything else works without it.",
                     granted: model.screenRecordingGranted,
                     actionTitle: model.screenRecordingGranted ? nil : "Grant…",
                     action: model.screenRecordingGranted ? nil : { model.requestScreenRecordingPermission() }
@@ -142,7 +145,6 @@ private struct PermissionsSettingsView: View {
                 }
             }
         }
-        .formStyle(.grouped)
         .onAppear { model.refreshPermissions() }
         .task {
             while !Task.isCancelled {
@@ -184,19 +186,27 @@ private struct PermissionsSettingsView: View {
 // MARK: - Intelligence
 
 private struct IntelligenceSettingsView: View {
+    @Environment(AppModel.self) private var model
+
     var body: some View {
-        Form {
+        Group {
             Section {
                 tierRow(
                     "Rules",
-                    detail: "Window titles, addresses and path-aware rules. Instant, and works with nothing installed.",
+                    detail: "Window titles, addresses and path-aware rules, across every active block. Instant, and needs nothing installed.",
                     status: "Active",
                     isActive: true
                 )
                 tierRow(
+                    "On-screen text",
+                    detail: "Reads the frontmost window with screen capture and text recognition, so blocks can match words the address never mentions.",
+                    status: model.screenRecordingGranted ? "Active" : "Needs permission",
+                    isActive: model.screenRecordingGranted
+                )
+                tierRow(
                     "Page text",
-                    detail: "Reads the page through the accessibility tree, with on-screen text recognition as the fallback.",
-                    status: "M2",
+                    detail: "Reads the page straight from the accessibility tree, which is exact and costs nothing.",
+                    status: "Next",
                     isActive: false
                 )
                 tierRow(
@@ -218,7 +228,6 @@ private struct IntelligenceSettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
     }
 
     private func tierRow(_ title: String, detail: String, status: String, isActive: Bool) -> some View {

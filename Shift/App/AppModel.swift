@@ -30,6 +30,10 @@ final class AppModel {
     /// Mirrors the engine so the UI can show whether Shift is actually watching.
     private(set) var isWatching = false
 
+    /// Which section the main window is showing. Owned here so the menu bar and the
+    /// Settings command can open the window straight to a section.
+    var mainSection: MainSection = .blocks
+
     /// Strikes within the current stretch of active blocking, keyed by block.
     private(set) var strikes: [UUID: Int] = [:]
 
@@ -365,7 +369,8 @@ final class AppModel {
 
     // MARK: Windows
 
-    func presentMainWindow() {
+    func presentMainWindow(section: MainSection? = nil) {
+        if let section { mainSection = section }
         mainWindow.present(model: self)
     }
 
