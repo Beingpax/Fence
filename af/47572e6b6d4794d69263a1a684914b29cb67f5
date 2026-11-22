@@ -1,0 +1,80 @@
+Shift/UI/PermissionsManager.swift
+  s_f5ff348049a200::t_d92af293a0f276 22-24
+Shift/UI/Onboarding/OnboardingView.swift
+  s_f5ff348049a200::t_20cdd949876051 16-17,103,231-232,234,237,240-254,263-264,312,317-328,330,332
+Shift/UI/MenuBarView.swift
+  s_f5ff348049a200::t_d49e61aeabb5a0 3,5-6,16-17,19,22-23,31,50-54,62-84,87-92,94,96-98,100,102,117,124-125,127,129,132-133,135-142,145,147-154,156,159-162,165-172,205
+Shift/Models/DistractionPreset.swift
+  s_f5ff348049a200::t_4d222fd067f5a5 3
+  s_f5ff348049a200::t_15ab97ff990621 123-127,131-137,141-142,145-147,157-161
+Shift/UI/Main/BlockEditorView.swift
+  s_f5ff348049a200::t_9ac4dba076f0ab 1-492,505,510-511
+  s_f5ff348049a200::t_511bac41ba08b1 493-504,506-509
+Shift/Enforcement/ShieldView.swift
+  s_f5ff348049a200::t_568442a52504cf 84-94,144-163
+Tools/run-block-tests.sh
+  s_f5ff348049a200::t_dd9c9c7cdf33d1 1-11
+Shift/UI/Main/MainWindowView.swift
+  s_f5ff348049a200::t_b29260cbdcc802 1-388
+Shift/Enforcement/ShieldPolicy.swift
+  s_f5ff348049a200::t_3ff5ad659c2e20 3-6,13-14,23,26,41-44,48-49,54,58,62
+Shift/Detection/ContextMonitor.swift
+  s_f5ff348049a200::t_3ff5ad659c2e20 2,4,6-10,14-16,19-23,26,31,41,44-46,54-55,62-66,68-70,77-104
+Shift/Models/BlockStore.swift
+  s_f5ff348049a200::t_59ed02838607b4 22-23,35,64
+  s_f5ff348049a200::t_4a3c7e466d854c 1-13,15-21,24-34,36-63,65-334
+  s_f5ff348049a200::t_d92af293a0f276 14
+CLAUDE.md
+  s_f5ff348049a200::t_0882ecd12f49d4 38-60,154-166,185-188,204-205
+  s_f5ff348049a200::t_d7ba7c8548509a 9-23,62-100,104-107,116
+PRD.md
+  s_f5ff348049a200::t_7625b70fe1a023 78-103,108-109,116
+Shift/Intelligence/BlockEvaluator.swift
+  s_f5ff348049a200::t_503bec249056b5 3-11,13-21,23-25,28-31,33-72,74,76-93,95-96,100-106,109-112,115,117-118,121
+Shift/Detection/Browser.swift
+  s_f5ff348049a200::t_6104d78023a51f 2,5-11,25,29-45,48,50,54-55,58,60,65-67,71-73,77,79-87,89-131
+Shift/Detection/ScreenTextReader.swift
+  s_f5ff348049a200::t_de39d8f21bdc8f 1,3-5,7,9-153,156-158
+Shift/UI/Main/MainWindowController.swift
+  s_f5ff348049a200::t_1002641a209079 1-2,4-11,13-18,20-21,23-38,40,43-44
+Shift/UI/SettingsView.swift
+  s_f5ff348049a200::t_20cdd949876051 80-82
+Shift.xcodeproj/project.pbxproj
+  s_f5ff348049a200::t_2b3c1455003053 209,223,241
+Tools/BlockLogicTests/main.swift
+  s_f5ff348049a200::t_dd9c9c7cdf33d1 1-87
+Shift/Detection/WindowInspector.swift
+  s_f5ff348049a200::t_3ff5ad659c2e20 14-19
+  s_f5ff348049a200::t_6104d78023a51f 2,5-8,10-13,24-25,34-35
+Shift/UI/Main/DashboardView.swift
+  s_f5ff348049a200::t_84dbb07319a5b6 1-215
+Shift/Models/Block.swift
+  s_f5ff348049a200::t_c12e97c329b6ca 3-252,258-262,266,268-272,278-282,287-300,302-306,308-314,317-332,334-351,353-364,367-373,375-380
+Shift/UI/NudgeHUD.swift
+  s_f5ff348049a200::t_d92af293a0f276 49,58-61,104-106,111-118
+  s_f5ff348049a200::t_568442a52504cf 23,26,141,159
+Shift/UI/DesignSystem.swift
+  s_f5ff348049a200::t_1002641a209079 36-37,165-200
+Shift/App/AppModel.swift
+  s_f5ff348049a200::t_62f3968ff5ba25 5-9,13,20-21,30-34,54-57,66,69-70,78,82,97,99,101-102,107,110,113,120-121,123,125-131,133-158,162-165,168,170-172,180,182-183,201,212,221-230,241-246,260-261,266,268-282,287-339,348-351,353-354,363,366-370,404-408,428,436,438,440,452,471-473
+Shift/App/ShiftApp.swift
+  s_f5ff348049a200::t_d49e61aeabb5a0 25-26,31-35,38-42,45-47
+Shift/Models/Verdict.swift
+  s_f5ff348049a200::t_503bec249056b5 3,13-20,23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "af47572e6b6d4794d69263a1a684914b29cb67f5",
+  "prompts": {},
+  "sessions": {
+    "s_f5ff348049a200": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "24ef5e58-3c13-4773-98cb-ef9a0ab3390a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Prakash Joshi Pax <101010368+Beingpax@users.noreply.github.com>"
+    }
+  }
+}
