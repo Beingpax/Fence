@@ -3,7 +3,6 @@ import SwiftUI
 
 /// Hosts the main window.
 ///
-/// Shift has no Dock icon by default, so there is no window unless one is asked for.
 /// Keeping the window in an AppKit controller rather than a SwiftUI `Window` scene means
 /// we can decide exactly when it appears, and bring it back without a scene round trip.
 @MainActor

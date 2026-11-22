@@ -38,9 +38,9 @@ final class InstalledApps {
     }
 
     func matching(_ query: String) -> [InstalledApp] {
-        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        let trimmed = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !trimmed.isEmpty else { return apps }
-        return apps.filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
+        return apps.filter { $0.searchName.contains(trimmed) }
     }
 
     private nonisolated static func scan() async -> [InstalledApp] {
@@ -76,8 +76,10 @@ final class InstalledApps {
                         ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
                         ?? url.deletingPathExtension().lastPathComponent
 
+                    // `icon(forFile:)` is the expensive call here. Ask for a small
+                    // representation and let AppKit cache it.
                     let icon = NSWorkspace.shared.icon(forFile: url.path)
-                    icon.size = NSSize(width: 32, height: 32)
+                    icon.size = NSSize(width: 24, height: 24)
 
                     results.append(InstalledApp(bundleID: bundleID, name: name, icon: icon))
                 }
@@ -91,11 +93,20 @@ final class InstalledApps {
 struct InstalledApp: Identifiable, Hashable, @unchecked Sendable {
     let bundleID: String
     let name: String
+    /// Lowercased once at scan time, so filtering doesn't re-fold case per keystroke.
+    let searchName: String
     /// `NSImage` isn't `Sendable`; these are created once during the scan and only ever
     /// read afterwards, which is why the conformance is unchecked.
     let icon: NSImage?
 
     var id: String { bundleID }
+
+    init(bundleID: String, name: String, icon: NSImage?) {
+        self.bundleID = bundleID
+        self.name = name
+        self.searchName = name.lowercased()
+        self.icon = icon
+    }
 
     static func == (lhs: InstalledApp, rhs: InstalledApp) -> Bool { lhs.bundleID == rhs.bundleID }
     func hash(into hasher: inout Hasher) { hasher.combine(bundleID) }

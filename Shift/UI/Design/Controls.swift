@@ -137,20 +137,33 @@ struct OptionCard: View {
     let detail: String
     let symbol: String
     let isSelected: Bool
+    /// Kept for call sites that want an accent, but the card itself stays neutral.
     var tint: Color = .accentColor
     let action: () -> Void
 
+    @State private var isHovering = false
+
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .top, spacing: Theme.Space.snug) {
-                Image(systemName: symbol)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(isSelected ? tint : .secondary)
-                    .frame(width: 22)
+            HStack(alignment: .center, spacing: Theme.Space.snug) {
+                ZStack {
+                    Circle()
+                        .strokeBorder(
+                            isSelected ? Color.accentColor : Color.primary.opacity(0.22),
+                            lineWidth: isSelected ? 5.5 : 1.5
+                        )
+                        .frame(width: 15, height: 15)
+                }
+                .frame(width: 18)
 
-                VStack(alignment: .leading, spacing: 2) {
+                Image(systemName: symbol)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                    .frame(width: 18)
+
+                VStack(alignment: .leading, spacing: 1) {
                     Text(title)
-                        .font(.callout.weight(.medium))
+                        .font(.callout.weight(isSelected ? .semibold : .regular))
                         .foregroundStyle(.primary)
                     Text(detail)
                         .font(.caption)
@@ -160,15 +173,21 @@ struct OptionCard: View {
                 }
 
                 Spacer(minLength: 0)
-
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 15))
-                    .foregroundStyle(isSelected ? AnyShapeStyle(tint) : AnyShapeStyle(.tertiary))
+            }
+            .padding(.horizontal, Theme.Space.snug)
+            .padding(.vertical, 9)
+            .background {
+                let shape = RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                if isSelected {
+                    shape.fill(Color(nsColor: .unemphasizedSelectedContentBackgroundColor))
+                } else if isHovering {
+                    shape.fill(Color.primary.opacity(0.04))
+                }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .glassSurface(radius: Theme.Radius.control, padding: Theme.Space.snug, tint: isSelected ? tint : nil, isSelected: isSelected)
+        .onHover { isHovering = $0 }
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityHint(detail)
     }

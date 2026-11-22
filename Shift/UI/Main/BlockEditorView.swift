@@ -294,18 +294,37 @@ struct BlockInspector: View {
     // MARK: Breaks, lock, friction
 
     private var breaks: some View {
-        Panel("Breaks", icon: "cup.and.saucer") {
-            PanelRow(title: "Allow breaks", detail: "Decided now, not in the moment.") {
+        Panel("Breaks", subtitle: "Decided now, not in the moment of weakness.", icon: "cup.and.saucer") {
+            PanelRow(title: "Allow breaks") {
                 ShiftSwitch(isOn: $draft.breaks.isEnabled, tint: tint)
                     .disabled(isLocked)
             }
 
             if draft.breaks.isEnabled {
-                PanelRow(title: "Each break") {
-                    NumberStepper(value: $draft.breaks.minutes, range: 1...60, width: 46, tint: tint)
+                VStack(alignment: .leading, spacing: Theme.Space.tight) {
+                    Text("Each break lasts")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    SegmentedSelector(
+                        selection: $draft.breaks.minutes,
+                        options: [
+                            .init(2, "2m"), .init(5, "5m"), .init(10, "10m"), .init(15, "15m"),
+                        ],
+                        tint: tint
+                    )
                 }
-                PanelRow(title: "Per day") {
-                    NumberStepper(value: $draft.breaks.allowance, range: 1...20, width: 46, tint: tint)
+
+                VStack(alignment: .leading, spacing: Theme.Space.tight) {
+                    Text("How many a day")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    SegmentedSelector(
+                        selection: $draft.breaks.allowance,
+                        options: [
+                            .init(1, "1"), .init(2, "2"), .init(3, "3"), .init(5, "5"),
+                        ],
+                        tint: tint
+                    )
                 }
             }
         }
@@ -350,9 +369,16 @@ struct BlockInspector: View {
                         .disabled(isLocked)
                 }
             case .randomString:
-                PanelRow(title: "Characters to type") {
-                    NumberStepper(value: $draft.lock.stringLength, range: 8...128, step: 8, width: 52, tint: tint)
-                        .disabled(isLocked)
+                VStack(alignment: .leading, spacing: Theme.Space.tight) {
+                    Text("Characters to type")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    SegmentedSelector(
+                        selection: $draft.lock.stringLength,
+                        options: [.init(16, "16"), .init(32, "32"), .init(64, "64"), .init(128, "128")],
+                        tint: tint
+                    )
+                    .disabled(isLocked)
                 }
             case .none, .restart:
                 EmptyView()

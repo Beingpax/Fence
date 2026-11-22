@@ -25,12 +25,14 @@ enum MainSection: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// Vivid, saturated colours: these sit on the icon tile, not behind the row, so they
+    /// need to carry on their own.
     var tint: Color {
         switch self {
-        case .dashboard: .indigo
-        case .blocks: .blue
-        case .activity: .teal
-        case .settings: .gray
+        case .dashboard: Color(nsColor: .systemOrange)
+        case .blocks: Color(nsColor: .systemIndigo)
+        case .activity: Color(nsColor: .systemTeal)
+        case .settings: Color(nsColor: .systemGray)
         }
     }
 }
@@ -48,20 +50,22 @@ struct MainWindowView: View {
     @State private var isShowingTemplates = false
 
     var body: some View {
-        @Bindable var model = model
-
-        NavigationSplitView {
+        HStack(spacing: 0) {
             Sidebar()
-        } detail: {
+
             detail
-                .inspector(isPresented: $isInspectorPresented) {
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background {
+                    Theme.detailBackground.ignoresSafeArea(.container, edges: .top)
+                }
+                .slidingPanel(isPresented: $isInspectorPresented, width: 400) {
                     inspector
-                        .inspectorColumnWidth(min: 340, ideal: 400, max: 520)
                 }
         }
-        .navigationTitle("")
         .frame(minWidth: 900, minHeight: 560)
-        .translucentWindowBackground()
+        .background {
+            Theme.workspaceBackground.ignoresSafeArea(.container, edges: .top)
+        }
         .sheet(isPresented: $isShowingTemplates) {
             TemplateGalleryView { template in
                 let block = template.makeBlock()
@@ -118,33 +122,44 @@ struct MainWindowView: View {
 private struct Sidebar: View {
     @Environment(AppModel.self) private var model
 
-    var body: some View {
-        VStack(spacing: 0) {
-            // Clears the traffic lights, which sit over the sidebar in a full-size-content
-            // window. The sidebar toggle lives here too, so leave room for both.
-            Color.clear.frame(height: 38)
+    private let navigationSections = MainSection.allCases.filter { $0 != .settings }
 
-            VStack(spacing: 3) {
-                ForEach(MainSection.allCases) { item in
-                    SidebarRow(
-                        title: item.title,
-                        symbol: item.symbol,
-                        isSelected: model.mainSection == item,
-                        tint: item.tint
-                    ) {
-                        model.mainSection = item
+    var body: some View {
+        AppSidebar {
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(spacing: SidebarLayout.rowSpacing) {
+                    ForEach(navigationSections) { section in
+                        SidebarRow(
+                            title: section.title,
+                            systemImage: section.symbol,
+                            iconColor: section.tint,
+                            isSelected: model.mainSection == section
+                        ) {
+                            model.mainSection = section
+                        }
                     }
                 }
+                .padding(.horizontal, SidebarLayout.horizontalInset)
+                .padding(.top, SidebarLayout.topInset)
+
+                Spacer(minLength: 16)
+
+                WatchStatus()
+                    .padding(.horizontal, SidebarLayout.horizontalInset)
+                    .padding(.bottom, 6)
+
+                SidebarRow(
+                    title: MainSection.settings.title,
+                    systemImage: MainSection.settings.symbol,
+                    iconColor: MainSection.settings.tint,
+                    isSelected: model.mainSection == .settings
+                ) {
+                    model.mainSection = .settings
+                }
+                .padding(.horizontal, SidebarLayout.horizontalInset)
+                .padding(.bottom, SidebarLayout.bottomInset)
             }
-            .padding(.horizontal, Theme.Space.snug)
-
-            Spacer(minLength: Theme.Space.base)
-
-            WatchStatus()
-        }
-        .navigationSplitViewColumnWidth(min: 196, ideal: 214, max: 260)
-        .background {
-            VisualEffect(surface: .sidebar, blending: .behindWindow).ignoresSafeArea()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
@@ -154,36 +169,25 @@ private struct WatchStatus: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        HStack(spacing: Theme.Space.snug) {
-            ZStack {
-                Circle()
-                    .fill(model.isWatching ? Color.green.opacity(0.18) : Color.secondary.opacity(0.12))
-                    .frame(width: 24, height: 24)
-                Circle()
-                    .fill(model.isWatching ? Color.green : Color.secondary.opacity(0.5))
-                    .frame(width: 7, height: 7)
-            }
+        HStack(spacing: 7) {
+            Circle()
+                .fill(model.isWatching ? Color.green : Color.secondary.opacity(0.45))
+                .frame(width: 7, height: 7)
 
-            VStack(alignment: .leading, spacing: 0) {
-                Text(model.isWatching ? "Watching" : "Idle")
-                    .font(.caption.weight(.semibold))
-                Text(statusDetail)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            Text(model.isWatching ? statusDetail : "No block active")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
             Spacer(minLength: 0)
         }
-        .glassSurface(radius: Theme.Radius.control, padding: Theme.Space.tight)
-        .padding(.horizontal, Theme.Space.snug)
-        .padding(.bottom, Theme.Space.snug)
+        .padding(.horizontal, 8)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(model.isWatching ? "Shift is watching" : "Shift is idle")
     }
 
     private var statusDetail: String {
         let active = model.store.activeBlocks.count
-        if active == 0 { return "No block active" }
         return "\(active) block\(active == 1 ? "" : "s") active"
     }
 }
@@ -212,14 +216,6 @@ struct BlocksView: View {
                 list
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button(action: onAddBlock) {
-                    Label("New block", systemImage: "plus")
-                }
-                .help("Add a block")
-            }
-        }
         .sheet(item: $unlockTarget) { block in
             RandomStringUnlockView(block: block)
         }
@@ -228,8 +224,14 @@ struct BlocksView: View {
     private var list: some View {
         ScrollView {
             LazyVStack(spacing: Theme.Space.snug) {
-                PageHeader("Blocks", subtitle: subtitle)
-                    .padding(.bottom, Theme.Space.tight)
+                PageHeader("Blocks", subtitle: subtitle) {
+                    Button(action: onAddBlock) {
+                        Label("New block", systemImage: "plus")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.shiftProminent)
+                }
+                .padding(.bottom, Theme.Space.tight)
 
                 ForEach(model.store.blocks) { block in
                     BlockCard(

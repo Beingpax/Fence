@@ -228,62 +228,195 @@ extension PageHeader where Trailing == EmptyView {
     }
 }
 
-// MARK: - Sidebar row
+// MARK: - Sidebar
 
-/// A sidebar item.
+/// Layout constants for the sidebar, matching the reference build in Budget-Tracker.
+enum SidebarLayout {
+    static let width: CGFloat = 220
+    static let horizontalInset: CGFloat = 10
+    /// Clears the traffic lights, which sit over the sidebar in a hidden-title-bar window.
+    static let topInset: CGFloat = 40
+    static let rowSpacing: CGFloat = 3
+    static let bottomInset: CGFloat = 14
+    static let rowHeight: CGFloat = 38
+    static let rowRadius: CGFloat = 10
+}
+
+/// The navigation surface: a fixed-width glass panel with its trailing corners rounded,
+/// so it reads as a card sitting inside the window rather than a wall attached to it.
+struct AppSidebar<Content: View>: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        let shape = UnevenRoundedRectangle(bottomTrailingRadius: 12, topTrailingRadius: 12, style: .continuous)
+        content()
+            .frame(width: SidebarLayout.width)
+            .frame(maxHeight: .infinity)
+            .background {
+                Group {
+                    if reduceTransparency {
+                        shape.fill(Color(nsColor: .windowBackgroundColor))
+                    } else {
+                        Color.clear.glassEffect(.regular, in: shape)
+                    }
+                }
+                .ignoresSafeArea(.container, edges: .top)
+            }
+    }
+}
+
+/// A sidebar item: a vivid icon tile, a title, and a neutral selected fill.
 ///
-/// Built by hand rather than with `List`'s sidebar style, which paints a solid accent
-/// capsule behind the selected row and renders SF Symbols in their multicolour form.
-/// Neither matches the rest of the app. This keeps the same translucent surface, hairline
-/// and tinted badge language used everywhere else.
+/// The selection is deliberately not tinted by the row's own colour. The tile carries the
+/// colour; the row carries the state. Tinting both makes the sidebar noisy.
 struct SidebarRow: View {
     let title: String
-    let symbol: String
+    let systemImage: String
+    let iconColor: Color
     let isSelected: Bool
-    var tint: Color = .accentColor
+    var badgeCount: Int = 0
     let action: () -> Void
 
-    @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: Theme.Space.snug) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(isSelected ? AnyShapeStyle(tint.gradient) : AnyShapeStyle(Color.primary.opacity(0.07)))
-                        .frame(width: 24, height: 24)
-                    Image(systemName: symbol)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(isSelected ? AnyShapeStyle(Color.white) : AnyShapeStyle(.secondary))
-                }
+            HStack(spacing: 9) {
+                SidebarIconTile(systemName: systemImage, background: iconColor)
+                    .accessibilityHidden(true)
 
                 Text(title)
-                    .font(.callout.weight(isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                    .font(.system(size: 13.5, weight: isSelected ? .semibold : .medium))
+                    .lineLimit(1)
 
                 Spacer(minLength: 0)
+
+                if badgeCount > 0 {
+                    Text("\(badgeCount)")
+                        .font(.system(size: 11, weight: .bold))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.accentColor, in: Capsule())
+                }
             }
-            .padding(.horizontal, Theme.Space.tight)
-            .padding(.vertical, 6)
+            .foregroundStyle(Color(nsColor: .labelColor))
+            .padding(.leading, 8)
+            .padding(.trailing, 10)
+            .frame(height: SidebarLayout.rowHeight)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                isSelected ? Color(nsColor: .unemphasizedSelectedContentBackgroundColor) : .clear,
+                in: RoundedRectangle(cornerRadius: SidebarLayout.rowRadius, style: .continuous)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: SidebarLayout.rowRadius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(title)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.12), value: isSelected)
+    }
+}
+
+/// The small coloured tile behind each sidebar glyph. The top highlight and hairline are
+/// what stop it reading as a flat square of colour.
+struct SidebarIconTile: View {
+    let systemName: String
+    let background: Color
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(background)
+                .overlay(alignment: .top) {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.white.opacity(0.18))
+                        .frame(height: 11)
+                        .blendMode(.screen)
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.24), lineWidth: 0.5)
+                }
+                .shadow(color: Color.black.opacity(0.18), radius: 1.2, y: 1)
+
+            Image(systemName: systemName)
+                .font(.system(size: 14.5, weight: .semibold))
+                .symbolRenderingMode(.monochrome)
+                .foregroundStyle(Color.white)
+                .shadow(color: Color.black.opacity(0.16), radius: 0.5, y: 0.5)
+        }
+        .frame(width: 24, height: 24)
+    }
+}
+
+// MARK: - Sliding panel
+
+/// A panel that slides in over the content from the trailing edge.
+///
+/// Modelled on how IINA reveals its settings: the panel is a floating card, inset from
+/// the window edges with its own corners and shadow, rather than a split-view column
+/// welded to the side. It overlays the content instead of squeezing it, so the list
+/// underneath keeps its layout while something is being edited.
+struct SlidingPanel<PanelContent: View>: ViewModifier {
+    @Binding var isPresented: Bool
+    var width: CGFloat = 400
+    @ViewBuilder var panel: () -> PanelContent
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .trailing) {
+                if isPresented {
+                    panelBody
+                        .transition(
+                            reduceMotion
+                                ? .opacity
+                                : .move(edge: .trailing).combined(with: .opacity)
+                        )
+                }
+            }
+            .animation(
+                reduceMotion ? .none : .spring(response: 0.34, dampingFraction: 0.86),
+                value: isPresented
+            )
+    }
+
+    private var panelBody: some View {
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        return panel()
+            .frame(width: width)
+            .frame(maxHeight: .infinity)
             .background {
-                let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
-                if isSelected {
-                    shape.fill(.ultraThinMaterial)
-                    shape.fill(tint.opacity(0.14))
-                } else if isHovering {
-                    shape.fill(Color.primary.opacity(0.05))
+                if reduceTransparency {
+                    shape.fill(Color(nsColor: .windowBackgroundColor))
+                } else {
+                    shape.fill(.regularMaterial)
                 }
             }
             .overlay {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .strokeBorder(tint.opacity(0.28), lineWidth: 1)
-                }
+                shape.strokeBorder(Color.primary.opacity(0.1), lineWidth: 1)
             }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+            .clipShape(shape)
+            .shadow(color: .black.opacity(0.22), radius: 22, x: -6, y: 6)
+            .padding(.vertical, 12)
+            .padding(.trailing, 12)
+            .padding(.leading, 0)
+    }
+}
+
+extension View {
+    /// Presents a trailing panel that slides over this view.
+    func slidingPanel<PanelContent: View>(
+        isPresented: Binding<Bool>,
+        width: CGFloat = 400,
+        @ViewBuilder panel: @escaping () -> PanelContent
+    ) -> some View {
+        modifier(SlidingPanel(isPresented: isPresented, width: width, panel: panel))
     }
 }

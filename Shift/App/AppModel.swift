@@ -100,9 +100,13 @@ final class AppModel {
         refreshSystemState()
         startEngine()
 
+        // Warm the app catalogue now. Scanning the application folders and pulling icons
+        // takes a moment, and doing it when the picker opens makes the picker feel slow.
+        InstalledApps.shared.loadIfNeeded()
+
         if !hasCompletedOnboarding {
             presentOnboarding()
-        } else if store.blocks.isEmpty {
+        } else {
             presentMainWindow()
         }
     }

@@ -32,7 +32,21 @@ enum Theme {
     static let menuWidth: CGFloat = 352
     static let onboardingSize = CGSize(width: 680, height: 560)
 
-    static let mainWindowSize = CGSize(width: 960, height: 640)
+    static let mainWindowSize = CGSize(width: 1040, height: 680)
+
+    /// Behind the whole window, including under the sidebar's rounded trailing corners.
+    static let workspaceBackground = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .black : .white
+    })
+
+    /// The content area beside the sidebar. Slightly off-white so glass cards read.
+    static let detailBackground = Color(nsColor: NSColor(name: nil) { appearance in
+        if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+            NSColor(srgbRed: 20 / 255, green: 21 / 255, blue: 24 / 255, alpha: 1)
+        } else {
+            NSColor(srgbRed: 239 / 255, green: 241 / 255, blue: 244 / 255, alpha: 1)
+        }
+    })
 
     /// Verdict colours. Deliberately desaturated so the UI stays calm; the shield is the loud surface.
     static func tint(for kind: Verdict.Kind) -> Color {
