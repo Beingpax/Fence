@@ -1,7 +1,9 @@
+import Carbon.HIToolbox
+import CoreGraphics
 import Foundation
 import os.log
 
-/// Browsers Shift can read URLs from and close tabs in, via Apple Events.
+/// Browser identities and Apple Events for closing tabs.
 ///
 /// Apple Events are synchronous round trips to another process and can take hundreds of
 /// milliseconds, or hang outright if the browser is busy. They therefore never run on the
@@ -37,40 +39,40 @@ enum Browser: String, CaseIterable, Sendable {
         }
     }
 
-    /// Firefox exposes no usable scripting dictionary for tabs, so it is read from the
-    /// window title only and its tabs can't be closed individually.
+    var isChromium: Bool {
+        switch self {
+        case .chrome, .arc, .brave, .edge: true
+        case .safari, .firefox: false
+        }
+    }
+
+    /// Firefox exposes no scripting dictionary for closing tabs.
     var supportsAppleEvents: Bool { self != .firefox }
 
-    private var urlScript: String? {
-        guard supportsAppleEvents else { return nil }
-        switch self {
-        case .safari:
-            return "tell application id \"\(bundleID)\" to return URL of current tab of front window"
-        default:
-            return "tell application id \"\(bundleID)\" to return URL of active tab of front window"
-        }
+    private var closeTabScript: String {
+        let tab = self == .safari ? "current tab" : "active tab"
+        return """
+        with timeout of 2 seconds
+            tell application id "\(bundleID)" to close \(tab) of front window
+        end timeout
+        return "closed"
+        """
     }
 
-    private var closeTabScript: String? {
-        guard supportsAppleEvents else { return nil }
-        switch self {
-        case .safari:
-            return "tell application id \"\(bundleID)\" to close current tab of front window"
-        default:
-            return "tell application id \"\(bundleID)\" to close active tab of front window"
-        }
-    }
+    func closeFrontTab(pid: pid_t) async -> Bool {
+        if supportsAppleEvents { return await AppleScriptRunner.run(closeTabScript) == "closed" }
 
-    /// The front tab's URL. Triggers the macOS Automation prompt the first time per browser.
-    func currentURL() async -> URL? {
-        guard let urlScript else { return nil }
-        guard let string = await AppleScriptRunner.run(urlScript), !string.isEmpty else { return nil }
-        return URL(string: string)
-    }
-
-    func closeFrontTab() async {
-        guard let closeTabScript else { return }
-        _ = await AppleScriptRunner.run(closeTabScript)
+        // Firefox has no tab scripting dictionary. Target its process directly, and
+        // require Accessibility so the shortcut can be delivered to that process.
+        guard PermissionsManager.isAccessibilityTrusted,
+              let down = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_ANSI_W), keyDown: true),
+              let up = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_ANSI_W), keyDown: false)
+        else { return false }
+        down.flags = .maskCommand
+        up.flags = .maskCommand
+        down.postToPid(pid)
+        up.postToPid(pid)
+        return true
     }
 }
 
@@ -82,8 +84,7 @@ enum AppleScriptRunner {
     /// also stops a backlog of events piling onto a slow browser.
     private static let queue = DispatchQueue(label: "com.beingpax.Shift.applescript", qos: .utility)
 
-    /// Beyond this, we give up waiting and let detection fall back to the window title.
-    private static let deadline: DispatchTimeInterval = .milliseconds(1500)
+    private static let deadline: DispatchTimeInterval = .seconds(3)
 
     @discardableResult
     static func run(_ source: String) async -> String? {
@@ -93,14 +94,15 @@ enum AppleScriptRunner {
             let state = ResumeOnce(continuation)
 
             queue.async {
+                guard state.isPending else { return }
                 var error: NSDictionary?
                 guard let script = NSAppleScript(source: source) else {
                     state.resume(with: nil)
                     return
                 }
                 let result = script.executeAndReturnError(&error)
-                if let error {
-                    log.debug("AppleScript failed: \(error.description, privacy: .public)")
+                if error != nil {
+                    log.debug("Browser tab action failed")
                     state.resume(with: nil)
                     return
                 }
@@ -120,6 +122,12 @@ enum AppleScriptRunner {
 
         init(_ continuation: CheckedContinuation<String?, Never>) {
             self.continuation = continuation
+        }
+
+        var isPending: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return continuation != nil
         }
 
         func resume(with value: String?) {

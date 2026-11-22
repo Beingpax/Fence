@@ -15,7 +15,6 @@ struct BlockTemplate: Identifiable {
     let paths: [String]
     let apps: [String]
     let schedule: BlockSchedule
-    let friction: Friction
     let suggestedLock: LockMethod
 
     func makeBlock() -> Block {
@@ -24,7 +23,6 @@ struct BlockTemplate: Identifiable {
         block.tint = tint
         block.list = BlockList(hosts: hosts, paths: paths, apps: apps)
         block.schedule = schedule
-        block.friction = friction
         block.lock.method = suggestedLock
         return block
     }
@@ -40,7 +38,6 @@ struct BlockTemplate: Identifiable {
             paths: ["linkedin.com/feed"],
             apps: [],
             schedule: .always,
-            friction: .firm,
             suggestedLock: .none
         ),
         BlockTemplate(
@@ -52,8 +49,7 @@ struct BlockTemplate: Identifiable {
             hosts: ["instagram.com", "x.com", "twitter.com", "reddit.com", "news.ycombinator.com", "youtube.com", "tiktok.com"],
             paths: [],
             apps: ["com.hnc.Discord", "com.tinyspeck.slackmacgap", "com.apple.MobileSMS"],
-            schedule: .manual(minutes: 50),
-            friction: .severe,
+            schedule: .manual(minutes: nil),
             suggestedLock: .duration
         ),
         BlockTemplate(
@@ -66,7 +62,6 @@ struct BlockTemplate: Identifiable {
             paths: ["youtube.com/shorts", "youtube.com/feed/trending", "instagram.com/reels", "reddit.com/r/all"],
             apps: [],
             schedule: .always,
-            friction: .firm,
             suggestedLock: .none
         ),
         BlockTemplate(
@@ -81,7 +76,6 @@ struct BlockTemplate: Identifiable {
             schedule: .scheduled([
                 ScheduleWindow(days: Weekday.weekdays, start: TimeOfDay(hour: 9, minute: 0), end: TimeOfDay(hour: 12, minute: 0))
             ]),
-            friction: .firm,
             suggestedLock: .none
         ),
         BlockTemplate(
@@ -100,7 +94,6 @@ struct BlockTemplate: Identifiable {
                     end: TimeOfDay(hour: 6, minute: 0)
                 )
             ]),
-            friction: .severe,
             suggestedLock: .untilTime
         ),
         BlockTemplate(
@@ -113,7 +106,6 @@ struct BlockTemplate: Identifiable {
             paths: [],
             apps: ["com.valvesoftware.steam", "com.netflix.Netflix", "com.spotify.client"],
             schedule: .always,
-            friction: .firm,
             suggestedLock: .none
         ),
         BlockTemplate(
@@ -126,7 +118,6 @@ struct BlockTemplate: Identifiable {
             paths: [],
             apps: [],
             schedule: .always,
-            friction: .gentle,
             suggestedLock: .none
         ),
         BlockTemplate(
@@ -139,7 +130,6 @@ struct BlockTemplate: Identifiable {
             paths: [],
             apps: [],
             schedule: .always,
-            friction: .firm,
             suggestedLock: .none
         ),
     ]

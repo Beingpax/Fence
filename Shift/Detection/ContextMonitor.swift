@@ -1,29 +1,23 @@
 import AppKit
 import Foundation
 
-/// Produces `ScreenContext` readings while any block is active.
-///
-/// Threading: the monitor itself is main-actor, because it owns a timer and talks to
-/// `NSWorkspace`. The expensive parts of a reading are not. Window titles, Apple Events
-/// and screen capture each run off the main actor and are awaited, so a slow browser or a
-/// busy capture never stalls the UI. Overlapping samples are dropped rather than queued,
-/// which keeps a slow reading from building a backlog behind it.
+/// Samples cheap signals while blocks are active. Interaction invalidates semantic
+/// readings, and the next stable context can trigger a fresh on-demand text reading.
 @MainActor
 final class ContextMonitor {
     var onSample: ((ScreenContext) -> Void)?
+    var onInvalidation: (() -> Void)?
 
-    /// How often to re-read within the same app. App switches are event-driven and
-    /// immediate; this only exists to catch tab and title changes.
-    var pollInterval: TimeInterval = 1.5
-
-    /// Screen capture is skipped entirely unless this is on. It stays off until the
-    /// intent tier gives the captured text a consumer.
-    var wantsScreenText = false
-
-    private let screenReader = ScreenTextReader()
+    private let pollInterval: TimeInterval = 1.5
     private var timer: Timer?
     private var activationObserver: NSObjectProtocol?
+    private var interactionMonitor: Any?
+    private var tracksInteraction = false
     private var samplingTask: Task<Void, Never>?
+    private var latestContext: ScreenContext?
+    private var revision: UInt64 = 0
+    private var lastInteraction: ContinuousClock.Instant?
+    private var accessibilityPreparedPID: pid_t?
 
     var isRunning: Bool { timer != nil }
 
@@ -35,16 +29,17 @@ final class ContextMonitor {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.sample() }
+            MainActor.assumeIsolated {
+                self?.invalidate()
+                self?.sample()
+            }
         }
 
         let timer = Timer(timeInterval: pollInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.sample() }
         }
-        // Common mode so readings continue while a menu or resize loop is running.
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
-
         sample()
     }
 
@@ -53,54 +48,96 @@ final class ContextMonitor {
         timer = nil
         samplingTask?.cancel()
         samplingTask = nil
+        invalidate()
+        latestContext = nil
+        accessibilityPreparedPID = nil
+        lastInteraction = nil
+
         if let activationObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(activationObserver)
         }
         activationObserver = nil
+        trackInteraction(false)
     }
 
-    /// Forces the next screen-text read to do real work rather than trusting the change gate.
-    func invalidateScreenTextCache() {
-        Task { await screenReader.invalidateChangeGate() }
+    func trackInteraction(_ enabled: Bool) {
+        guard tracksInteraction != enabled else { return }
+        tracksInteraction = enabled
+
+        guard enabled else {
+            if let interactionMonitor { NSEvent.removeMonitor(interactionMonitor) }
+            interactionMonitor = nil
+            lastInteraction = nil
+            return
+        }
+
+        // Mouse events provide a change signal for same-page scrolling and navigation.
+        // The event's contents are unused, and there is no keyboard event monitor.
+        interactionMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.scrollWheel, .leftMouseUp, .rightMouseUp]
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.lastInteraction = .now
+                self?.invalidate()
+            }
+        }
+    }
+
+    func invalidate() {
+        revision &+= 1
+        onInvalidation?()
+    }
+
+    var interactionIsSettled: Bool {
+        guard let lastInteraction else { return true }
+        return lastInteraction.duration(to: .now) >= .milliseconds(450)
+    }
+
+    func isCurrent(_ context: ScreenContext) -> Bool {
+        isRunning && latestContext == context && context.revision == revision
+            && NSWorkspace.shared.frontmostApplication?.processIdentifier == context.processID
     }
 
     private func sample() {
-        // A reading still in flight means the previous one is slow. Skip rather than pile up.
-        guard samplingTask == nil else { return }
+        guard samplingTask == nil, isRunning else { return }
 
-        guard
-            let app = NSWorkspace.shared.frontmostApplication,
-            let bundleID = app.bundleIdentifier,
-            bundleID != Bundle.main.bundleIdentifier
-        else { return }
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              let bundleID = app.bundleIdentifier,
+              bundleID != Bundle.main.bundleIdentifier
+        else {
+            latestContext = nil
+            return
+        }
 
         let appName = app.localizedName ?? bundleID
         let pid = app.processIdentifier
-        let needsScreenText = wantsScreenText
+        let browser = Browser(bundleID: bundleID)
+        let prepareAccessibility = browser?.isChromium == true && accessibilityPreparedPID != pid
+            && PermissionsManager.isAccessibilityTrusted
+        if prepareAccessibility { accessibilityPreparedPID = pid }
 
         samplingTask = Task { [weak self] in
-            defer { self?.samplingTask = nil }
-
-            // Each of these hops off the main actor on its own.
-            async let title = WindowInspector.focusedWindowTitle(pid: pid)
-            async let url = Browser(bundleID: bundleID)?.currentURL()
-
-            var screenText: String?
-            if needsScreenText {
-                screenText = await self?.screenReader.readFrontmostWindowText(pid: pid)
+            defer {
+                // A cancelled sample may finish after a new timer has started.
+                if !Task.isCancelled { self?.samplingTask = nil }
             }
+            let snapshot = await WindowInspector.snapshot(pid: pid, browser: browser, prepareAccessibility: prepareAccessibility)
 
-            let context = await ScreenContext(
+            guard let self, !Task.isCancelled, self.isRunning,
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+            else { return }
+
+            let context = ScreenContext(
                 bundleID: bundleID,
                 appName: appName,
                 processID: pid,
-                windowTitle: title,
-                url: url,
-                screenText: screenText
+                windowTitle: snapshot.title,
+                url: snapshot.url,
+                windowID: snapshot.windowID,
+                revision: self.revision
             )
-
-            guard !Task.isCancelled else { return }
-            self?.onSample?(context)
+            self.latestContext = context
+            self.onSample?(context)
         }
     }
 }

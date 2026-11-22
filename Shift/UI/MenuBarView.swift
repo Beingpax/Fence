@@ -103,7 +103,7 @@ struct MenuBarView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Accessibility is off")
                         .font(.caption.weight(.semibold))
-                    Text("Shift can't see where you are until you grant it.")
+                    Text("Website rules and accessible page text need this permission.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -184,6 +184,7 @@ private struct MenuBlockRow: View {
             )
             .scaleEffect(0.8)
             .frame(width: 42)
+            .disabled(block.canStartTimedRun)
         }
         .padding(.horizontal, Theme.Space.tight)
         .padding(.vertical, 5)
@@ -203,6 +204,10 @@ private struct MenuBlockRow: View {
         .onHover { isHovering = $0 }
         .contentShape(Rectangle())
         .onTapGesture { model.presentMainWindow(section: .blocks) }
+        .contextMenu {
+            TimedBlockActions(block: block)
+            Button("Open Blocks") { model.presentMainWindow(section: .blocks) }
+        }
     }
 
     private var statusLine: String {
@@ -215,7 +220,7 @@ private struct MenuBlockRow: View {
         switch model.store.setEnabled(enabled, for: block.id) {
         case .changed:
             break
-        case .refusedLocked, .needsRandomString:
+        case .refusedLocked, .needsRandomString, .needsTimedStart:
             // Unlocking needs the main window, where there's room to explain it.
             model.presentMainWindow(section: .blocks)
         }
@@ -246,8 +251,8 @@ private struct LiveContextView: View {
                     Spacer(minLength: 0)
                 }
 
-                if let verdict = model.lastVerdict, verdict.kind != .allow {
-                    Text(verdict.reason)
+                if let verdict = model.lastVerdict {
+                    Text("\(verdict.source.rawValue) · \(verdict.reason)")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)

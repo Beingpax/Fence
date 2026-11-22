@@ -13,6 +13,7 @@ struct OnboardingView: View {
     @State private var selected: Set<String> = []
     @State private var customEntry = ""
     @State private var customList: [String] = []
+    @State private var focusGoal = ""
     @State private var blockName = "Distractions"
     @State private var lockChoice = LockMethod.none
     @State private var hasSeenDemo = false
@@ -179,8 +180,8 @@ struct OnboardingView: View {
             PermissionCard(
                 title: "Screen Recording",
                 detail: model.screenRecordingGranted
-                    ? "Granted. The on-screen text reader will use this when it arrives."
-                    : "Optional. Only used later for reading text in apps that don't expose it. Shift works fully without it.",
+                    ? "Granted. Shift can read text from a snapshot of the active window for goal-based blocks."
+                    : "Optional. Lets Shift read visible text when an app provides too little through Accessibility.",
                 state: model.screenRecordingGranted ? .granted : .later,
                 actionTitle: "Grant…",
                 action: { model.requestScreenRecordingPermission() }
@@ -242,13 +243,14 @@ struct OnboardingView: View {
             }
 
             VStack(alignment: .leading, spacing: Theme.Space.tight) {
+                SectionLabel(text: "Focus goal")
+                ShiftTextField(prompt: "Optional, e.g. Finish the thesis chapter", text: $focusGoal)
+                    .accessibilityLabel("Focus goal")
+            }
+
+            VStack(alignment: .leading, spacing: Theme.Space.tight) {
                 SectionLabel(text: "How hard should it be to switch off?")
-                Picker("Lock", selection: $lockChoice) {
-                    ForEach(LockMethod.allCases) { method in
-                        Text(method.title).tag(method)
-                    }
-                }
-                .labelsHidden()
+                LockMethodPicker(selection: $lockChoice)
                 Text(lockChoice.detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -322,12 +324,13 @@ struct OnboardingView: View {
         let presets = DistractionPreset.all.filter { selected.contains($0.id) }
         let list = BlockList.from(presets: presets, custom: customList)
 
-        if !list.isEmpty {
+        let goal = focusGoal.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !list.isEmpty || !goal.isEmpty {
             var block = Block(name: blockName.trimmingCharacters(in: .whitespaces).isEmpty ? "Distractions" : blockName)
             block.list = list
+            block.goal = goal
             block.schedule = .always
             block.lock.method = lockChoice
-            block.friction = .firm
             model.store.add(block)
             model.log("Created “\(block.name)”", symbol: "plus.circle")
         }
@@ -368,7 +371,7 @@ private struct WelcomeStep: View {
             ("lock.laptopcomputer", "Everything stays on this Mac",
              "No account, no screenshots uploaded, no model to download. The AI that reads the page already ships with macOS."),
             ("hand.raised.fill", "As strict as you ask for",
-             "Gentle nudges, firm friction, or a Locked session you genuinely can't end early."),
+             "Repeated blocks raise the shield level. A lock controls when you can turn a block off."),
         ]
     }
 }

@@ -1,159 +1,118 @@
+import AppKit
 import CoreGraphics
 import Foundation
-import os.log
 import ScreenCaptureKit
 import Vision
+import os.log
 
-/// Tier 1b: on-screen text, via ScreenCaptureKit and Vision.
-///
-/// This is the expensive tier, so it is gated three ways. It only runs when a block
-/// actually needs it, it only runs on the frontmost window, and it skips entirely when
-/// the picture hasn't meaningfully changed since last time. Nothing is ever written to
-/// disk: a frame exists for the length of one recognition pass and is then gone.
-protocol ScreenTextReading: Sendable {
-    func readFrontmostWindowText(pid: pid_t) async -> String?
+struct FrameFingerprint: Equatable, Sendable {
+    let value: Int
+
+    init?(image: CGImage) {
+        // Compare reduced grayscale frames conservatively. A coarse 8x8 hash can miss
+        // small changes such as a new headline on an otherwise unchanged page.
+        let side = 128
+        var pixels = [UInt8](repeating: 0, count: side * side)
+        let fingerprint: Int? = pixels.withUnsafeMutableBytes { bytes in
+            guard let context = CGContext(
+                data: bytes.baseAddress,
+                width: side,
+                height: side,
+                bitsPerComponent: 8,
+                bytesPerRow: side,
+                space: CGColorSpaceCreateDeviceGray(),
+                bitmapInfo: CGImageAlphaInfo.none.rawValue
+            ) else { return nil }
+            context.interpolationQuality = .medium
+            context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+            context.flush()
+            var hasher = Hasher()
+            hasher.combine(bytes: UnsafeRawBufferPointer(bytes))
+            return hasher.finalize()
+        }
+        guard let fingerprint else { return nil }
+        value = fingerprint
+    }
 }
 
-/// An actor, so the change-detection hash is isolated and the capture never runs on the
-/// main thread. Capture and recognition are both genuinely slow; keeping them off the
-/// main actor is what stops the UI from stuttering while a block is being evaluated.
+struct ScreenTextSample: Sendable {
+    static let limit = 2_000
+
+    var text: String?
+    var frame: FrameFingerprint?
+    var unchanged = false
+}
+
+/// Both readers return bounded text. OCR can also confirm that a newly captured frame
+/// matches one the caller already evaluated.
+protocol ScreenTextReading: Sendable {
+    func read(_ context: ScreenContext, previousFrame: FrameFingerprint?) async -> ScreenTextSample
+}
+
+/// Local, single-window screenshots. The image and Vision results stay in this call.
 actor ScreenTextReader: ScreenTextReading {
     private static let log = Logger(subsystem: "com.beingpax.Shift", category: "ScreenText")
 
-    /// Longest side of the captured frame. Vision reads small text fine at this size and
-    /// it keeps the recognition pass cheap.
-    private let maxDimension = 1280
-    /// Characters handed onward. Keeps us well inside any future model's context budget.
-    private let characterCap = 2000
-    /// Hamming distance below which two frames count as "the same screen".
-    private let sameFrameThreshold = 4
-
-    private var lastHash: UInt64?
-    private var lastPID: pid_t?
-
-    func readFrontmostWindowText(pid: pid_t) async -> String? {
-        guard PermissionsManager.isScreenRecordingGranted else { return nil }
+    func read(_ context: ScreenContext, previousFrame: FrameFingerprint?) async -> ScreenTextSample {
+        guard let windowID = context.windowID,
+              !Task.isCancelled, PermissionsManager.isScreenRecordingGranted
+        else { return ScreenTextSample() }
 
         do {
-            guard let window = try await frontmostWindow(for: pid) else { return nil }
-            guard let image = try await capture(window) else { return nil }
+            let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+            try Task.checkCancellation()
+            guard let window = content.windows.first(where: {
+                $0.windowID == windowID && $0.owningApplication?.processID == context.processID && $0.isOnScreen
+            }), !window.frame.isEmpty, await Self.isForeground(context),
+                  PermissionsManager.isScreenRecordingGranted
+            else { return ScreenTextSample() }
+            try Task.checkCancellation()
 
-            // Change gate. A screen that hasn't changed can't have changed its meaning.
-            let hash = Self.perceptualHash(of: image)
-            if let hash, lastPID == pid, let previous = lastHash,
-               Self.hammingDistance(hash, previous) <= sameFrameThreshold {
-                return nil
+            let image = try await capture(window)
+            try Task.checkCancellation()
+            guard await Self.isForeground(context), PermissionsManager.isScreenRecordingGranted else {
+                return ScreenTextSample()
             }
-            lastHash = hash
-            lastPID = pid
 
-            return try await recognizeText(in: image)
+            let frame = FrameFingerprint(image: image)
+            if let frame, frame == previousFrame {
+                return ScreenTextSample(frame: frame, unchanged: true)
+            }
+            return ScreenTextSample(text: try Self.recognizeText(in: image), frame: frame)
+        } catch is CancellationError {
+            return ScreenTextSample()
         } catch {
-            Self.log.error("Screen text read failed: \(error.localizedDescription, privacy: .public)")
-            return nil
+            Self.log.debug("Single-window capture or text recognition failed")
+            return ScreenTextSample()
         }
     }
 
-    /// Forgets the change gate, so the next read is guaranteed to do real work.
-    func invalidateChangeGate() {
-        lastHash = nil
-        lastPID = nil
+    private static func isForeground(_ context: ScreenContext) async -> Bool {
+        let activePID = await MainActor.run { NSWorkspace.shared.frontmostApplication?.processIdentifier }
+        return activePID == context.processID && WindowInspector.frontWindowID(pid: context.processID) == context.windowID
     }
 
-    // MARK: Capture
-
-    private func frontmostWindow(for pid: pid_t) async throws -> SCWindow? {
-        let content = try await SCShareableContent.excludingDesktopWindows(
-            true,
-            onScreenWindowsOnly: true
-        )
-        return content.windows
-            .filter { $0.owningApplication?.processID == pid && $0.isOnScreen }
-            .filter { $0.frame.width > 120 && $0.frame.height > 120 }
-            .max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
-    }
-
-    private func capture(_ window: SCWindow) async throws -> CGImage? {
+    private func capture(_ window: SCWindow) async throws -> CGImage {
         let filter = SCContentFilter(desktopIndependentWindow: window)
-
         let configuration = SCStreamConfiguration()
-        let scale = min(
-            1.0,
-            Double(maxDimension) / max(window.frame.width, window.frame.height)
-        )
+        let scale = min(1.0, 1280 / max(window.frame.width, window.frame.height))
         configuration.width = max(1, Int(window.frame.width * scale))
         configuration.height = max(1, Int(window.frame.height * scale))
         configuration.showsCursor = false
+        configuration.ignoreShadowsSingleWindow = true
         configuration.captureResolution = .nominal
-
-        return try await SCScreenshotManager.captureImage(
-            contentFilter: filter,
-            configuration: configuration
-        )
+        return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
     }
 
-    // MARK: Recognition
+    static func recognizeText(in image: CGImage) throws -> String? {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .fast
+        request.usesLanguageCorrection = false
+        try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
 
-    private func recognizeText(in image: CGImage) async throws -> String? {
-        try await withCheckedThrowingContinuation { continuation in
-            let request = VNRecognizeTextRequest { request, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                    return
-                }
-                let observations = request.results as? [VNRecognizedTextObservation] ?? []
-                let lines = observations.compactMap { $0.topCandidates(1).first?.string }
-                let joined = lines.joined(separator: "\n")
-                continuation.resume(returning: joined.isEmpty ? nil : String(joined.prefix(self.characterCap)))
-            }
-            // Fast is the right trade here: we're keyword matching, not transcribing.
-            request.recognitionLevel = .fast
-            request.usesLanguageCorrection = false
-
-            let handler = VNImageRequestHandler(cgImage: image, options: [:])
-            do {
-                try handler.perform([request])
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
+        let lines = request.results?.compactMap { $0.topCandidates(1).first?.string } ?? []
+        let text = String(lines.joined(separator: "\n").prefix(ScreenTextSample.limit))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
     }
-
-    // MARK: Change detection
-
-    /// Classic 8x8 average hash. Cheap, and good enough to answer "is this the same screen".
-    nonisolated static func perceptualHash(of image: CGImage) -> UInt64? {
-        let side = 8
-        var pixels = [UInt8](repeating: 0, count: side * side)
-        guard let context = CGContext(
-            data: &pixels,
-            width: side,
-            height: side,
-            bitsPerComponent: 8,
-            bytesPerRow: side,
-            space: CGColorSpaceCreateDeviceGray(),
-            bitmapInfo: CGImageAlphaInfo.none.rawValue
-        ) else { return nil }
-
-        context.interpolationQuality = .low
-        context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
-
-        let total = pixels.reduce(0) { $0 + Int($1) }
-        let average = UInt8(total / pixels.count)
-
-        var hash: UInt64 = 0
-        for (index, pixel) in pixels.enumerated() where pixel > average {
-            hash |= (1 << UInt64(index))
-        }
-        return hash
-    }
-
-    nonisolated static func hammingDistance(_ a: UInt64, _ b: UInt64) -> Int {
-        (a ^ b).nonzeroBitCount
-    }
-}
-
-/// Used when the screen reader is switched off, so the cascade has something to call.
-struct DisabledScreenTextReader: ScreenTextReading {
-    func readFrontmostWindowText(pid: pid_t) async -> String? { nil }
 }

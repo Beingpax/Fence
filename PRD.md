@@ -81,24 +81,20 @@ allowed", "no news before noon", or "games are off on weeknights", and those are
 people actually want. Cold Turkey got this right, and the block is the correct unit.
 
 - **Block:** a named, independently configured rule set. It owns what it covers, when it
-  applies, how hard it pushes back, and whether it can be switched off at all. Blocks are
+  applies, and when it can be switched off. Blocks are
   switched on and off one at a time and several can be active at once.
-- **List:** what a block covers. Websites, parts of websites, apps, on-screen words, and
-  exceptions that always win. A list runs in one of two modes: block what's listed, or
-  allow only what's listed.
-- **Schedule:** when a block applies. All the time, on recurring weekly windows, or
-  started on demand for a set number of minutes. The old "focus session" is now just the
-  third of these.
+- **List:** website domains, paths, and apps to block.
+- **Schedule:** Always, recurring Schedule, or None. A block with None starts as a timed
+  run from the block’s context menu.
 - **Lock:** whether the user may switch a block off. Engages the moment the block is
   switched on. Methods: none, for a duration, until a time, after typing a random string,
   or until the Mac restarts.
-- **Break:** a short, pre-agreed release, decided when setting the block up rather than in
-  the moment of weakness. Limited per day.
-- **Friction:** how hard the shield pushes back when hit. `Gentle`, `Firm` or `Severe`.
-  Separate from the lock: friction is about the moment, the lock is about the switch.
+- **Break:** an optional pause for one block, started from its shield. The configured
+  length applies to each break, and the number of break starts resets at local midnight.
 - **Verdict:** `allow`, `nudge` (mild drift) or `block` (confident), each with a
   one-line reason and the block that produced it.
-- **Strike:** each enforced block, counted per block. Friction escalates with every strike.
+- **Strike:** each enforced hit, counted separately for the matched rule within a block
+  or for the site or app that triggered an intent verdict. Counts reset at local midnight.
 - **Goal:** an optional intent sentence per block, shown on the shield and the input to
   the intent tier when it lands.
 
@@ -106,12 +102,12 @@ people actually want. Cold Turkey got this right, and the block is the correct u
 
 ### P0 — MVP
 - Menu bar app plus a main window with a sidebar: Dashboard, Blocks, Activity.
-- Create, edit, order and delete blocks, each with its own list, schedule, lock and friction.
+- Create, edit, order and delete blocks, each with its own list, schedule and lock.
 - Context monitor: frontmost app, window title and browser URL.
-- Rule-based classifier with sensible defaults, plus a user blocklist and allowlist.
+- Rule-based classifier with sensible defaults and editable website and app lists.
 - Path-aware rules (`youtube.com/shorts` blocked while `youtube.com` stays allowed).
 - **Full-screen shield** on all displays and Spaces, with escalating friction.
-- Shield actions: **close tab** (browsers), **force quit** (native apps), **wrong call** (teaches the allowlist).
+- Shield actions: **close tab** (browsers), **force quit** (native apps), and **take a break** when configured.
 - Hysteresis: a block requires two consistent readings.
 - Locked blocks can't be switched off, edited loosely, deleted, and Shift can't be quit.
 - "What Shift sees" panel: live view of the current context and verdict.
@@ -136,7 +132,7 @@ people actually want. Cold Turkey got this right, and the block is the correct u
 ### P4 — AI v2 and polish
 - Vision-language model for image- or video-heavy screens, where neither AX text nor OCR helps.
 - Doomscroll detection (scroll velocity plus feed layout).
-- Personal adapter trained on-device from "wrong call" feedback.
+- Personal adapter trained on-device from explicit feedback during evaluation.
 - Calendar-aware automatic sessions.
 - Accountability partner unlock codes.
 
@@ -200,7 +196,7 @@ OCR covers what the accessibility tree cannot: canvas-rendered apps, video, game
 
 AX text and OCR are built together in P2 with equal weight, then compared on real usage before either is made the default. Both run behind the same `ScreenTextReading` protocol so the cascade does not care which answered.
 
-Instrument every sample with the channel used, latency, characters returned, and whether the resulting verdict was later reversed by "wrong call". Compare over at least two weeks of daily use across Safari, Chrome, Arc, Brave, and a set of native and Electron apps.
+Instrument every sample with the channel used, latency, and characters returned. Compare over at least two weeks of daily use across Safari, Chrome, Arc, Brave, and a set of native and Electron apps.
 
 | Metric | Gate |
 |---|---|
@@ -254,17 +250,16 @@ Apple's Screen Time frameworks (FamilyControls, ManagedSettings, DeviceActivity)
 | Native app (Discord, Steam…) | **Force quit** the app |
 | Browser that keeps returning (P1) | Force quit the browser |
 
-### Escalation by strictness
-| Strike | Gentle | Firm | Locked |
-|---|---|---|---|
-| 1 | Immediate | Immediate | 10 s countdown |
-| 2 | Immediate | 15 s countdown | 30 s countdown |
-| 3+ | Immediate | 15 s + type phrase | 30 s + type phrase |
+### Automatic shield escalation
 
-The phrase is *"I am choosing to get distracted"*.
+| Strike | Level | Primary action availability |
+|---|---|---|
+| 1 | Gentle | Immediate |
+| 2 | Firm | After 15 seconds |
+| 3+ | Severe | After 30 seconds and typing the phrase |
 
-- **Nudge** verdicts never show the shield. They show a small, dismissible HUD (P1).
-- **Wrong call** is only available once the countdown has finished, so it can't be used as an escape hatch. It adds the host or app to the session allowlist and logs a training example.
+The close-tab or quit-app action stays the same across levels. The phrase is *"I am choosing to get distracted"*.
+Nudge verdicts show a dismissible HUD.
 
 ### Anti-bypass (Locked)
 - The session can't be ended and Shift can't be quit until the timer ends.
@@ -356,7 +351,7 @@ The `DistractionClassifier` and `ScreenTextReading` protocols in the skeleton ar
 
 - **Activation:** % of installs that finish a first session (target 60%).
 - **Retention:** week-4 retention of users who started 3+ sessions (target 35%).
-- **Trust:** "wrong call" taps per 10 focus hours (target under 1).
+- **Trust:** false blocks per 10 focus hours in labeled evaluations (target under 1).
 - **Efficacy:** self-reported focus improvement in the weekly recap; shield frequency trending down over 4 weeks.
 - **Performance:** idle CPU under 3%, p95 verdict latency under 150 ms for tiers 0–2, under 1 s including tier 3.
 - **Running cost:** measurably lower energy impact than the screenshot-based competitors, measured in Activity Monitor over a one-hour session. This is a marketing claim we should be able to defend.
@@ -365,7 +360,7 @@ The `DistractionClassifier` and `ScreenTextReading` protocols in the skeleton ar
 
 | Risk | Mitigation |
 |---|---|
-| False positive blocks real work (users uninstall) | Default to allow on work apps; hysteresis; "wrong call"; shield only above the confidence threshold |
+| False positive blocks real work (users uninstall) | Default to allow on work apps; hysteresis; shield only above the confidence threshold |
 | Chromium lazy accessibility tree makes tier 1a unreliable | §8.3 bake-off decides per browser; OCR is a full channel, not a stub, so falling back costs nothing |
 | Foundation Models unavailable on a user's machine | Runtime availability check; tiers 0–2 carry the product; onboarding states the degraded mode plainly |
 | Guardrail violations on ordinary page text | Treated as block evidence, never as failure or allow; reason line stays honest; rules still gate the final decision |
@@ -386,6 +381,20 @@ The `DistractionClassifier` and `ScreenTextReading` protocols in the skeleton ar
 | **M2 AI v1** | AX text and OCR channels, bake-off, embeddings, Foundation Models judge, rabbit-hole detection | +4 weeks |
 | **M3 Beta** | NE hostname filter, insights, Sparkle, notarized public beta | +4 weeks |
 | **M4 AI v2** | VLM tier, doomscroll detection, personal adapter | Post-beta |
+
+### Current implementation and remaining work
+
+| Milestone | Implemented in code | Remaining |
+|---|---|---|
+| M0 / P0 | Block CRUD and ordering, schedule, locks, breaks, website and app rules, path rules, live context, recent activity, shield, two-reading hysteresis and per-rule daily escalation | Validate shield behavior across Spaces and displays, daily rollover, and timed starts with saved blocks. |
+| M1 / P1 | Launch at login, user-level watchdog with Trash restoration, quit protection, preset-based onboarding, shield preview, settings and nudge HUD | Plain-language rule generation, guided 25-minute first block, clock and time-zone hardening, and live verification of watch and relaunch behavior. |
+| M2 / P2 | Accessibility browser URLs and text, selective single-window OCR, local reader comparison, installed-asset embedding pre-filter and Foundation Models classification against block goals | Run the §8.3 bake-off, measure latency and false blocks, calibrate semantic thresholds, and implement rabbit-hole detection and automatic same-window content change signals. |
+| M3 / P3 | | Network Extension hostname backstop, weekly insights, Sparkle and notarized public beta. |
+| M4 / P4 | | Vision-language model, doomscroll detection, on-device adaptation, calendar sessions and partner unlock codes. |
+
+The current M2 policy prefers Accessibility text. OCR handles an absent or sparse Accessibility result when Screen Recording is granted. Settings → Detection lets users opt into running both channels on the same sample. The comparison and confirmation paths retain fingerprints and verdict metadata for the current context. Screen frames and source text are transient. The model's guardrail errors contribute a nudge. Automatic shields require two compatible off-task readings.
+
+A change of focused window, title, URL or settled mouse interaction can trigger a new reading. An off-task result triggers one confirmation capture when OCR is the evidence source. Visual changes inside a static window with no interaction may go undetected. The screen capture permission flow, real window selection, browser coverage, and Apple Intelligence verdict quality still require runtime verification.
 
 M2 shrank from six weeks to four: the model downloader, signed manifest, version management and model training work are gone, offset by building two tier-1 channels instead of one.
 

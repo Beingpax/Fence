@@ -1,14 +1,16 @@
+import CoreGraphics
 import Foundation
 
 /// A snapshot of what the user is looking at right now (Tier 0 signals, PRD §8).
-struct ScreenContext: Equatable {
+struct ScreenContext: Equatable, Sendable {
     var bundleID: String
     var appName: String
     var processID: pid_t
     var windowTitle: String?
     var url: URL?
-    /// Filled by the OCR tier (P1). Always nil in the skeleton.
-    var screenText: String?
+    var windowID: CGWindowID?
+    /// Advances when focus or a mouse interaction may have changed visible content.
+    var revision: UInt64
 
     /// Lowercased host without a leading "www.".
     var host: String? {
@@ -26,7 +28,7 @@ struct ScreenContext: Equatable {
 
     /// Stable identity used by hysteresis: the same signature twice in a row means "consistent reading".
     var signature: String {
-        "\(bundleID)|\(hostAndPath ?? "")|\(windowTitle ?? "")"
+        "\(bundleID)|\(processID)|\(windowID ?? 0)|\(url?.absoluteString ?? "")|\(windowTitle ?? "")"
     }
 
     /// What we show in the UI as "where you are".

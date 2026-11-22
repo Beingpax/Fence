@@ -118,34 +118,27 @@ struct Panel<Content: View>: View {
     let title: String?
     var subtitle: String?
     var icon: String?
+    var help: String?
     @ViewBuilder var content: () -> Content
 
     init(
         _ title: String? = nil,
         subtitle: String? = nil,
         icon: String? = nil,
+        help: String? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.title = title
         self.subtitle = subtitle
         self.icon = icon
+        self.help = help
         self.content = content
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.snug) {
             if let title {
-                HStack(spacing: Theme.Space.tight) {
-                    if let icon {
-                        Image(systemName: icon)
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(.secondary)
-                    }
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                    Spacer()
-                }
-                .accessibilityAddTraits(.isHeader)
+                PanelHeading(title: title, icon: icon, help: help)
 
                 if let subtitle {
                     Text(subtitle)
@@ -158,6 +151,44 @@ struct Panel<Content: View>: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassSurface(padding: Theme.Space.base)
+    }
+}
+
+struct PanelHeading: View {
+    let title: String
+    var icon: String?
+    var help: String?
+
+    @State private var isShowingHelp = false
+
+    var body: some View {
+        HStack(spacing: Theme.Space.tight) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
+
+            Spacer(minLength: 0)
+
+            if let help {
+                IconButton(symbol: "info.circle", help: "About \(title)") {
+                    isShowingHelp.toggle()
+                }
+                .accessibilityHint(help)
+                .popover(isPresented: $isShowingHelp, arrowEdge: .trailing) {
+                    Text(help)
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(width: 240, alignment: .leading)
+                        .padding(Theme.Space.base)
+                }
+            }
+        }
     }
 }
 
@@ -187,6 +218,13 @@ struct PanelRow<Control: View>: View {
 }
 
 // MARK: - Page header
+
+extension View {
+    func mainPageInsets() -> some View {
+        padding(.horizontal, Theme.Space.wide)
+            .padding(.vertical, 26)
+    }
+}
 
 /// The title at the top of a pane.
 ///

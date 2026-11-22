@@ -30,8 +30,7 @@ struct DashboardView: View {
                     activeList
                 }
             }
-            .padding(.horizontal, 28)
-            .padding(.vertical, 26)
+            .mainPageInsets()
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .scrollBounceBehavior(.basedOnSize)

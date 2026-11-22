@@ -141,71 +141,6 @@ struct ShiftSwitch: View {
     }
 }
 
-// MARK: - Option cards
-
-/// A selectable card. Used for lock methods and friction levels, where each option needs
-/// a sentence of explanation that a popup menu can't carry.
-struct OptionCard: View {
-    let title: String
-    let detail: String
-    let symbol: String
-    let isSelected: Bool
-    /// Kept for call sites that want an accent, but the card itself stays neutral.
-    var tint: Color = .accentColor
-    let action: () -> Void
-
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(alignment: .center, spacing: Theme.Space.snug) {
-                ZStack {
-                    Circle()
-                        .strokeBorder(
-                            isSelected ? Color.accentColor : Color.primary.opacity(0.22),
-                            lineWidth: isSelected ? 5.5 : 1.5
-                        )
-                        .frame(width: 15, height: 15)
-                }
-                .frame(width: 18)
-
-                Image(systemName: symbol)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-                    .frame(width: 18)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title)
-                        .font(.callout.weight(isSelected ? .semibold : .regular))
-                        .foregroundStyle(.primary)
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .multilineTextAlignment(.leading)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, Theme.Space.snug)
-            .padding(.vertical, 9)
-            .background {
-                let shape = RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                if isSelected {
-                    shape.fill(Color(nsColor: .unemphasizedSelectedContentBackgroundColor))
-                } else if isHovering {
-                    shape.fill(Color.primary.opacity(0.04))
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-        .accessibilityHint(detail)
-    }
-}
-
 // MARK: - Time
 
 /// A time field built from two scrolling number columns rather than a stock date picker,
@@ -345,46 +280,104 @@ struct NumberStepper: View {
 
 // MARK: - Days
 
-/// Seven toggleable day pills, with shortcuts for the two sets people actually use.
+/// Seven individually selectable day buttons.
 struct DayPicker: View {
     @Binding var days: Set<Weekday>
     var tint: Color = .accentColor
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.tight) {
-            HStack(spacing: 5) {
-                ForEach(Weekday.allCases) { day in
-                    let isOn = days.contains(day)
-                    Button {
-                        if isOn { days.remove(day) } else { days.insert(day) }
-                    } label: {
-                        Text(day.letter)
-                            .font(.caption.weight(.bold))
-                            .frame(width: 30, height: 30)
-                            .background {
-                                Circle().fill(isOn ? AnyShapeStyle(tint.gradient) : AnyShapeStyle(Color.primary.opacity(0.07)))
-                            }
-                            .foregroundStyle(isOn ? .white : .secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(day.shortTitle)
-                    .accessibilityValue(isOn ? "on" : "off")
+        HStack(spacing: Theme.Space.hair) {
+            ForEach(Weekday.allCases) { day in
+                let isOn = days.contains(day)
+                Button {
+                    if isOn { days.remove(day) } else { days.insert(day) }
+                } label: {
+                    Text(day.shortTitle)
+                        .font(.caption.weight(isOn ? .semibold : .medium))
+                        .frame(maxWidth: .infinity, minHeight: 30)
+                        .foregroundStyle(isOn ? .white : .secondary)
+                        .background {
+                            RoundedRectangle(cornerRadius: Theme.Radius.control)
+                                .fill(isOn ? AnyShapeStyle(tint.gradient) : AnyShapeStyle(Color.primary.opacity(0.07)))
+                        }
+                        .contentShape(Rectangle())
                 }
-            }
-
-            HStack(spacing: Theme.Space.tight) {
-                quickSet("Weekdays", Weekday.weekdays)
-                quickSet("Every day", Set(Weekday.allCases))
-                quickSet("Weekends", [.saturday, .sunday])
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(isOn ? .isSelected : [])
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Days")
     }
+}
 
-    private func quickSet(_ title: String, _ value: Set<Weekday>) -> some View {
-        Button(title) { days = value }
-            .buttonStyle(.plain)
-            .font(.caption)
-            .foregroundStyle(days == value ? tint : .secondary)
+// MARK: - Lock method
+
+struct LockMethodPicker: View {
+    @Binding var selection: LockMethod
+    var tint: Color = .accentColor
+
+    @State private var isShowingOptions = false
+
+    var body: some View {
+        Button {
+            isShowingOptions.toggle()
+        } label: {
+            HStack(spacing: Theme.Space.tight) {
+                Label(selection.title, systemImage: selection.symbol)
+                Spacer(minLength: Theme.Space.tight)
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
+            .font(.callout.weight(.medium))
+            .padding(.horizontal, Theme.Space.snug)
+            .frame(minHeight: 32)
+            .background {
+                RoundedRectangle(cornerRadius: Theme.Radius.control)
+                    .fill(.quaternary.opacity(0.5))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.Radius.control)
+                    .strokeBorder(Color.primary.opacity(0.08))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Lock method")
+        .accessibilityValue(selection.title)
+        .popover(isPresented: $isShowingOptions, arrowEdge: .bottom) {
+            VStack(spacing: Theme.Space.hair) {
+                ForEach(LockMethod.allCases) { method in
+                    let isSelected = selection == method
+                    Button {
+                        selection = method
+                        isShowingOptions = false
+                    } label: {
+                        HStack(spacing: Theme.Space.tight) {
+                            Label(method.title, systemImage: method.symbol)
+                            Spacer(minLength: Theme.Space.tight)
+                            if isSelected {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(tint)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                        .font(.callout)
+                        .padding(.horizontal, Theme.Space.snug)
+                        .padding(.vertical, Theme.Space.tight)
+                        .background(isSelected ? tint.opacity(0.12) : .clear,
+                                    in: RoundedRectangle(cornerRadius: Theme.Radius.control))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
+                }
+            }
+            .padding(Theme.Space.tight)
+            .frame(width: 240)
+        }
     }
 }
 
@@ -404,28 +397,26 @@ struct Chip: View {
                 Image(nsImage: image)
                     .resizable()
                     .frame(width: 14, height: 14)
+                    .accessibilityHidden(true)
             } else if let symbol {
                 Image(systemName: symbol)
                     .font(.caption2)
                     .foregroundStyle(tint)
+                    .accessibilityHidden(true)
             }
             Text(text)
                 .font(.caption)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .help(text)
             if let onRemove {
-                Button(action: onRemove) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("Remove \(text)")
+                IconButton(symbol: "xmark", help: "Remove \(text)", action: onRemove)
+                    .layoutPriority(1)
             }
         }
         .padding(.leading, 8)
-        .padding(.trailing, onRemove == nil ? 8 : 6)
-        .padding(.vertical, 5)
+        .padding(.trailing, onRemove == nil ? 8 : Theme.Space.hair)
+        .padding(.vertical, onRemove == nil ? 5 : Theme.Space.hair)
         .background {
             Capsule(style: .continuous).fill(.quaternary.opacity(0.55))
         }

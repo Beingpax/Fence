@@ -217,7 +217,11 @@ struct BlocksView: View {
     var body: some View {
         Group {
             if model.store.blocks.isEmpty {
-                EmptyBlocksView(onAddBlock: onAddBlock)
+                VStack(spacing: Theme.Space.base) {
+                    PageHeader("Blocks")
+                    EmptyBlocksView(onAddBlock: onAddBlock)
+                }
+                .mainPageInsets()
             } else {
                 list
             }
@@ -265,7 +269,7 @@ struct BlocksView: View {
                 .buttonStyle(.plain)
                 .padding(.top, Theme.Space.tight)
             }
-            .padding(Theme.Space.loose)
+            .mainPageInsets()
         }
         .scrollBounceBehavior(.basedOnSize)
     }
@@ -325,16 +329,19 @@ struct BlockCard: View {
                 action: { toggle(to: $0) }
             )
             .accessibilityLabel("\(block.name) enabled")
+            .disabled(block.canStartTimedRun)
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .glassSurface(tint: isActive ? Color.accentColor : nil, isSelected: isSelected)
         .contextMenu {
             Button("Edit", action: onSelect)
-            if case .manual = block.schedule, !block.isEnabled {
-                Button("Start for 25 minutes") { model.store.startManualRun(id: block.id, minutes: 25) }
-                Button("Start for 50 minutes") { model.store.startManualRun(id: block.id, minutes: 50) }
-            }
+            TimedBlockActions(block: block)
+            Divider()
+            Button("Move up") { model.store.move(id: block.id, by: -1) }
+                .disabled(!model.store.canMove(id: block.id, by: -1))
+            Button("Move down") { model.store.move(id: block.id, by: 1) }
+                .disabled(!model.store.canMove(id: block.id, by: 1))
             Divider()
             Button("Delete", role: .destructive) {
                 if !model.store.delete(id: block.id) { showingLockedNotice = true }
@@ -364,6 +371,25 @@ struct BlockCard: View {
             showingLockedNotice = true
         case .needsRandomString:
             onRequestStringUnlock()
+        case .needsTimedStart:
+            break
+        }
+    }
+}
+
+struct TimedBlockActions: View {
+    @Environment(AppModel.self) private var model
+    let block: Block
+
+    var body: some View {
+        if block.canStartTimedRun {
+            ForEach([25, 50, 90], id: \.self) { minutes in
+                Button("Start for \(minutes) minutes") {
+                    if model.store.startManualRun(id: block.id, minutes: minutes) {
+                        model.log("Started \(block.name) for \(minutes) minutes", symbol: "timer")
+                    }
+                }
+            }
         }
     }
 }
@@ -408,7 +434,6 @@ private struct EmptyBlocksView: View {
             .buttonStyle(.shiftProminent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(Theme.Space.vast)
     }
 }
 
@@ -580,15 +605,14 @@ struct ActivityView: View {
             if model.activity.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
                     PageHeader("Activity")
-                        .padding(.horizontal, 28)
-                        .padding(.vertical, 26)
                     ContentUnavailableView(
                         "Nothing yet",
                         systemImage: "clock",
                         description: Text("Blocks, nudges and shields show up here as they happen.")
                     )
-                    .frame(maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 }
+                .mainPageInsets()
             } else {
                 ScrollView {
                     LazyVStack(spacing: 2) {
@@ -617,9 +641,9 @@ struct ActivityView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 26)
+                    .mainPageInsets()
                 }
+                .scrollBounceBehavior(.basedOnSize)
             }
         }
     }

@@ -196,7 +196,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Shift;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Shift reads the current tab's address to check it against your focus goal, and closes distracting tabs when you ask it to.";
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Shift closes the active browser tab when you choose Close this tab on a shield.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -228,7 +228,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Shift;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Shift reads the current tab's address to check it against your focus goal, and closes distracting tabs when you ask it to.";
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Shift closes the active browser tab when you choose Close this tab on a shield.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

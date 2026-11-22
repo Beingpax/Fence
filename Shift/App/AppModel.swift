@@ -34,9 +34,6 @@ final class AppModel {
     /// Settings command can open the window straight to a section.
     var mainSection: MainSection = .blocks
 
-    /// Strikes within the current stretch of active blocking, keyed by block.
-    private(set) var strikes: [UUID: Int] = [:]
-
     var showNudges: Bool {
         didSet { Preferences.showNudges = showNudges }
     }
@@ -59,11 +56,33 @@ final class AppModel {
         didSet { Preferences.driftKeywords = driftKeywords }
     }
 
+    var compareTextReaders: Bool {
+        didSet {
+            Preferences.compareTextReaders = compareTextReaders
+            resetIntent()
+            monitor.invalidate()
+        }
+    }
+
+    var intentModelAvailable: Bool { IntentClassifier.isModelAvailable }
+
     private(set) var hasCompletedOnboarding: Bool
 
     // MARK: Engine
 
+    private struct EvaluatedIntent {
+        let request: IntentRequest
+        let reading: IntentReading
+        let verdict: Verdict?
+        let needsConfirmation: Bool
+    }
+
+    @ObservationIgnored private var dailyStrikes = Preferences.dailyStrikes
     @ObservationIgnored private let monitor = ContextMonitor()
+    @ObservationIgnored private let intentClassifier = IntentClassifier()
+    @ObservationIgnored private var intentTask: Task<Void, Never>?
+    @ObservationIgnored private var intentInFlight: IntentRequest?
+    @ObservationIgnored private var evaluatedIntent: EvaluatedIntent?
     @ObservationIgnored private let shield = ShieldController()
     @ObservationIgnored private let nudgeHUD = NudgeHUDController()
     @ObservationIgnored private let onboarding = OnboardingController()
@@ -75,7 +94,6 @@ final class AppModel {
 
     @ObservationIgnored private var lastNudgeSignature: String?
     @ObservationIgnored private var lastNudgeAt = Date.distantPast
-    @ObservationIgnored private var nudgeContext: ScreenContext?
     @ObservationIgnored private let nudgeCooldown: TimeInterval = 120
 
     private init() {
@@ -84,10 +102,14 @@ final class AppModel {
         keepWatchdogAlways = Preferences.keepWatchdogAlways
         showInDock = Preferences.showInDock
         driftKeywords = Preferences.driftKeywords
+        compareTextReaders = Preferences.compareTextReaders
         hasCompletedOnboarding = Preferences.hasCompletedOnboarding
 
         monitor.onSample = { [weak self] context in
             self?.handle(context)
+        }
+        monitor.onInvalidation = { [weak self] in
+            self?.intentTask?.cancel()
         }
     }
 
@@ -115,6 +137,7 @@ final class AppModel {
         // Only reached when termination was allowed, so no lock is standing.
         GuardState.clear()
         monitor.stop()
+        resetIntent()
         engineTimer?.invalidate()
     }
 
@@ -159,18 +182,18 @@ final class AppModel {
                 log("Watching · \(active.count) block\(active.count == 1 ? "" : "s") active", symbol: "eye")
             } else {
                 monitor.stop()
+                resetIntent()
+                lastContext = nil
+                lastVerdict = nil
                 shield.dismiss()
                 nudgeHUD.hide()
-                strikes.removeAll()
                 hysteresis.reset()
                 log("Nothing active", symbol: "eye.slash")
             }
         }
 
-        // Screen capture stays off: `ScreenTextReader` is built and ready, but nothing
-        // consumes its output until the intent tier lands. Turning it on without a
-        // consumer would cost battery for nothing.
-
+        monitor.trackInteraction(active.contains { !$0.goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            && (accessibilityGranted || screenRecordingGranted))
         syncLockProtections()
 
         // Permissions change in System Settings; re-read occasionally while watching.
@@ -182,13 +205,113 @@ final class AppModel {
     // MARK: Detection → enforcement
 
     private func handle(_ context: ScreenContext) {
+        let locationChanged = lastContext?.signature != context.signature
         if lastContext != context { lastContext = context }
+        if locationChanged {
+            lastVerdict = nil
+            nudgeHUD.hide()
+        }
         guard !shield.isShowing else { return }
 
         let evaluator = BlockEvaluator(blocks: store.activeBlocks, driftKeywords: driftKeywords)
-        let verdict = evaluator.evaluate(context)
-        if lastVerdict != verdict { lastVerdict = verdict }
+        if let verdict = evaluator.ruleVerdict(for: context) {
+            resetIntent()
+            apply(verdict, to: context)
+            return
+        }
 
+        guard let request = intentRequest(for: context, evaluator: evaluator) else {
+            resetIntent()
+            apply(evaluator.fallbackVerdict(for: context, hasIntentGoals: !evaluator.intentGoals().isEmpty), to: context)
+            return
+        }
+
+        let fallback = evaluator.fallbackVerdict(for: context, hasIntentGoals: true)
+        guard monitor.interactionIsSettled else {
+            intentTask?.cancel()
+            hysteresis.reset()
+            if lastVerdict != fallback { lastVerdict = fallback }
+            return
+        }
+
+        if let result = evaluatedIntent, result.request == request, !result.needsConfirmation {
+            if hasPermission(for: result.verdict?.source) {
+                apply(result.verdict ?? fallback, to: context, intentConfirmed: false)
+            } else {
+                refreshPermissions()
+                apply(fallback, to: context)
+            }
+            return
+        }
+
+        if intentInFlight != request { intentTask?.cancel() }
+        guard intentTask == nil else { return }
+
+        let previous = evaluatedIntent.flatMap { request.canReuse($0.request) ? $0.reading : nil }
+        let confirming = evaluatedIntent?.request == request && evaluatedIntent?.needsConfirmation == true
+        intentInFlight = request
+        intentTask = Task { [weak self, intentClassifier] in
+            let reading = await intentClassifier.classify(request, previous: previous)
+            guard let self else { return }
+            self.intentTask = nil
+            self.intentInFlight = nil
+            guard !Task.isCancelled, !self.shield.isShowing, self.monitor.isCurrent(context),
+                  self.intentRequest(for: context) == request,
+                  self.hasPermission(for: reading.verdict?.source)
+            else { return }
+
+            var verdict = reading.verdict
+            let confirmed = confirming && verdict?.kind == .block
+                && previous?.verdict?.blockID == verdict?.blockID
+                && previous?.verdict?.source == verdict?.source
+            if confirming, verdict?.kind == .block, !confirmed {
+                verdict?.kind = .nudge
+            }
+
+            self.apply(verdict ?? fallback, to: context, intentConfirmed: confirmed)
+            self.evaluatedIntent = EvaluatedIntent(
+                request: request,
+                reading: reading,
+                verdict: verdict,
+                needsConfirmation: verdict?.kind == .block && !confirming
+            )
+        }
+    }
+
+    private func intentRequest(for context: ScreenContext, evaluator: BlockEvaluator? = nil) -> IntentRequest? {
+        let evaluator = evaluator ?? BlockEvaluator(blocks: store.activeBlocks, driftKeywords: driftKeywords)
+        guard evaluator.ruleVerdict(for: context) == nil, context.windowID != nil,
+              accessibilityGranted || screenRecordingGranted
+        else { return nil }
+        let goals = evaluator.intentGoals()
+        guard !goals.isEmpty else { return nil }
+        return IntentRequest(
+            context: context,
+            goals: goals,
+            accessibilityGranted: accessibilityGranted,
+            screenRecordingGranted: screenRecordingGranted,
+            compareTextReaders: compareTextReaders
+        )
+    }
+
+    private func hasPermission(for source: Verdict.Source?) -> Bool {
+        switch source {
+        case .accessibility: PermissionsManager.isAccessibilityTrusted
+        case .screenOCR: PermissionsManager.isScreenRecordingGranted
+        default: true
+        }
+    }
+
+    private func resetIntent() {
+        intentTask?.cancel()
+        evaluatedIntent = nil
+    }
+
+    private func apply(
+        _ verdict: Verdict, to context: ScreenContext,
+        intentConfirmed: Bool? = nil
+    ) {
+        if lastVerdict != verdict { lastVerdict = verdict }
         switch verdict.kind {
         case .allow:
             hysteresis.reset()
@@ -198,7 +321,12 @@ final class AppModel {
             considerNudge(verdict, on: context)
         case .block:
             nudgeHysteresis.reset()
-            guard hysteresis.register(context.signature) else { return }
+            if let intentConfirmed {
+                guard intentConfirmed else { return }
+            } else {
+                let signature = "\(context.signature)|\(verdict.blockID?.uuidString ?? "")"
+                guard hysteresis.register(signature) else { return }
+            }
             enforce(verdict, on: context)
         }
     }
@@ -213,11 +341,15 @@ final class AppModel {
 
         lastNudgeSignature = context.signature
         lastNudgeAt = Date()
-        nudgeContext = context
 
         nudgeHUD.show(reason: verdict.reason, detail: context.displayLocation) { [weak self] in
-            guard let self, let context = self.nudgeContext else { return }
-            self.enforce(.block(verdict.reason), on: context)
+            guard let self, self.monitor.isCurrent(context), !self.shield.isShowing,
+                  self.hasPermission(for: verdict.source),
+                  verdict.blockID.map({ id in self.store.activeBlocks.contains { $0.id == id } }) ?? true
+            else { return }
+            var block = verdict
+            block.kind = .block
+            self.enforce(block, on: context)
         }
         log("Nudged · \(context.displayLocation)", symbol: "arrow.turn.up.left")
     }
@@ -225,15 +357,16 @@ final class AppModel {
     private func enforce(_ verdict: Verdict, on context: ScreenContext) {
         nudgeHUD.hide()
 
+        let now = Date()
         let blockID = verdict.blockID
-        let strike = (blockID.map { strikes[$0] ?? 0 } ?? 0) + 1
-        if let blockID {
-            strikes[blockID] = strike
-            store.recordTrigger(id: blockID)
-        }
+        let target = verdict.ruleTarget ?? context.host.map(StrikeTarget.website)
+            ?? .app(context.bundleID.lowercased())
+        let strike = dailyStrikes.record(target, blockID: blockID, now: now)
+        Preferences.dailyStrikes = dailyStrikes
+        if let blockID { store.recordTrigger(id: blockID, now: now) }
 
-        let block = blockID.flatMap { store.block(id: $0) }
-        let offersBreak = block?.breaks.isEnabled == true && (block?.breaks.remainingToday ?? 0) > 0
+        let breaks = blockID.flatMap { store.block(id: $0)?.breaks }
+        let breakMinutes = breaks.flatMap { $0.remaining(at: now) > 0 ? $0.minutes : nil }
 
         log("Blocked \(context.displayLocation)", symbol: "hand.raised.fill")
 
@@ -248,42 +381,44 @@ final class AppModel {
             blockID: blockID,
             goal: verdict.goal,
             strike: strike,
-            policy: .make(friction: verdict.friction, strike: strike),
-            offersBreak: offersBreak
+            policy: .make(strike: strike),
+            breakMinutes: breakMinutes
         )
         shield.present(request) { [weak self] resolution in
-            self?.resolve(resolution, for: request)
+            self?.resolve(resolution, for: request, context: context)
         }
     }
 
-    private func resolve(_ resolution: ShieldResolution, for request: ShieldRequest) {
+    private func resolve(
+        _ resolution: ShieldResolution, for request: ShieldRequest,
+        context: ScreenContext? = nil
+    ) {
         hysteresis.reset()
         guard !request.isPreview else { return }
+        resetIntent()
+        monitor.invalidate()
 
         let app = NSRunningApplication(processIdentifier: request.processID)
         switch resolution {
         case .closeTab:
-            let bundleID = request.bundleID
-            Task { await Browser(bundleID: bundleID)?.closeFrontTab() }
-            app?.activate()
-            log("Closed tab · \(request.host ?? request.appName)", symbol: "xmark.circle")
+            guard let context, let browser = Browser(bundleID: context.bundleID), let app else { return }
+            app.activate()
+            Task {
+                let snapshot = await WindowInspector.snapshot(
+                    pid: context.processID, browser: browser, prepareAccessibility: false
+                )
+                let sameTab = NSWorkspace.shared.frontmostApplication?.processIdentifier == context.processID
+                    && snapshot.windowID == context.windowID && snapshot.url == context.url
+                    && (context.url != nil || snapshot.title == context.windowTitle)
+                let closed = sameTab ? await browser.closeFrontTab(pid: context.processID) : false
+                let result = closed ? "Close requested" : "Couldn’t close tab"
+                log("\(result) · \(context.displayLocation)", symbol: "xmark.circle")
+            }
         case .forceQuit:
             app?.forceTerminate()
             log("Quit \(request.appName)", symbol: "power")
-        case .wrongCall:
-            // Teaches the block, permanently, because the user said it was wrong.
-            if let blockID = request.blockID, var block = store.block(id: blockID) {
-                let entry = request.host ?? request.bundleID
-                if !block.list.exceptions.contains(entry) {
-                    block.list.exceptions.append(entry)
-                    store.updateRuntime(block)
-                }
-                log("Wrong call · \(entry) added to \(block.name) exceptions", symbol: "arrow.uturn.backward")
-            }
-            app?.activate()
         case .takeBreak:
             if let blockID = request.blockID, store.startBreak(id: blockID) {
-                monitor.invalidateScreenTextCache()
                 log("Break started · \(request.blockName)", symbol: "cup.and.saucer")
             }
             app?.activate()
@@ -356,8 +491,8 @@ final class AppModel {
             blockID: nil,
             goal: "Finish chapter 3",
             strike: strike,
-            policy: .make(friction: .firm, strike: strike),
-            offersBreak: strike == 1,
+            policy: .make(strike: strike),
+            breakMinutes: strike == 1 ? 5 : nil,
             isPreview: true
         )
         shield.present(request) { [weak self] resolution in
@@ -404,8 +539,11 @@ final class AppModel {
     func refreshPermissions() {
         let accessibility = PermissionsManager.isAccessibilityTrusted
         let screenRecording = PermissionsManager.isScreenRecordingGranted
-        if accessibility != accessibilityGranted { accessibilityGranted = accessibility }
-        if screenRecording != screenRecordingGranted { screenRecordingGranted = screenRecording }
+        guard accessibility != accessibilityGranted || screenRecording != screenRecordingGranted else { return }
+        accessibilityGranted = accessibility
+        screenRecordingGranted = screenRecording
+        resetIntent()
+        monitor.invalidate()
     }
 
     func requestAccessibilityPermission() {
@@ -453,11 +591,27 @@ final class AppModel {
 /// Thin `UserDefaults` wrapper so key strings live in exactly one place.
 enum Preferences {
     private enum Key {
+        static let dailyStrikes = "Shift.dailyStrikes"
         static let showNudges = "Shift.showNudges"
         static let keepWatchdogAlways = "Shift.keepWatchdogAlways"
         static let showInDock = "Shift.showInDock"
         static let driftKeywords = "Shift.driftKeywords"
+        static let compareTextReaders = "Shift.compareTextReaders"
         static let hasCompletedOnboarding = "Shift.hasCompletedOnboarding.v1"
+    }
+
+    static var dailyStrikes: DailyStrikeCounts {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: Key.dailyStrikes),
+                  let counts = try? JSONDecoder().decode(DailyStrikeCounts.self, from: data)
+            else { return DailyStrikeCounts() }
+            return counts
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                UserDefaults.standard.set(data, forKey: Key.dailyStrikes)
+            }
+        }
     }
 
     static var showNudges: Bool {
@@ -478,6 +632,11 @@ enum Preferences {
     static var driftKeywords: [String] {
         get { UserDefaults.standard.stringArray(forKey: Key.driftKeywords) ?? DriftKeywords.default }
         set { UserDefaults.standard.set(newValue, forKey: Key.driftKeywords) }
+    }
+
+    static var compareTextReaders: Bool {
+        get { UserDefaults.standard.bool(forKey: Key.compareTextReaders) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.compareTextReaders) }
     }
 
     static var hasCompletedOnboarding: Bool {

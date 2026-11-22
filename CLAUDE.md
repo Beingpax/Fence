@@ -17,8 +17,9 @@ Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (br
 - Built: main window (Dashboard, Blocks, Activity), block editor, menu bar popover,
   full-screen shield with escalation and breaks, nudge HUD, onboarding, launch at login,
   watchdog pair, quit and Trash protection, real ScreenCaptureKit and Vision text reading.
-- Not built: the intent tiers. There is still no AI. `Block.goal` is captured and shown
-  but nothing judges against it yet.
+- Goal detection now uses Accessibility or single-window OCR, local contextual embeddings
+  when their assets are installed, and Apple Foundation Models. The paired-reader comparison
+  is available in Settings. See PRD §16 for implementation and verification status.
 - **The binary has two entry points.** `Shift` is the app; `Shift --watchdog` is the
   headless watchdog. `main.swift` branches, which is why `ShiftApp` has no `@main`.
 
@@ -31,7 +32,7 @@ xcodebuild -project Shift.xcodeproj -scheme Shift -configuration Debug -destinat
 - Run from Xcode with Cmd+R. Shift is an `LSUIElement` menu bar app (◎ icon), with no Dock icon.
 - Test the shield without side effects: menu bar → *Preview shield* → Strike 1/2/3.
 - Real test: start a Firm session, open `instagram.com` or `youtube.com/shorts` in Safari or Chrome. The shield should appear in about 2–3 seconds.
-- Permissions: Accessibility (titles, page text, URLs) and, later, Screen Recording (OCR) and Automation per browser (close tab).
+- Permissions: Accessibility (titles, page text, URLs), optional Screen Recording (OCR), and Automation when closing supported browser tabs.
 - **Signing is load-bearing for permissions.** `DEVELOPMENT_TEAM = V6J6A3VWY2` is set on both configurations, so builds are signed with a real identity. Do not let this fall back to ad-hoc. macOS keys TCC grants to the designated requirement, and an ad-hoc signature puts the binary's `cdhash` in that requirement, so **every rebuild silently voids the Accessibility grant** and the app reports "not granted" while System Settings still shows it enabled. Verify with `codesign -d -r- <app>`: the requirement must name the certificate, not a `cdhash`. If a grant ever does go stale, `tccutil reset Accessibility com.beingpax.Shift` and grant it again.
 - Automated GUI testing needs Accessibility and Screen Recording granted to the terminal running Claude Code. Without them, `osascript` UI scripting fails with -1719 and `screencapture` fails outright, so shield verification has to be manual.
 
@@ -63,13 +64,12 @@ Run the model tests any time with `./Tools/run-block-tests.sh`.
 
 A **block** is the unit of everything. It owns:
 
-- a **list**: websites, paths, apps, on-screen keywords, and exceptions that always win,
-  in either `blocklist` or `allowlist` mode;
-- a **schedule**: `.always`, `.scheduled([ScheduleWindow])`, or `.manual(minutes:)`;
+- a **list**: website domains, paths and apps;
+- a **schedule**: Always, Schedule, or None. None uses the existing `.manual(minutes:)`
+  storage and starts timed runs from the block’s context menu;
 - a **lock**: `none`, `duration`, `untilTime`, `randomString`, or `restart`, which engages
   the moment the block is switched on;
-- **breaks**: optional, length and per-day allowance fixed in advance;
-- **friction**: how hard the shield pushes back, independent of the lock.
+- **breaks**: optional, with a fixed length and a count of starts per local day.
 
 Several blocks can be active at once. `BlockEvaluator` asks each active block in order and
 the first with an opinion wins. A block is active when it is enabled or locked on, is
@@ -81,7 +81,7 @@ Rules that are easy to get wrong, and are covered by the tests:
 - An `untilTime` lock set to a time already past today rolls to tomorrow.
 - A `restart` lock is released by comparing boot time, not app lifetime.
 - While locked, a block may be edited only to become stricter. Entries can be added,
-  exceptions can only be removed, and schedule, mode and lock method are frozen.
+  and the schedule, break settings and lock method are frozen.
 - `Finder`, System Settings and Shift itself are never blocked, so a bad allow-list can't
   lock someone out of fixing it.
 
@@ -92,7 +92,7 @@ Rules that are easy to get wrong, and are covered by the tests:
 - `AppModel`, `BlockStore` and the window controllers are `@MainActor`. SwiftUI reads them.
 - Anything that talks to another process runs off the main actor and is awaited:
   Accessibility reads (`WindowInspector`, 0.5 s messaging timeout), Apple Events
-  (`AppleScriptRunner`, one serial queue plus a 1.5 s deadline), and screen capture
+  (`AppleScriptRunner`, one serial queue plus a deadline), and screen capture
   (`ScreenTextReader`, an actor).
 - `ContextMonitor` drops overlapping samples rather than queueing them, so a slow reading
   can't build a backlog behind it.
@@ -105,8 +105,8 @@ Rules that are easy to get wrong, and are covered by the tests:
   A blank block is one of the options, not the only one.
 - **The app picker is in-app.** `InstalledApps` scans the application folders once, off the
   main actor, and caches icons. Don't send people to an open panel.
-- **No allow-list mode and no on-screen keyword rules.** Both were cut as clutter. A block
-  blocks what's listed, with exceptions that always win.
+- **Explicit lists contain websites, paths and apps.** The optional focus goal applies
+  intent detection to unresolved screens.
 - **One window.** Settings is a section of the main window, not a `Settings` scene, so a
   menu bar app never puts two windows on screen. `MainSection` drives the sidebar, the
   model owns the selection, and Cmd+, opens the window at Settings. Don't reintroduce
@@ -123,18 +123,21 @@ Rules that are easy to get wrong, and are covered by the tests:
 - **Everything is local.** Never send screen content, OCR text, accessibility text or URLs off the device. No cloud fallback, not even optional.
 - **Nothing to download.** The model tier is Apple's built-in Foundation Models, not a 300 MB MLX classifier. This deleted the model downloader, the CDN, the signed manifest and version management from scope. A downloader only returns in M4 for the optional VLM tier.
 - **Detection is a cheap-first cascade:** rules → page text → embeddings → Foundation Models → VLM (M4, on demand). Rules must work with no model at all.
-- **Screen capture is currently idle.** `ScreenTextReader` is built and correct, but the
-  keyword rules that consumed it were cut, so `ContextMonitor.wantsScreenText` stays false.
-  The intent tier is its next consumer. Don't switch it on without one.
-- **Screen capture only runs when a rule needs it.** The engine sets `ContextMonitor.wantsScreenText` only when an active block has keywords and Screen Recording is granted. A perceptual-hash gate then skips recognition when the screen hasn't changed. Never put capture on a timer.
-- **Two text channels, compared not assumed.** Tier 1a is page text from the accessibility tree (exact strings, no Screen Recording permission, nearly free). Tier 1b is ScreenCaptureKit + Vision OCR (covers canvas, video, games, hostile apps). Both get built in M2 and compared on real usage against the gates in PRD §8.3 before either becomes the default. Expect AX to win in browsers and OCR to win everywhere else, but prove it.
+- **Screen capture is on demand.** Explicit rules run first. An active block with a goal
+  can use OCR when Accessibility text is sparse and Screen Recording is granted. Only the
+  foreground window is captured. A matching grayscale fingerprint skips repeat OCR.
+- **Two text channels.** Accessibility is the provisional default. The optional comparison
+  runs both readers and emits only counts, durations, identifiers and verdict categories
+  to the local system log. The measurement gates in PRD §8.3 are still pending.
 - **Read URLs from the accessibility tree**, not Apple Events. That removes the per-browser Automation prompt from onboarding. Apple Events stay only for *closing* a tab.
-- **A Foundation Models guardrail violation counts as evidence for a block**, never as a failure and never as an allow. The content that trips Apple's safety filter is the content a blocker exists to catch. Say so honestly in the reason line.
+- **A Foundation Models guardrail violation contributes a nudge.** The framework can flag
+  either the prompt or its generated response, so the error alone does not raise a shield.
 - **Intent over domains:** judge the screen against the session's goal. Path-aware rules (`youtube.com/shorts` blocked, `youtube.com` allowed).
 - **Shield:** frosted full-screen window on every display and Space; while it's up, the Dock, menu bar and Cmd+Tab are disabled. The text says "Not now." plus a one-line reason.
   - Browsers: **close the tab, never quit the browser.** Native apps: force quit.
-  - **Escalation:** Firm = strike 1 immediate, strike 2 a 15 s countdown, strike 3+ 15 s plus typing *"I am choosing to get distracted"*. Locked = 10 s / 30 s / 30 s plus the phrase. Gentle = always immediate.
-  - **"Wrong call"** only unlocks after the countdown (it must not be an escape hatch). It allows that host or app for the session.
+  - **Escalation:** Gentle is immediate, Firm adds 15 seconds, and Severe adds 30 seconds
+    plus the phrase *"I am choosing to get distracted"*. The level follows the local
+    calendar day's strike count for the matched rule or intent target.
   - Only confident blocks show the shield; nudges never do. Default to allow on work apps when unsure.
 - **Locked mode:** you can't end the session or quit Shift early.
 - **Honesty:** an admin can always win. We sell friction, not a prison.
@@ -166,7 +169,7 @@ Shift/
 ├── App/            main (entry point branch), ShiftApp (MenuBarExtra + Settings),
 │                   AppDelegate (quit protection), AppModel (@Observable, @MainActor engine)
 ├── Models/         Block (+ BlockList, BlockSchedule, ScheduleWindow, BlockLock, BreakPlan,
-│                   Friction, BlockTint), BlockStore (persistence, locking, CRUD),
+│                   BlockTint), BlockStore (persistence, locking, CRUD),
 │                   ScreenContext, Verdict, ActivityEvent, DistractionPreset
 ├── Detection/      ContextMonitor (async sampling), WindowInspector (AX),
 │                   Browser + AppleScriptRunner (off-main Apple Events),
@@ -216,9 +219,10 @@ because both float over *other apps* and so must sample the desktop, which only
 Flow: `AppModel.engineTick` (1 s) decides which blocks are active and starts or stops
 detection → `ContextMonitor` sample → `AppModel.handle` → `BlockEvaluator` over the active
 blocks → `Hysteresis` (2 consistent readings) → `ShieldController.present` → resolve
-(close tab / quit app / wrong call / take a break).
+(close tab / quit app / take a break).
 
-`DistractionClassifier` and `ScreenTextReading` are the seams for every new tier. Adding a tier should not touch `AppModel`.
+`IntentClassifier` owns semantic evaluation. The Accessibility and OCR readers share
+`ScreenTextReading`. `AppModel` applies rule precedence and handles confirmation and enforcement.
 
 ## Conventions
 
@@ -233,6 +237,8 @@ blocks → `Hysteresis` (2 consistent readings) → `ShieldController.present` �
 
 - **M0 Skeleton:** done. Builds clean, runs, shield preview wired.
 - **M1 Strict MVP:** done in code, **not yet verified by hand**. Reworked in v0.3 around blocks: main window, block editor, per-block schedules, locks and breaks, launch at login, headless watchdog, quit and Trash protection, onboarding, nudge HUD, settings, screen-text reading.
-- **M2 AI v1:** `ScreenTextReader` is built (tier 1b). Still to do: `AXTextReader` (tier 1a) and the bake-off in PRD §8.3, `EmbeddingMatcher`, `FoundationModelJudge` with guided generation judging `Block.goal`, rabbit-hole detection.
+- **M2 AI v1:** Accessibility and OCR are wired into `IntentClassifier` for active
+  blocks with a goal. Still to do: the bake-off in PRD §8.3, semantic calibration,
+  automatic screen changes without interaction, and rabbit-hole detection.
 - **M3 Beta:** Network Extension hostname backstop (verify the non-MDM approval path first), weekly insights, Sparkle, notarized beta.
-- **M4 AI v2:** VLM tier (and the downloader it needs), doomscroll detection, on-device adapter from "wrong call" feedback.
+- **M4 AI v2:** VLM tier (and the downloader it needs), doomscroll detection, on-device adapter from evaluation feedback.

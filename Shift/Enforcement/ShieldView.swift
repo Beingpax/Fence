@@ -63,9 +63,9 @@ struct ShieldView: View {
 
     private var content: some View {
         VStack(spacing: Theme.Space.loose) {
-            Image(systemName: "hand.raised.fill")
+            Image(systemName: request.policy.level.symbol)
                 .font(.system(size: 50, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.9))
+                .foregroundStyle(strikeColor)
                 .accessibilityHidden(true)
 
             VStack(spacing: Theme.Space.snug) {
@@ -128,10 +128,16 @@ struct ShieldView: View {
 
     private var actions: some View {
         VStack(spacing: Theme.Space.snug) {
+            if secondsLeft > 0 {
+                Text("Available in \(secondsLeft)s")
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.75))
+            }
+
             Button {
                 onResolve(request.isBrowser ? .closeTab : .forceQuit)
             } label: {
-                Text(secondsLeft > 0 ? "Unlocks in \(secondsLeft)s" : request.primaryActionTitle)
+                Text(request.primaryActionTitle)
                     .font(.title3.weight(.semibold))
                     .frame(minWidth: 280)
                     .padding(.vertical, Theme.Space.hair + 2)
@@ -141,27 +147,23 @@ struct ShieldView: View {
             .disabled(!unlocked)
             .keyboardShortcut(.defaultAction)
 
-            HStack(spacing: Theme.Space.loose) {
-                // "Wrong call" must not be an escape hatch, so it stays locked until the
-                // countdown is done, exactly like the primary action.
-                Button("Wrong call? This is part of my work") {
-                    onResolve(.wrongCall)
+            if let minutes = request.breakMinutes {
+                Button("Take a \(minutes)-minute break") {
+                    onResolve(.takeBreak)
                 }
                 .buttonStyle(.plain)
                 .font(.callout)
                 .foregroundStyle(.white.opacity(unlocked ? 0.72 : 0.3))
                 .disabled(!unlocked)
-
-                if request.offersBreak {
-                    Button("Take a break") {
-                        onResolve(.takeBreak)
-                    }
-                    .buttonStyle(.plain)
-                    .font(.callout)
-                    .foregroundStyle(.white.opacity(unlocked ? 0.72 : 0.3))
-                    .disabled(!unlocked)
-                }
             }
+        }
+    }
+
+    private var strikeColor: Color {
+        switch request.policy.level {
+        case .gentle: .white.opacity(0.9)
+        case .firm: .orange
+        case .severe: .red
         }
     }
 
@@ -174,12 +176,12 @@ struct ShieldView: View {
                         .frame(width: 8, height: 8)
                 }
             }
-            Text("Strike \(request.strike)")
+            Text("Strike \(request.strike) · \(request.policy.level.rawValue)")
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.white.opacity(0.7))
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Strike \(request.strike)")
+        .accessibilityLabel("Strike \(request.strike), \(request.policy.level.rawValue)")
     }
 
     private func runCountdown() async {

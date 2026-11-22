@@ -133,7 +133,7 @@ struct SettingsView: View {
         ) {
             PermissionLine(
                 title: "Accessibility",
-                detail: "Reads the frontmost window and the page you're on. The one permission Shift needs.",
+                detail: "Reads the active window title, browser address and accessible page text.",
                 granted: model.accessibilityGranted,
                 action: { model.requestAccessibilityPermission() }
             )
@@ -145,7 +145,9 @@ struct SettingsView: View {
             )
             PermissionLine(
                 title: "Screen Recording",
-                detail: "Not used yet. The intent tier will read on-screen text with it.",
+                detail: model.screenRecordingGranted
+                    ? "Lets goal-based blocks read text from a snapshot of the active window when page text is unavailable."
+                    : "Optional. Goal-based blocks use accessible page text until you grant this permission.",
                 granted: model.screenRecordingGranted,
                 action: { model.requestScreenRecordingPermission() }
             )
@@ -161,7 +163,8 @@ struct SettingsView: View {
     }
 
     private var detection: some View {
-        Panel(
+        @Bindable var model = model
+        return Panel(
             "Detection",
             subtitle: "Shift works cheapest-first. Rules settle nearly everything without waking anything larger.",
             icon: "sparkles"
@@ -174,16 +177,22 @@ struct SettingsView: View {
             )
             TierLine(
                 title: "Page text",
-                detail: "Reads the page from the accessibility tree. Exact, and costs nothing.",
-                status: "Next",
-                isActive: false
+                detail: "Reads text exposed through Accessibility for blocks with a focus goal.",
+                status: model.accessibilityGranted ? "Available" : "Permission needed",
+                isActive: model.accessibilityGranted
             )
             TierLine(
                 title: "On-device model",
-                detail: "Judges a page against a block's goal, using the model built into macOS.",
-                status: "Planned",
-                isActive: false
+                detail: "Judges visible text against a block's goal using Apple Intelligence.",
+                status: model.intentModelAvailable ? "Available" : "Unavailable",
+                isActive: model.intentModelAvailable
             )
+            PanelRow(
+                title: "Compare screen text readers",
+                detail: "When both permissions are granted, run both readers and log their timing, text length and verdict on this Mac."
+            ) {
+                ShiftSwitch(isOn: $model.compareTextReaders)
+            }
         }
     }
 

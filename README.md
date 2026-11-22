@@ -1,57 +1,30 @@
 # Shift
 
-**Local AI App & Website Blocker for macOS.** Cold Turkey-level strictness, but it understands what's on your screen.
+Shift is a local app and website blocker for Apple Silicon Macs running macOS 26 or later. See the [product requirements](PRD.md) and [implementation status](PRD.md#16-milestones).
 
-See [PRD.md](PRD.md) for the full product spec.
+## Use a block
 
-## Run the demo
+Create a block from **Blocks → New block**, then add websites, paths or apps. Choose **Always**, **Schedule**, or **None**. For **None**, right-click the block in Blocks or the menu bar to start a timed run.
 
-1. Open `Shift.xcodeproj` in Xcode 16 or later (macOS 14+, Apple Silicon).
-2. Select the **Shift** target → *Signing & Capabilities* → pick your team.
-3. Press **Cmd+R**. Shift lives in the menu bar (the ◎ icon). There's no Dock icon.
+A break pauses only that block for the selected length. The daily allowance is the number of breaks you can start before local midnight. The shield automatically escalates from Gentle to Firm to Severe for repeat hits on the same rule or target, with a fresh count each local day.
 
-### Try it
-- **Preview the shield:** menu bar → *Preview shield* → Strike 1/2/3. This shows each escalation level without closing anything.
-- **Real session:** type a goal ("Finish thesis chapter"), pick **Firm**, press *Start focus*, then open `instagram.com` or `youtube.com/shorts` in Safari or Chrome.
-  - About 2–3 seconds later the shield covers every display.
-  - *Close this tab* closes only that tab. A native app such as Discord gets *Force quit*.
-  - Do it again and you'll see the 15-second countdown, then the typed phrase.
-  - `youtube.com` itself stays allowed; only Shorts is blocked (path-aware rules).
-- **What Shift sees:** the menu bar panel shows the live app, window, page and verdict.
-- **Locked mode:** you can't end the session or quit Shift until the timer runs out.
+An optional **Focus goal** enables intent detection. Explicit rules take priority. For unresolved screens, Shift reads accessible text and can use Vision to read a snapshot of the foreground window. Apple Intelligence judges the text on-device where available. **What Shift sees** shows the latest context, verdict and evidence source.
 
-### Permissions you'll be asked for
-| Permission | Why |
+## Permissions
+
+| Permission | Used for |
 |---|---|
-| Accessibility | Window titles |
-| Automation → Safari/Chrome/Arc… | Read the tab URL, close the tab |
+| Accessibility | Window titles, browser addresses and page text |
+| Screen Recording | Optional, single-window screenshots for text recognition |
+| Automation | Closing a tab in a browser with Apple Events support |
 
-Tip: while developing, macOS ties permissions to the code signature. If prompts keep coming back after rebuilds, remove Shift from *Privacy & Security* and grant it again.
+Shift keeps sampled images and page text in memory. Settings → Detection offers an optional comparison of the two text readers. The local system log collects sample IDs, durations, character counts and verdict categories.
 
-## Project layout
+## Code-only verification
 
+Run `./Tools/run-block-tests.sh` for the existing schedule and lock checks. To type-check the Swift sources for macOS 26 without producing or launching the app, run the following from the repository root.
+
+```sh
+rg --files Shift -g '*.swift' -0 |
+  xargs -0 swiftc -typecheck -swift-version 5 -strict-concurrency=complete -target arm64-apple-macosx26.0
 ```
-Shift/
-├── App/            ShiftApp (menu bar + settings scenes), AppModel (orchestration)
-├── Models/         FocusSession, Strictness, ScreenContext, Verdict, BlockRules, ActivityEvent
-├── Detection/      ContextMonitor, WindowInspector (AX), Browser (AppleScript), ScreenTextReader (P1 stub)
-├── Intelligence/   DistractionClassifier + CascadeClassifier, RuleBasedClassifier, LocalIntentModel (P1 stub), Hysteresis
-├── Enforcement/    ShieldController (windows + system lockdown), ShieldView, ShieldPolicy (escalation)
-└── UI/             MenuBarView, SettingsView, PermissionsManager
-```
-
-The project uses Xcode's folder-synced groups, so new `.swift` files dropped into `Shift/` are picked up automatically.
-
-## Flow
-
-```
-ContextMonitor ──sample──▶ AppModel.handle
-                              │ CascadeClassifier (rules now, local model in M2)
-                              │ Hysteresis (2 consistent readings)
-                              ▼
-                         ShieldController.present ──▶ close tab / force quit / wrong call
-```
-
-## Next (see PRD §16)
-- **M1:** Locked-mode hardening (login item, watchdog helper), onboarding, rule editor polish.
-- **M2:** ScreenCaptureKit + Vision OCR, MLX intent classifier, model downloader.

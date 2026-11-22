@@ -1,31 +1,71 @@
+import CryptoKit
 import Foundation
 
-/// How much friction a shield applies, escalating by strike.
-///
-/// Friction is about the moment you hit a block. Whether you can switch the block off at
-/// all is a separate question, answered by the block's lock.
+enum StrikeTarget: Sendable, Equatable {
+    case website(String)
+    case path(String)
+    case app(String)
+
+    fileprivate var identifier: String {
+        switch self {
+        case .website(let host): "website:\(host)"
+        case .path(let path): "path:\(path)"
+        case .app(let bundleID): "app:\(bundleID)"
+        }
+    }
+}
+
+/// Counts repeat detections for the current calendar day. Stored keys omit raw domains and paths.
+struct DailyStrikeCounts: Codable {
+    private var day: Date?
+    private var counts: [String: Int] = [:]
+
+    mutating func record(_ target: StrikeTarget, blockID: UUID?, now: Date) -> Int {
+        if day.map({ Calendar.current.isDate($0, inSameDayAs: now) }) != true {
+            day = now
+            counts.removeAll()
+        }
+        let identifier = "\(blockID?.uuidString ?? "unassigned")|\(target.identifier)"
+        let key = Data(SHA256.hash(data: Data(identifier.utf8))).base64EncodedString()
+        counts[key, default: 0] += 1
+        return counts[key, default: 0]
+    }
+}
+
 struct ShieldPolicy: Equatable {
-    var countdownSeconds: Int
-    var requiresPhrase: Bool
+    enum Level: String {
+        case gentle = "Gentle"
+        case firm = "Firm"
+        case severe = "Severe"
+
+        var symbol: String {
+            switch self {
+            case .gentle: "hand.raised.fill"
+            case .firm: "hand.raised.slash.fill"
+            case .severe: "exclamationmark.shield.fill"
+            }
+        }
+    }
+
+    let level: Level
+
+    var countdownSeconds: Int {
+        switch level {
+        case .gentle: 0
+        case .firm: 15
+        case .severe: 30
+        }
+    }
+
+    var requiresPhrase: Bool { level == .severe }
 
     static let phrase = "I am choosing to get distracted"
 
-    static func make(friction: Friction, strike: Int) -> ShieldPolicy {
-        switch friction {
-        case .gentle:
-            return ShieldPolicy(countdownSeconds: 0, requiresPhrase: false)
-        case .firm:
-            switch strike {
-            case ...1: return ShieldPolicy(countdownSeconds: 0, requiresPhrase: false)
-            case 2: return ShieldPolicy(countdownSeconds: 15, requiresPhrase: false)
-            default: return ShieldPolicy(countdownSeconds: 15, requiresPhrase: true)
-            }
-        case .severe:
-            switch strike {
-            case ...1: return ShieldPolicy(countdownSeconds: 10, requiresPhrase: false)
-            case 2: return ShieldPolicy(countdownSeconds: 30, requiresPhrase: true)
-            default: return ShieldPolicy(countdownSeconds: 30, requiresPhrase: true)
-            }
+    static func make(strike: Int) -> ShieldPolicy {
+        switch strike {
+        case ...1: ShieldPolicy(level: .gentle)
+        case 2: ShieldPolicy(level: .firm)
+        default: ShieldPolicy(level: .severe)
         }
     }
 }
@@ -45,8 +85,8 @@ struct ShieldRequest: Equatable {
     var goal: String
     var strike: Int
     var policy: ShieldPolicy
-    /// Whether the block offers breaks, and whether one is still available.
-    var offersBreak: Bool = false
+    /// Length of the break available from this shield.
+    var breakMinutes: Int?
     /// Demo shields from the menu bar don't touch any real app.
     var isPreview: Bool = false
 
@@ -58,6 +98,5 @@ struct ShieldRequest: Equatable {
 enum ShieldResolution: Equatable {
     case closeTab
     case forceQuit
-    case wrongCall
     case takeBreak
 }

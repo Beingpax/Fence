@@ -19,10 +19,6 @@ struct Block: Identifiable, Codable, Equatable {
     var lock: BlockLock = BlockLock()
     var breaks: BreakPlan = BreakPlan()
 
-    /// How hard the shield pushes back. Separate from locking: friction is about the
-    /// moment you hit a block, the lock is about whether you can switch it off at all.
-    var friction: Friction = .firm
-
     /// Optional intent sentence. When set, Shift can judge ambiguous pages against it
     /// rather than only matching the list.
     var goal: String = ""
@@ -52,6 +48,8 @@ struct Block: Identifiable, Codable, Equatable {
         }
     }
 
+    var canStartTimedRun: Bool { schedule.isManual && !isEnabled && !lock.isLocked() }
+
     /// One line describing when it applies, for the block row.
     var scheduleSummary: String {
         switch schedule {
@@ -61,11 +59,11 @@ struct Block: Identifiable, Codable, Equatable {
             if windows.isEmpty { return "No times set" }
             if windows.count == 1 { return windows[0].summary }
             return "\(windows.count) time windows"
-        case .manual(let minutes):
+        case .manual:
             if let manualRunEndsAt, manualRunEndsAt > Date() {
                 return "Running until \(manualRunEndsAt.formatted(date: .omitted, time: .shortened))"
             }
-            return minutes.map { "Start on demand · \($0) min" } ?? "Start on demand"
+            return "Start from the block menu"
         }
     }
 
@@ -74,6 +72,7 @@ struct Block: Identifiable, Codable, Equatable {
         var parts: [String] = []
         if list.siteCount > 0 { parts.append("\(list.siteCount) site\(list.siteCount == 1 ? "" : "s")") }
         if !list.apps.isEmpty { parts.append("\(list.apps.count) app\(list.apps.count == 1 ? "" : "s")") }
+        if !goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append("Focus goal") }
         if parts.isEmpty { return "Nothing blocked yet" }
         return parts.joined(separator: " · ")
     }
@@ -88,8 +87,6 @@ struct BlockList: Codable, Equatable {
     var paths: [String] = []
     /// Native apps by bundle identifier.
     var apps: [String] = []
-    /// Always allowed, even when something else here matches.
-    var exceptions: [String] = []
 
     var isEmpty: Bool { hosts.isEmpty && paths.isEmpty && apps.isEmpty }
 
@@ -103,15 +100,12 @@ enum BlockSchedule: Codable, Equatable {
     case always
     /// Recurring weekly windows.
     case scheduled([ScheduleWindow])
-    /// Started by hand, optionally for a fixed number of minutes.
+    /// No automatic schedule. The associated value remains decodable from older blocks.
     case manual(minutes: Int?)
 
-    var kindTitle: String {
-        switch self {
-        case .always: "All the time"
-        case .scheduled: "On a schedule"
-        case .manual: "Start on demand"
-        }
+    var isManual: Bool {
+        if case .manual = self { return true }
+        return false
     }
 }
 
@@ -190,7 +184,9 @@ struct ScheduleWindow: Codable, Equatable, Identifiable {
 
     var summary: String {
         let dayPart: String
-        if days == Weekday.weekdays {
+        if days.isEmpty {
+            dayPart = "No days selected"
+        } else if days == Weekday.weekdays {
             dayPart = "Weekdays"
         } else if days.count == Weekday.allCases.count {
             dayPart = "Every day"
@@ -209,7 +205,7 @@ struct BreakPlan: Codable, Equatable {
     var isEnabled: Bool = false
     /// Length of each break.
     var minutes: Int = 5
-    /// How many breaks are allowed per active stretch.
+    /// How many breaks can start each local calendar day.
     var allowance: Int = 2
 
     /// Runtime: when the current break ends.
@@ -222,7 +218,21 @@ struct BreakPlan: Codable, Equatable {
         return date < currentBreakEndsAt
     }
 
-    var remainingToday: Int { max(0, allowance - breaksTakenToday) }
+    func remaining(at date: Date = Date()) -> Int {
+        guard isEnabled, minutes > 0 else { return 0 }
+        let usedToday = lastResetDay.map { Calendar.current.isDate($0, inSameDayAs: date) } == true
+            ? breaksTakenToday : 0
+        return max(0, allowance - usedToday)
+    }
+
+    mutating func start(at date: Date) -> Bool {
+        let available = remaining(at: date)
+        guard available > 0, !isOnBreak(at: date) else { return false }
+        breaksTakenToday = allowance - available + 1
+        lastResetDay = date
+        currentBreakEndsAt = date.addingTimeInterval(TimeInterval(minutes) * 60)
+        return true
+    }
 }
 
 // MARK: - Locking
@@ -248,11 +258,11 @@ enum LockMethod: String, Codable, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
-        case .none: "You can switch this block off whenever you like."
-        case .duration: "Once on, it stays on for the length you choose."
-        case .untilTime: "Once on, it stays on until a time you choose today."
-        case .randomString: "You can switch it off, but only after typing a random string."
-        case .restart: "Only a restart of this Mac will switch it off."
+        case .none: "You can switch this block off at any time."
+        case .duration: "The timer starts when you switch the block on."
+        case .untilTime: "Once switched on, the block stays locked until the next occurrence of the selected time."
+        case .randomString: "Turning the block off opens a typing challenge."
+        case .restart: "Restart this Mac to release the lock."
         }
     }
 
@@ -331,35 +341,4 @@ enum BlockTint: String, Codable, CaseIterable, Identifiable {
     case indigo, blue, teal, green, orange, pink, purple, graphite
 
     var id: String { rawValue }
-}
-
-/// How hard the shield pushes back when you hit a block. Distinct from the lock.
-enum Friction: String, Codable, CaseIterable, Identifiable {
-    case gentle, firm, severe
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .gentle: "Gentle"
-        case .firm: "Firm"
-        case .severe: "Severe"
-        }
-    }
-
-    var summary: String {
-        switch self {
-        case .gentle: "The shield appears and you can leave right away."
-        case .firm: "Friction grows with every strike."
-        case .severe: "A wait every time, and a phrase to type after the second."
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .gentle: "leaf"
-        case .firm: "hand.raised"
-        case .severe: "exclamationmark.shield"
-        }
-    }
 }

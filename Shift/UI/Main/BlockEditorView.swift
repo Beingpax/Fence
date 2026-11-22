@@ -11,8 +11,6 @@ struct BlockInspector: View {
     @Environment(AppModel.self) private var model
 
     @State private var draft: Block
-    @State private var newSite = ""
-    @State private var newException = ""
     @State private var isShowingAppPicker = false
 
     private let onClose: () -> Void
@@ -30,13 +28,11 @@ struct BlockInspector: View {
             VStack(alignment: .leading, spacing: Theme.Space.snug) {
                 identity
                 if isLocked { lockedBanner }
-                sites
-                apps
-                exceptions
+                focusGoal
+                blockedItems
                 schedule
                 breaks
                 lock
-                friction
                 deleteButton
             }
             .padding(Theme.Space.base)
@@ -46,13 +42,14 @@ struct BlockInspector: View {
             VisualEffect(surface: .sidebar, blending: .behindWindow).ignoresSafeArea()
         }
         .onChange(of: draft) { _, updated in
-            // Runtime fields are untouched here, so a refused edit just reverts the draft.
-            if !model.store.update(updated), let current = model.store.block(id: updated.id) {
-                draft = current
-            }
+            guard let current = model.store.block(id: updated.id), current != updated else { return }
+            if !model.store.update(updated) { draft = current }
+        }
+        .onChange(of: model.store.block(id: draft.id)) { _, updated in
+            if let updated, updated != draft { draft = updated }
         }
         .sheet(isPresented: $isShowingAppPicker) {
-            AppPickerView(selected: $draft.list.apps, tint: tint)
+            AppPickerView(selected: $draft.list.apps, tint: tint, canRemove: !isLocked)
         }
     }
 
@@ -146,82 +143,76 @@ struct BlockInspector: View {
         }
     }
 
+    private var focusGoal: some View {
+        Panel("Focus goal", icon: "scope") {
+            ShiftTextField(prompt: "Optional, e.g. Finish the thesis chapter", text: $draft.goal)
+                .accessibilityLabel("Focus goal")
+                .disabled(isLocked)
+            Text("Shift checks visible text against this goal when no list rule applies.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     // MARK: Lists
 
-    private var sites: some View {
-        Panel("Websites", icon: "globe") {
-            HStack(spacing: Theme.Space.tight) {
-                ShiftTextField(
-                    prompt: "instagram.com or youtube.com/shorts",
-                    text: $newSite,
-                    symbol: "plus",
-                    onSubmit: addSite
-                )
-                Button("Add", action: addSite)
-                    .buttonStyle(.shiftSoft)
-                    .disabled(newSite.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
+    private var blockedItems: some View {
+        Panel {
+            sites
+            Hairline()
+                .padding(.vertical, Theme.Space.hair)
+            apps
+        }
+    }
 
-            if draft.list.siteCount == 0 {
-                EmptyHint(text: "No sites yet. A slash blocks part of a site, so the rest keeps working.")
-            } else {
-                ChipFlow(
-                    items: draft.list.hosts + draft.list.paths,
-                    symbol: "globe",
-                    canRemove: !isLocked
-                ) { entry in
-                    draft.list.hosts.removeAll { $0 == entry }
-                    draft.list.paths.removeAll { $0 == entry }
-                }
+    private var sites: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.tight) {
+            PanelHeading(
+                title: "Websites",
+                icon: "globe",
+                help: "Enter a domain to block the whole site, or include a path such as youtube.com/shorts to block just that part."
+            )
+            SiteEntryField(label: "Website to block", prompt: "example.com", onAdd: addSite)
+
+            BlockEntryList(items: draft.list.hosts + draft.list.paths, symbol: "globe", canRemove: !isLocked) { entry in
+                draft.list.hosts.removeAll { $0 == entry }
+                draft.list.paths.removeAll { $0 == entry }
             }
         }
     }
 
     private var apps: some View {
-        Panel("Apps", icon: "app.badge") {
+        VStack(alignment: .leading, spacing: Theme.Space.tight) {
+            PanelHeading(title: "Apps", icon: "app.badge")
+                .frame(minHeight: 26)
             Button {
                 isShowingAppPicker = true
             } label: {
-                Label("Choose apps", systemImage: "square.grid.2x2")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.shiftSoft)
-
-            if draft.list.apps.isEmpty {
-                EmptyHint(text: "No apps yet. Blocked apps are quit when they come up.")
-            } else {
-                ChipFlow(
-                    items: draft.list.apps,
-                    symbol: "app.badge",
-                    canRemove: !isLocked,
-                    label: { InstalledApps.shared.name(for: $0) ?? $0 },
-                    image: { InstalledApps.shared.icon(for: $0) }
-                ) { entry in
-                    draft.list.apps.removeAll { $0 == entry }
+                EntryActionRow {
+                    Text("Choose apps")
+                        .font(.callout.weight(.medium))
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
                 }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            BlockEntryList(
+                items: draft.list.apps,
+                symbol: "app.badge",
+                canRemove: !isLocked,
+                label: { InstalledApps.shared.name(for: $0) ?? $0 },
+                image: { InstalledApps.shared.icon(for: $0) }
+            ) { entry in
+                draft.list.apps.removeAll { $0 == entry }
             }
         }
-    }
-
-    private var exceptions: some View {
-        Panel("Always allow", subtitle: "Exceptions win over everything else in this block.", icon: "checkmark.shield") {
-            HStack(spacing: Theme.Space.tight) {
-                ShiftTextField(
-                    prompt: "docs.google.com",
-                    text: $newException,
-                    symbol: "plus",
-                    onSubmit: addException
-                )
-                Button("Add", action: addException)
-                    .buttonStyle(.shiftSoft)
-                    .disabled(newException.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-
-            if !draft.list.exceptions.isEmpty {
-                ChipFlow(items: draft.list.exceptions, symbol: "checkmark", canRemove: true) { entry in
-                    draft.list.exceptions.removeAll { $0 == entry }
-                }
-            }
+        .onAppear {
+            if !draft.list.apps.isEmpty { InstalledApps.shared.loadIfNeeded() }
         }
     }
 
@@ -234,7 +225,7 @@ struct BlockInspector: View {
                 options: [
                     .init(.always, "Always", symbol: "infinity"),
                     .init(.scheduled, "Schedule", symbol: "calendar"),
-                    .init(.manual, "On demand", symbol: "play.fill"),
+                    .init(.manual, "None", symbol: "calendar.badge.minus"),
                 ],
                 tint: tint
             )
@@ -242,7 +233,7 @@ struct BlockInspector: View {
 
             switch draft.schedule {
             case .always:
-                EmptyHint(text: "Active whenever the block is switched on.")
+                EmptyView()
 
             case .scheduled(let windows):
                 VStack(spacing: Theme.Space.snug) {
@@ -267,85 +258,74 @@ struct BlockInspector: View {
                 }
                 .disabled(isLocked)
 
-            case .manual(let minutes):
-                VStack(alignment: .leading, spacing: Theme.Space.tight) {
-                    Text("How long each run lasts")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    SegmentedSelector(
-                        selection: Binding(
-                            get: { minutes ?? 0 },
-                            set: { draft.schedule = .manual(minutes: $0 == 0 ? nil : $0) }
-                        ),
-                        options: [
-                            .init(0, "Open"),
-                            .init(25, "25m"),
-                            .init(50, "50m"),
-                            .init(90, "90m"),
-                        ],
-                        tint: tint
-                    )
-                }
-                .disabled(isLocked)
+            case .manual:
+                Text("Start a timed run from the block’s context menu.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
 
-    // MARK: Breaks, lock, friction
+    // MARK: Breaks and lock
 
     private var breaks: some View {
-        Panel("Breaks", subtitle: "Decided now, not in the moment of weakness.", icon: "cup.and.saucer") {
-            PanelRow(title: "Allow breaks") {
+        Panel {
+            HStack(spacing: Theme.Space.tight) {
+                PanelHeading(title: "Breaks", icon: "cup.and.saucer")
                 ShiftSwitch(isOn: $draft.breaks.isEnabled, tint: tint)
+                    .accessibilityLabel("Allow breaks")
                     .disabled(isLocked)
             }
 
             if draft.breaks.isEnabled {
-                VStack(alignment: .leading, spacing: Theme.Space.tight) {
-                    Text("Each break lasts")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    SegmentedSelector(
-                        selection: $draft.breaks.minutes,
-                        options: [
-                            .init(2, "2m"), .init(5, "5m"), .init(10, "10m"), .init(15, "15m"),
-                        ],
-                        tint: tint
-                    )
-                }
+                Grid(alignment: .leading, horizontalSpacing: Theme.Space.snug, verticalSpacing: Theme.Space.tight) {
+                    GridRow {
+                        Text("Length")
+                            .accessibilityHidden(true)
+                        SegmentedSelector(
+                            selection: $draft.breaks.minutes,
+                            options: [
+                                .init(2, "2 min"), .init(5, "5 min"), .init(10, "10 min"), .init(15, "15 min"),
+                            ],
+                            tint: tint
+                        )
+                        .accessibilityElement(children: .contain)
+                        .accessibilityLabel("Break duration")
+                    }
 
-                VStack(alignment: .leading, spacing: Theme.Space.tight) {
-                    Text("How many a day")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    SegmentedSelector(
-                        selection: $draft.breaks.allowance,
-                        options: [
-                            .init(1, "1"), .init(2, "2"), .init(3, "3"), .init(5, "5"),
-                        ],
-                        tint: tint
-                    )
+                    GridRow {
+                        Text("Breaks per day")
+                            .accessibilityHidden(true)
+                        SegmentedSelector(
+                            selection: $draft.breaks.allowance,
+                            options: [
+                                .init(1, "1"), .init(2, "2"), .init(3, "3"), .init(5, "5"),
+                            ],
+                            tint: tint
+                        )
+                        .accessibilityElement(children: .contain)
+                        .accessibilityLabel("Breaks per day")
+                    }
                 }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .disabled(isLocked)
+
+                Text("Start a break from the shield to pause this block. Your allowance resets at midnight.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
 
     private var lock: some View {
-        Panel("Lock", subtitle: "Engages the moment the block is switched on.", icon: "lock") {
-            VStack(spacing: Theme.Space.tight) {
-                ForEach(LockMethod.allCases) { method in
-                    OptionCard(
-                        title: method.title,
-                        detail: method.detail,
-                        symbol: method.symbol,
-                        isSelected: draft.lock.method == method,
-                        tint: tint
-                    ) {
-                        draft.lock.method = method
-                    }
-                    .disabled(isLocked)
-                }
-            }
+        Panel(
+            "Lock",
+            icon: "lock",
+            help: draft.lock.method.detail
+        ) {
+            LockMethodPicker(selection: $draft.lock.method, tint: tint)
+                .disabled(isLocked)
 
             switch draft.lock.method {
             case .duration:
@@ -369,40 +349,23 @@ struct BlockInspector: View {
                         .disabled(isLocked)
                 }
             case .randomString:
-                VStack(alignment: .leading, spacing: Theme.Space.tight) {
-                    Text("Characters to type")
+                HStack(spacing: Theme.Space.snug) {
+                    Text("Characters")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
                     SegmentedSelector(
                         selection: $draft.lock.stringLength,
                         options: [.init(16, "16"), .init(32, "32"), .init(64, "64"), .init(128, "128")],
                         tint: tint
                     )
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("Characters to type")
                     .disabled(isLocked)
                 }
             case .none, .restart:
                 EmptyView()
             }
-        }
-    }
-
-    private var friction: some View {
-        Panel("When you hit it", icon: "hand.raised") {
-            VStack(spacing: Theme.Space.tight) {
-                ForEach(Friction.allCases) { level in
-                    OptionCard(
-                        title: level.title,
-                        detail: level.summary,
-                        symbol: level.symbol,
-                        isSelected: draft.friction == level,
-                        tint: tint
-                    ) {
-                        draft.friction = level
-                    }
-                }
-            }
-
-            ShiftTextField(prompt: "Goal, optional. e.g. Finish chapter 3", text: $draft.goal, symbol: "scope")
         }
     }
 
@@ -443,7 +406,7 @@ struct BlockInspector: View {
                     draft.schedule = .scheduled([ScheduleWindow()])
                 case .manual:
                     if case .manual = draft.schedule { return }
-                    draft.schedule = .manual(minutes: 50)
+                    draft.schedule = .manual(minutes: nil)
                 }
             }
         )
@@ -471,22 +434,12 @@ struct BlockInspector: View {
         draft.schedule = .scheduled(all)
     }
 
-    private func addSite() {
-        let value = newSite.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !value.isEmpty else { return }
-        if value.contains("/") {
-            if !draft.list.paths.contains(value) { draft.list.paths.append(value) }
+    private func addSite(_ entry: String) {
+        if entry.contains("/") {
+            if !draft.list.paths.contains(entry) { draft.list.paths.append(entry) }
         } else {
-            if !draft.list.hosts.contains(value) { draft.list.hosts.append(value) }
+            if !draft.list.hosts.contains(entry) { draft.list.hosts.append(entry) }
         }
-        newSite = ""
-    }
-
-    private func addException() {
-        let value = newException.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !value.isEmpty, !draft.list.exceptions.contains(value) else { return }
-        draft.list.exceptions.append(value)
-        newException = ""
     }
 
     static let symbols = [
@@ -496,43 +449,168 @@ struct BlockInspector: View {
     ]
 }
 
-// MARK: - Small pieces
+// MARK: - Block entries
 
-private struct EmptyHint: View {
-    let text: String
+private struct SiteEntryField: View {
+    let label: String
+    let prompt: String
+    let onAdd: (String) -> Void
+
+    @State private var text = ""
+    @State private var showsInvalidEntry = false
+    @FocusState private var isFocused: Bool
+
+    private var trimmedEntry: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
-        Text(text)
-            .font(.caption)
-            .foregroundStyle(.tertiary)
-            .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: Theme.Space.tight) {
+            EntryActionRow(isFocused: isFocused) {
+                TextField(label, text: $text, prompt: Text(prompt))
+                    .textFieldStyle(.plain)
+                    .font(.callout)
+                    .autocorrectionDisabled()
+                    .focused($isFocused)
+                    .onSubmit(submit)
+
+                Button("Add", action: submit)
+                    .buttonStyle(.borderless)
+                    .font(.callout.weight(.semibold))
+                    .disabled(trimmedEntry.isEmpty)
+            }
+
+            if showsInvalidEntry {
+                Text("Enter a website like example.com.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .onChange(of: text) { _, _ in showsInvalidEntry = false }
+    }
+
+    private func submit() {
+        let entry = trimmedEntry
+        guard !entry.isEmpty else { return }
+        isFocused = true
+
+        let address = entry.contains("://") ? entry : "https://\(entry)"
+        guard entry.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+              let url = URL(string: address),
+              let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              let host = url.host()?.lowercased(), !host.isEmpty else {
+            showsInvalidEntry = true
+            return
+        }
+
+        // Match the host and path format used for the active browser tab.
+        let domain = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        guard !domain.isEmpty else {
+            showsInvalidEntry = true
+            return
+        }
+        let path = url.path().lowercased()
+        onAdd(path == "/" ? domain : domain + path)
+        text = ""
     }
 }
 
-/// Wrapping row of chips.
-struct ChipFlow: View {
+private struct EntryActionRow<Content: View>: View {
+    var isFocused = false
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+
+        HStack(spacing: Theme.Space.tight) {
+            Image(systemName: "plus")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+                .accessibilityHidden(true)
+
+            content()
+        }
+        .padding(.horizontal, Theme.Space.snug)
+        .frame(minHeight: 32)
+        .background { shape.fill(.quaternary.opacity(0.5)) }
+        .overlay {
+            shape.strokeBorder(isFocused ? Color.accentColor : Color.primary.opacity(0.08), lineWidth: 1)
+        }
+    }
+}
+
+private struct BlockEntryList: View {
     let items: [String]
-    var symbol: String?
-    var canRemove: Bool = true
+    let symbol: String
+    var canRemove = true
     var label: ((String) -> String)?
     var image: ((String) -> NSImage?)?
     let onRemove: (String) -> Void
 
     var body: some View {
-        LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 130), spacing: 6)],
-            alignment: .leading,
-            spacing: 6
-        ) {
-            ForEach(items, id: \.self) { item in
-                Chip(
-                    text: label?(item) ?? item,
-                    symbol: symbol,
-                    image: image?(item),
-                    onRemove: canRemove ? { onRemove(item) } : nil
-                )
+        if !items.isEmpty {
+            BlockEntryLayout {
+                ForEach(items, id: \.self) { item in
+                    Chip(
+                        text: label?(item) ?? item,
+                        symbol: symbol,
+                        image: image?(item),
+                        onRemove: canRemove ? { onRemove(item) } : nil
+                    )
+                }
             }
         }
+    }
+}
+
+/// Fills each row in entry order using the chips' natural widths, capped for long labels.
+private struct BlockEntryLayout: Layout {
+    private let maxItemWidth: CGFloat = 176
+    private let spacing = Theme.Space.tight
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        arrangement(in: proposal.width, subviews: subviews).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let layout = arrangement(in: bounds.width, subviews: subviews)
+        for (subview, frame) in zip(subviews, layout.frames) {
+            subview.place(
+                at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: frame.width, height: nil)
+            )
+        }
+    }
+
+    private func arrangement(in width: CGFloat?, subviews: Subviews) -> (size: CGSize, frames: [CGRect]) {
+        let availableWidth = max(0, width ?? .infinity)
+        var frames: [CGRect] = []
+        var rowHeight: CGFloat = 0
+        var contentWidth: CGFloat = 0
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+
+        for subview in subviews {
+            let ideal = subview.sizeThatFits(.unspecified)
+            let itemWidth = min(ideal.width, maxItemWidth, availableWidth)
+            let itemHeight = itemWidth < ideal.width
+                ? subview.sizeThatFits(ProposedViewSize(width: itemWidth, height: nil)).height
+                : ideal.height
+
+            if x > 0, x + itemWidth > availableWidth {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+
+            frames.append(CGRect(x: x, y: y, width: itemWidth, height: itemHeight))
+            contentWidth = max(contentWidth, x + itemWidth)
+            rowHeight = max(rowHeight, itemHeight)
+            x += itemWidth + spacing
+        }
+
+        let size = CGSize(width: availableWidth.isFinite ? availableWidth : contentWidth, height: y + rowHeight)
+        return (size, frames)
     }
 }
 
@@ -585,6 +663,7 @@ struct AppPickerView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var selected: [String]
     var tint: Color = .accentColor
+    var canRemove = true
 
     @State private var catalog = InstalledApps.shared
     @State private var query = ""
@@ -619,17 +698,20 @@ struct AppPickerView: View {
                         spacing: Theme.Space.tight
                     ) {
                         ForEach(catalog.matching(query)) { app in
+                            let isSelected = selected.contains(app.bundleID)
                             AppTile(
                                 app: app,
-                                isSelected: selected.contains(app.bundleID),
+                                isSelected: isSelected,
                                 tint: tint
                             ) {
                                 if let index = selected.firstIndex(of: app.bundleID) {
+                                    guard canRemove else { return }
                                     selected.remove(at: index)
                                 } else {
                                     selected.append(app.bundleID)
                                 }
                             }
+                            .disabled(isSelected && !canRemove)
                         }
                     }
                     .padding(Theme.Space.base)
