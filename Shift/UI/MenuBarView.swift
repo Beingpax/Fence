@@ -1,10 +1,14 @@
 import SwiftUI
 
+/// The menu bar popover: start a session, see the live verdict, get out.
+///
+/// HIG: a menu bar extra is a quick-access surface, not an app window. Everything here is
+/// one glance or one click deep, the width stays narrow, and anything longer lives in Settings.
 struct MenuBarView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: Theme.Space.base) {
             header
 
             Divider()
@@ -20,6 +24,7 @@ struct MenuBarView: View {
             LiveContextView()
 
             if !model.activity.isEmpty {
+                Divider()
                 ActivityListView()
             }
 
@@ -27,24 +32,35 @@ struct MenuBarView: View {
 
             footer
         }
-        .padding(16)
-        .frame(width: 340)
-        .onAppear { model.refreshPermissions() }
-    }
-
-    private var header: some View {
-        HStack {
-            Text("Shift")
-                .font(.system(.title2, design: .rounded).weight(.bold))
-            Spacer()
-            Text("Local AI · on-device")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        .padding(Theme.Space.base + 2)
+        .frame(width: Theme.menuWidth)
+        .onAppear {
+            model.refreshPermissions()
+            model.refreshSystemState()
         }
     }
 
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("Shift")
+                .font(.system(.title2, design: .rounded).weight(.bold))
+            Spacer()
+            if let session = model.session {
+                Label(session.strictness.title, systemImage: session.strictness.symbol)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .labelStyle(.titleAndIcon)
+            } else {
+                Text("On-device")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityAddTraits(.isHeader)
+    }
+
     private var footer: some View {
-        HStack {
+        HStack(spacing: Theme.Space.tight) {
             Menu("Preview shield") {
                 ForEach(1...3, id: \.self) { strike in
                     Button("Strike \(strike)") { model.previewShield(strike: strike) }
@@ -60,11 +76,18 @@ struct MenuBarView: View {
                 Image(systemName: "gearshape")
             }
             .buttonStyle(.borderless)
+            .help("Settings")
+            .accessibilityLabel("Settings")
 
-            Button("Quit") { NSApp.terminate(nil) }
-                .buttonStyle(.borderless)
-                .disabled(!model.canQuitApp)
-                .help(model.canQuitApp ? "Quit Shift" : "Locked session: Shift can't be quit until it ends")
+            Button {
+                NSApp.terminate(nil)
+            } label: {
+                Image(systemName: "power")
+            }
+            .buttonStyle(.borderless)
+            .disabled(!model.canQuitApp)
+            .help(model.canQuitApp ? "Quit Shift" : "Locked session: Shift can't be quit until it ends")
+            .accessibilityLabel("Quit Shift")
         }
         .font(.callout)
     }
@@ -78,10 +101,13 @@ private struct StartSessionView: View {
     @State private var minutes = 50
     @State private var strictness: Strictness = .firm
 
+    private var trimmedGoal: String {
+        goal.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("What are you working on?")
-                .font(.headline)
+        VStack(alignment: .leading, spacing: Theme.Space.snug) {
+            SectionLabel(text: "What are you working on?")
 
             TextField("e.g. Finish chapter 3 of my thesis", text: $goal, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
@@ -98,27 +124,42 @@ private struct StartSessionView: View {
 
             Picker("Strictness", selection: $strictness) {
                 ForEach(Strictness.allCases) { level in
-                    Label(level.title, systemImage: level.symbol).tag(level)
+                    Text(level.title).tag(level)
                 }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
 
-            Text(strictness.summary)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: Theme.Space.tight) {
+                Image(systemName: strictness.symbol)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(strictness.summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             Button(action: start) {
-                Text("Start focus")
+                Text(strictness == .locked ? "Start locked session" : "Start focus")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.glassProminent)
             .controlSize(.large)
-            .disabled(goal.trimmingCharacters(in: .whitespaces).isEmpty)
+            .disabled(trimmedGoal.isEmpty)
+            .keyboardShortcut(.defaultAction)
+
+            if strictness == .locked {
+                Label("You won't be able to end this early or quit Shift.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .calmTransition(.opacity)
+            }
         }
     }
 
     private func start() {
+        guard !trimmedGoal.isEmpty else { return }
         model.startSession(goal: goal, minutes: minutes, strictness: strictness)
         goal = ""
     }
@@ -131,36 +172,68 @@ private struct ActiveSessionView: View {
     let session: FocusSession
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Focusing on")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: Theme.Space.snug) {
+            SectionLabel(text: "Focusing on")
             Text(session.goal)
                 .font(.headline)
+                .fixedSize(horizontal: false, vertical: true)
 
             TimelineView(.periodic(from: .now, by: 1)) { context in
-                Text(format(session.remaining(at: context.date)))
-                    .font(.system(size: 40, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
+                let remaining = session.remaining(at: context.date)
+                VStack(alignment: .leading, spacing: Theme.Space.tight) {
+                    Text(format(remaining))
+                        .font(.system(size: 42, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .contentTransition(.numericText(countsDown: true))
+                        .accessibilityLabel("\(Int(remaining / 60)) minutes remaining")
+
+                    ProgressView(value: progress(remaining))
+                        .progressViewStyle(.linear)
+                        .tint(session.strictness == .locked ? .orange : .accentColor)
+                        .accessibilityHidden(true)
+                }
             }
 
             HStack {
-                Label(session.strictness.title, systemImage: session.strictness.symbol)
+                StrikeDots(strikes: session.strikes)
                 Spacer()
-                Label("\(session.strikes) strike\(session.strikes == 1 ? "" : "s")", systemImage: "hand.raised")
+                Text("\(session.strikes) strike\(session.strikes == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            .font(.callout)
-            .foregroundStyle(.secondary)
 
             Button("End session") { model.endSession() }
+                .buttonStyle(.glass)
+                .controlSize(.large)
+                .frame(maxWidth: .infinity)
                 .disabled(!model.canEndSession)
-                .help(model.canEndSession ? "" : "Locked: this session can't be ended early")
+                .help(model.canEndSession ? "End this session now" : "Locked: this session can't be ended early")
         }
+    }
+
+    private func progress(_ remaining: TimeInterval) -> Double {
+        guard session.duration > 0 else { return 1 }
+        return min(max(1 - remaining / session.duration, 0), 1)
     }
 
     private func format(_ interval: TimeInterval) -> String {
         let total = Int(interval.rounded(.up))
         return String(format: "%02d:%02d", total / 60, total % 60)
+    }
+}
+
+private struct StrikeDots: View {
+    let strikes: Int
+
+    var body: some View {
+        HStack(spacing: Theme.Space.hair + 2) {
+            ForEach(1...3, id: \.self) { index in
+                Circle()
+                    .fill(index <= strikes ? Color.orange : Color.secondary.opacity(0.22))
+                    .frame(width: 7, height: 7)
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -170,22 +243,25 @@ private struct LiveContextView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("What Shift sees")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: Theme.Space.tight) {
+            SectionLabel(text: "What Shift sees")
 
             if let context = model.lastContext {
-                row("App", context.appName)
-                if let title = context.windowTitle { row("Window", title) }
-                if let host = context.hostAndPath { row("Page", host) }
+                FieldRow(label: "App", value: context.appName)
+                if let title = context.windowTitle {
+                    FieldRow(label: "Window", value: title)
+                }
+                if let page = context.hostAndPath {
+                    FieldRow(label: "Page", value: page)
+                }
                 if let verdict = model.lastVerdict {
-                    HStack(alignment: .firstTextBaseline) {
+                    HStack(alignment: .firstTextBaseline, spacing: Theme.Space.tight) {
                         VerdictPill(kind: verdict.kind)
                         Text(verdict.reason)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             } else {
@@ -196,48 +272,15 @@ private struct LiveContextView: View {
 
             if !model.accessibilityGranted {
                 Button {
-                    PermissionsManager.openAccessibilitySettings()
+                    model.requestAccessibilityPermission()
                 } label: {
-                    Label("Grant Accessibility to read window titles", systemImage: "exclamationmark.triangle.fill")
+                    Label("Grant Accessibility so Shift can see where you are", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
+                        .multilineTextAlignment(.leading)
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.orange)
             }
-        }
-    }
-
-    private func row(_ label: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .frame(width: 52, alignment: .leading)
-            Text(value)
-                .font(.caption)
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-    }
-}
-
-private struct VerdictPill: View {
-    let kind: Verdict.Kind
-
-    var body: some View {
-        Text(kind.rawValue.uppercased())
-            .font(.caption2.weight(.bold))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.18), in: Capsule())
-            .foregroundStyle(color)
-    }
-
-    private var color: Color {
-        switch kind {
-        case .allow: .green
-        case .nudge: .orange
-        case .block: .red
         }
     }
 }
@@ -248,22 +291,23 @@ private struct ActivityListView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Recent")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: Theme.Space.hair + 2) {
+            SectionLabel(text: "Recent")
             ForEach(model.activity.prefix(5)) { event in
-                HStack(spacing: 6) {
+                HStack(spacing: Theme.Space.tight) {
                     Image(systemName: event.symbol)
                         .frame(width: 14)
                         .foregroundStyle(.secondary)
                     Text(event.text)
                         .lineLimit(1)
-                    Spacer()
+                        .truncationMode(.middle)
+                    Spacer(minLength: Theme.Space.tight)
                     Text(event.date, style: .time)
                         .foregroundStyle(.tertiary)
+                        .monospacedDigit()
                 }
                 .font(.caption)
+                .accessibilityElement(children: .combine)
             }
         }
     }

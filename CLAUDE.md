@@ -6,12 +6,13 @@ Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (br
 
 ## Current status (read first)
 
-- **The skeleton builds clean** as of 22 Nov 2026: zero errors, zero Swift warnings, and it launches and runs as a menu bar process. No source changes were needed.
-- **PRD is at v0.2** after a competitive and technical research pass. §18 of the PRD lists every change from v0.1. Three decisions were reversed; see "Product decisions" below.
-- **Next up is M1**, not M2. Nothing in the AI path has been written yet.
-- Built and wired: menu bar app, focus sessions, context monitor (frontmost app, AX window title, browser URL via AppleScript), rule-based classifier, hysteresis, full-screen shield with escalation, settings tabs.
-- Stubs only: `ScreenTextReader` (OCR) and `LocalIntentModel` (the model tier, now to be replaced by a Foundation Models judge).
-- **Deployment target is now 26.0** in `project.pbxproj`, and the project still builds clean after the bump.
+- **M1 is written and compiles clean** (zero errors, zero warnings), but it has **not been run or verified yet**. Runtime verification is the first job in the next session: see "M1 verification checklist" below.
+- **PRD is at v0.2** after a competitive and technical research pass. §18 of the PRD lists every change from v0.1.
+- **Next after verification is M2**, the AI tiers. Nothing in the AI path has been written yet.
+- Built and wired: menu bar app with live countdown, focus sessions, context monitor, rule-based classifier, hysteresis, full-screen shield with escalation, nudge HUD, five-step onboarding, launch at login, watchdog pair, quit and uninstall protection, four settings tabs.
+- Stubs only: `ScreenTextReader` (OCR) and `LocalIntentModel` (the model tier, to be replaced by a Foundation Models judge).
+- **Deployment target is 26.0** in `project.pbxproj`.
+- **The binary has two entry points.** `Shift` is the app; `Shift --watchdog` is the headless watchdog. `main.swift` does the branching, which is why `ShiftApp` no longer carries `@main`.
 
 ## Build and run
 
@@ -24,6 +25,22 @@ xcodebuild -project Shift.xcodeproj -scheme Shift -configuration Debug -destinat
 - Real test: start a Firm session, open `instagram.com` or `youtube.com/shorts` in Safari or Chrome. The shield should appear in about 2–3 seconds.
 - Permissions: Accessibility (titles, page text, URLs) and, later, Screen Recording (OCR) and Automation per browser (close tab). They're tied to the code signature, so re-grant after signing changes.
 - Automated GUI testing needs Accessibility and Screen Recording granted to the terminal running Claude Code. Without them, `osascript` UI scripting fails with -1719 and `screencapture` fails outright, so shield verification has to be manual.
+
+## M1 verification checklist (nothing here has been run yet)
+
+1. **Menu bar.** Icon appears; a running session shows minutes left next to it.
+2. **Onboarding.** Delete `Shift.hasCompletedOnboarding.v1` from defaults to replay first run:
+   `defaults delete com.beingpax.Shift Shift.hasCompletedOnboarding.v1`
+3. **Preview shield** strikes 1–3, and **Settings → General → Show a nudge** for the HUD.
+4. **Nudge HUD** must never take keyboard focus. Type in another app while it's up.
+5. **Launch at login.** Toggle in Settings → General, then confirm in System Settings → General → Login Items.
+6. **Watchdog.** Start a Locked session, then `pkill -f 'Shift.app/Contents/MacOS/Shift$'`. Shift should come back within ~5 s. Inspect with
+   `launchctl print gui/$UID/com.beingpax.Shift.watchdog` and `log stream --predicate 'subsystem == "com.beingpax.Shift"'`.
+7. **Quit protection.** Cmd+Q during a Locked session should show the "session is locked" alert. `kill -15` should be ignored; `kill -9` is expected to win.
+8. **Trash protection.** Move Shift.app to the Trash during a Locked session; the watchdog should put it back.
+9. **Clock hardening.** Winding the system clock forward should not end a session early.
+10. **Clean up after testing:** `launchctl bootout gui/$UID/com.beingpax.Shift.watchdog`, delete
+    `~/Library/LaunchAgents/com.beingpax.Shift.watchdog.plist`, and remove `~/Library/Application Support/Shift/guard.json`.
 
 ## Product decisions (don't relitigate without asking)
 
@@ -68,15 +85,28 @@ Intent-aware blocking has shipped elsewhere, so it is not a differentiator on it
 
 ```
 Shift/
-├── App/            ShiftApp (MenuBarExtra + Settings), AppModel (@Observable, @MainActor orchestrator)
-├── Models/         FocusSession, Strictness, ScreenContext, Verdict, BlockRules, ActivityEvent
+├── App/            main (entry point branch), ShiftApp (MenuBarExtra + Settings),
+│                   AppDelegate (quit protection), AppModel (@Observable, @MainActor orchestrator)
+├── Models/         FocusSession, Strictness, ScreenContext, Verdict, BlockRules,
+│                   ActivityEvent, DistractionPreset (onboarding answers → rules)
 ├── Detection/      ContextMonitor, WindowInspector (AX), Browser (close tab),
 │                   AXTextReader (tier 1a, to build), ScreenTextReader (tier 1b, stub)
 ├── Intelligence/   DistractionClassifier, CascadeClassifier, RuleBasedClassifier,
 │                   EmbeddingMatcher (tier 2, to build), FoundationModelJudge (tier 3, to build), Hysteresis
-├── Enforcement/    ShieldController (NSWindow at .screenSaver + presentationOptions), ShieldView, ShieldPolicy
-└── UI/             MenuBarView, SettingsView, PermissionsManager
+├── Enforcement/    ShieldController (NSWindow at .screenSaver + presentationOptions), ShieldView,
+│                   ShieldPolicy, GuardState (UI ↔ watchdog handshake), LaunchAtLogin,
+│                   WatchdogService (installs the agent), WatchdogRunner (the agent itself)
+└── UI/             DesignSystem (Theme + glass surfaces), MenuBarView, SettingsView,
+                    NudgeHUD, PermissionsManager, Onboarding/
 ```
+
+### Design system
+All spacing, radii, verdict colours and glass surfaces come from `Theme` and `glassCard()` in
+`UI/DesignSystem.swift`. Two rules there are not optional: every glass surface falls back to an
+opaque material under Reduce Transparency, and every animation falls back to a cross-fade under
+Reduce Motion. The shield and the nudge HUD use `BehindWindowBlur` rather than Liquid Glass,
+because both float over *other apps* and so must sample the desktop, which only
+`NSVisualEffectView` does.
 
 Flow: `ContextMonitor` sample → `AppModel.handle` → `CascadeClassifier` → `Hysteresis` (2 consistent readings) → `ShieldController.present` → resolve (close tab / force quit / wrong call).
 
@@ -94,7 +124,7 @@ Flow: `ContextMonitor` sample → `AppModel.handle` → `CascadeClassifier` → 
 ## Roadmap (PRD §16)
 
 - **M0 Skeleton:** done. Builds clean, runs, shield preview wired.
-- **M1 Strict MVP:** launch at login (`SMAppService`), a headless watchdog mode of the same binary registered as a keep-alive launch agent, block quitting and uninstall during Locked, first-run onboarding (plain-language "what steals your time?" → rules → permissions → guided demo shield), a nudge HUD for `nudge` verdicts, settings polish.
+- **M1 Strict MVP:** written, compiles clean, **not yet verified at runtime**. Launch at login (`SMAppService`), headless watchdog as a keep-alive launch agent, quit and Trash protection during Locked, monotonic clock hardening, five-step onboarding, nudge HUD, four settings tabs, Liquid Glass design pass.
 - **M2 AI v1:** `AXTextReader` and `ScreenTextReader` both built, instrumented and compared per PRD §8.3; `EmbeddingMatcher`; `FoundationModelJudge` with guided generation; rabbit-hole detection.
 - **M3 Beta:** Network Extension hostname backstop (verify the non-MDM approval path first), weekly insights, Sparkle, notarized beta.
 - **M4 AI v2:** VLM tier (and the downloader it needs), doomscroll detection, on-device adapter from "wrong call" feedback.
