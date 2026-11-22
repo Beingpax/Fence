@@ -18,6 +18,7 @@ final class AppModel {
     private(set) var lastVerdict: Verdict?
     private(set) var activity: [ActivityEvent] = []
     private(set) var accessibilityGranted = PermissionsManager.isAccessibilityTrusted
+    private(set) var screenRecordingGranted = PermissionsManager.isScreenRecordingGranted
 
     /// Mirrors `SMAppService`, which the user can change behind our back in System Settings.
     private(set) var launchAtLoginEnabled = LaunchAtLogin.isEnabled
@@ -39,6 +40,15 @@ final class AppModel {
         didSet {
             Preferences.keepWatchdogAlways = keepWatchdogAlways
             syncWatchdogInstallation()
+        }
+    }
+
+    /// Shift is a menu bar app, so it hides from the Dock by default. Some people want
+    /// the Dock icon anyway, and the activation policy can be switched at runtime.
+    var showInDock: Bool {
+        didSet {
+            Preferences.showInDock = showInDock
+            applyActivationPolicy()
         }
     }
 
@@ -68,6 +78,7 @@ final class AppModel {
     private init() {
         showNudges = Preferences.showNudges
         keepWatchdogAlways = Preferences.keepWatchdogAlways
+        showInDock = Preferences.showInDock
         hasCompletedOnboarding = Preferences.hasCompletedOnboarding
 
         monitor.onSample = { [weak self] context in
@@ -78,6 +89,9 @@ final class AppModel {
     // MARK: App lifecycle
 
     func applicationDidFinishLaunching() {
+        PermissionsManager.logDiagnostics()
+        applyActivationPolicy()
+        observeActivation()
         refreshSystemState()
         recoverLockedSessionIfNeeded()
 
@@ -392,8 +406,38 @@ final class AppModel {
 
     // MARK: Permissions and system state
 
+    /// Permissions are changed in System Settings, which means they change while Shift is
+    /// in the background. Re-read them the moment the user comes back to us, so the UI is
+    /// never showing a stale "not granted".
+    private func observeActivation() {
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshSystemState() }
+        }
+    }
+
+    private func applyActivationPolicy() {
+        NSApp.setActivationPolicy(showInDock ? .regular : .accessory)
+    }
+
     func refreshPermissions() {
-        accessibilityGranted = PermissionsManager.isAccessibilityTrusted
+        let accessibility = PermissionsManager.isAccessibilityTrusted
+        let screenRecording = PermissionsManager.isScreenRecordingGranted
+        // Assign only on change so observation doesn't churn while polling.
+        if accessibility != accessibilityGranted { accessibilityGranted = accessibility }
+        if screenRecording != screenRecordingGranted { screenRecordingGranted = screenRecording }
+    }
+
+    func requestScreenRecordingPermission() {
+        // The system prompt only ever appears once per app. After that this is a no-op,
+        // so send the user somewhere useful as well.
+        if !PermissionsManager.requestScreenRecording() {
+            PermissionsManager.openScreenRecordingSettings()
+        }
+        refreshPermissions()
     }
 
     func requestAccessibilityPermission() {
@@ -441,6 +485,7 @@ enum Preferences {
     private enum Key {
         static let showNudges = "Shift.showNudges"
         static let keepWatchdogAlways = "Shift.keepWatchdogAlways"
+        static let showInDock = "Shift.showInDock"
         static let hasCompletedOnboarding = "Shift.hasCompletedOnboarding.v1"
     }
 
@@ -452,6 +497,11 @@ enum Preferences {
     static var keepWatchdogAlways: Bool {
         get { UserDefaults.standard.bool(forKey: Key.keepWatchdogAlways) }
         set { UserDefaults.standard.set(newValue, forKey: Key.keepWatchdogAlways) }
+    }
+
+    static var showInDock: Bool {
+        get { UserDefaults.standard.bool(forKey: Key.showInDock) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.showInDock) }
     }
 
     static var hasCompletedOnboarding: Bool {

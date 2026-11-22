@@ -37,10 +37,13 @@ private struct GeneralSettingsView: View {
                         Button("Open Login Items…") { LaunchAtLogin.openLoginItemsSettings() }
                     }
                 }
+
+                Toggle("Show Shift in the Dock", isOn: $model.showInDock)
+                    .help("Shift is a menu bar app and hides from the Dock by default.")
             } header: {
                 Text("Startup")
             } footer: {
-                Text("A blocker that isn't running blocks nothing. Shift has no Dock icon; it lives in the menu bar.")
+                Text("A blocker that isn't running blocks nothing. Shift lives in the menu bar, and hides from the Dock unless you ask for it.")
                     .foregroundStyle(.secondary)
             }
 
@@ -186,16 +189,29 @@ private struct PermissionsSettingsView: View {
                 )
                 permissionRow(
                     title: "Screen Recording",
-                    detail: "Optional, and only used by the on-screen text reader arriving in M2. Shift works fully without it.",
-                    granted: nil,
-                    actionTitle: nil,
-                    action: nil
+                    detail: "Optional. Only used by the on-screen text reader arriving in M2. Shift works fully without it.",
+                    granted: model.screenRecordingGranted,
+                    actionTitle: model.screenRecordingGranted ? nil : "Grant…",
+                    action: model.screenRecordingGranted ? nil : { model.requestScreenRecordingPermission() }
                 )
             } header: {
                 Text("Permissions")
             } footer: {
                 Text("Everything Shift reads stays on this Mac. Nothing is written to disk and nothing is uploaded.")
                     .foregroundStyle(.secondary)
+            }
+
+            if !model.accessibilityGranted {
+                Section {
+                    Label(
+                        "If Shift already looks enabled in System Settings, remove it from the Accessibility list with the minus button, then add it again. macOS ties the permission to the app's signature, so a rebuilt or replaced copy needs a fresh grant.",
+                        systemImage: "lightbulb"
+                    )
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                } header: {
+                    Text("Granted it but still not working?")
+                }
             }
         }
         .formStyle(.grouped)

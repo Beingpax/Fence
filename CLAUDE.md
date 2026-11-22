@@ -23,7 +23,8 @@ xcodebuild -project Shift.xcodeproj -scheme Shift -configuration Debug -destinat
 - Run from Xcode with Cmd+R. Shift is an `LSUIElement` menu bar app (◎ icon), with no Dock icon.
 - Test the shield without side effects: menu bar → *Preview shield* → Strike 1/2/3.
 - Real test: start a Firm session, open `instagram.com` or `youtube.com/shorts` in Safari or Chrome. The shield should appear in about 2–3 seconds.
-- Permissions: Accessibility (titles, page text, URLs) and, later, Screen Recording (OCR) and Automation per browser (close tab). They're tied to the code signature, so re-grant after signing changes.
+- Permissions: Accessibility (titles, page text, URLs) and, later, Screen Recording (OCR) and Automation per browser (close tab).
+- **Signing is load-bearing for permissions.** `DEVELOPMENT_TEAM = V6J6A3VWY2` is set on both configurations, so builds are signed with a real identity. Do not let this fall back to ad-hoc. macOS keys TCC grants to the designated requirement, and an ad-hoc signature puts the binary's `cdhash` in that requirement, so **every rebuild silently voids the Accessibility grant** and the app reports "not granted" while System Settings still shows it enabled. Verify with `codesign -d -r- <app>`: the requirement must name the certificate, not a `cdhash`. If a grant ever does go stale, `tccutil reset Accessibility com.beingpax.Shift` and grant it again.
 - Automated GUI testing needs Accessibility and Screen Recording granted to the terminal running Claude Code. Without them, `osascript` UI scripting fails with -1719 and `screencapture` fails outright, so shield verification has to be manual.
 
 ## M1 verification checklist (nothing here has been run yet)
@@ -44,7 +45,10 @@ xcodebuild -project Shift.xcodeproj -scheme Shift -configuration Debug -destinat
 
 ## Product decisions (don't relitigate without asking)
 
+- **The app icon is generated, not drawn by hand.** `Tools/make-icon.swift` renders every size and rewrites the appiconset's `Contents.json`. Edit the script, not the PNGs.
+
 - **Name:** "Shift", subtitle "Local AI App & Website Blocker".
+- **No Dock icon by default,** but there is a "Show Shift in the Dock" switch in Settings → General that flips the activation policy at runtime. `LSUIElement` keeps the default as menu-bar-only.
 - **Platform:** Mac only, Apple Silicon, **macOS 26+** (raised from 14 in v0.2). The floor exists so Apple's Foundation Models can be assumed present, with no `#available` forks in the AI path.
 - **Everything is local.** Never send screen content, OCR text, accessibility text or URLs off the device. No cloud fallback, not even optional.
 - **Nothing to download.** The model tier is Apple's built-in Foundation Models, not a 300 MB MLX classifier. This deleted the model downloader, the CDN, the signed manifest and version management from scope. A downloader only returns in M4 for the optional VLM tier.
@@ -99,6 +103,14 @@ Shift/
 └── UI/             DesignSystem (Theme + glass surfaces), MenuBarView, SettingsView,
                     NudgeHUD, PermissionsManager, Onboarding/
 ```
+
+### Where glass belongs
+Liquid Glass goes on surfaces that float over *content*: the shield's controls, the
+onboarding preset chips, the permission cards. It does **not** go inside the menu bar
+popover, which is already a vibrant material, because glass on glass reads as washed out
+and Apple warns against it. Standard bordered controls are correct there. The shield and
+the nudge HUD use `BehindWindowBlur` rather than glass, because they float over *other
+apps* and must sample the desktop.
 
 ### Design system
 All spacing, radii, verdict colours and glass surfaces come from `Theme` and `glassCard()` in

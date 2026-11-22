@@ -21,11 +21,11 @@ struct MenuBarView: View {
 
             Divider()
 
-            LiveContextView()
-
-            if !model.activity.isEmpty {
-                Divider()
-                ActivityListView()
+            VStack(alignment: .leading, spacing: Theme.Space.base) {
+                LiveContextView()
+                if !model.activity.isEmpty {
+                    ActivityListView()
+                }
             }
 
             Divider()
@@ -37,6 +37,14 @@ struct MenuBarView: View {
         .onAppear {
             model.refreshPermissions()
             model.refreshSystemState()
+        }
+        // Permissions are granted in System Settings while this popover is open, so keep
+        // reading them rather than trusting the value from the moment it appeared.
+        .task {
+            while !Task.isCancelled {
+                model.refreshPermissions()
+                try? await Task.sleep(for: .seconds(2))
+            }
         }
     }
 
@@ -144,7 +152,7 @@ private struct StartSessionView: View {
                 Text(strictness == .locked ? "Start locked session" : "Start focus")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.glassProminent)
+            .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .disabled(trimmedGoal.isEmpty)
             .keyboardShortcut(.defaultAction)
@@ -203,7 +211,7 @@ private struct ActiveSessionView: View {
             }
 
             Button("End session") { model.endSession() }
-                .buttonStyle(.glass)
+                .buttonStyle(.bordered)
                 .controlSize(.large)
                 .frame(maxWidth: .infinity)
                 .disabled(!model.canEndSession)

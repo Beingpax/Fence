@@ -67,7 +67,8 @@ struct OnboardingView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Theme.Space.wide)
-        .padding(.top, Theme.Space.loose)
+        // Clears the traffic lights: the window is full-size-content with a hidden title.
+        .padding(.top, 38)
         .padding(.bottom, Theme.Space.base)
     }
 
@@ -79,12 +80,12 @@ struct OnboardingView: View {
 
             if step != .welcome {
                 Button("Back", action: goBack)
-                    .buttonStyle(.glass)
+                    .buttonStyle(.bordered)
                     .keyboardShortcut(.cancelAction)
             }
 
             Button(primaryTitle, action: goForward)
-                .buttonStyle(.glassProminent)
+                .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
         }
         .controlSize(.large)
@@ -142,7 +143,7 @@ struct OnboardingView: View {
                             .textFieldStyle(.roundedBorder)
                             .onSubmit(addCustom)
                         Button("Add", action: addCustom)
-                            .buttonStyle(.glass)
+                            .buttonStyle(.bordered)
                             .disabled(customEntry.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                     if !customList.isEmpty {
@@ -171,10 +172,12 @@ struct OnboardingView: View {
 
             PermissionCard(
                 title: "Screen Recording",
-                detail: "Only needed later, for reading on-screen text in apps that don't expose it. Shift works without it.",
-                state: .later,
-                actionTitle: nil,
-                action: nil
+                detail: model.screenRecordingGranted
+                    ? "Granted. The on-screen text reader will use this when it arrives."
+                    : "Optional. Only used later for reading text in apps that don't expose it. Shift works fully without it.",
+                state: model.screenRecordingGranted ? .granted : .later,
+                actionTitle: "Grant…",
+                action: { model.requestScreenRecordingPermission() }
             )
 
             Label(
@@ -209,7 +212,7 @@ struct OnboardingView: View {
             } label: {
                 Label("Preview the shield", systemImage: "play.fill")
             }
-            .buttonStyle(.glass)
+            .buttonStyle(.bordered)
             .controlSize(.large)
 
             if hasSeenDemo {
@@ -442,7 +445,7 @@ private struct PermissionCard: View {
 
             if let actionTitle, let action, state != .granted {
                 Button(actionTitle, action: action)
-                    .buttonStyle(.glass)
+                    .buttonStyle(.bordered)
             }
         }
         .glassCard()
