@@ -1,0 +1,25 @@
+Shift/UI/NudgeCharacterView.swift
+  s_69b7527f61fa3d::t_33d6b80191bffb 349-350
+  s_69b7527f61fa3d::t_6698059c82408c 28,32-36,82-83,337,348,361
+  s_69b7527f61fa3d::t_0743bb27a76b54 85,108-133,240-242,246-248,250-262,278-281,284,316-318,338-339,359-360,362-363
+Shift/UI/NudgeHUD.swift
+  s_69b7527f61fa3d::t_6698059c82408c 56
+  s_69b7527f61fa3d::t_f56e8a31db9097 296
+  s_69b7527f61fa3d::t_49393e9c77ba07 214,279-281
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cdcd0fe898b24c5d5362f2f4be79943ef096ac17",
+  "prompts": {},
+  "sessions": {
+    "s_69b7527f61fa3d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d1c6e29d-d63b-44e1-b385-ebd8b9ab9f38",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Prakash Joshi Pax <101010368+Beingpax@users.noreply.github.com>"
+    }
+  }
+}
