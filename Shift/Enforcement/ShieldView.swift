@@ -37,11 +37,23 @@ struct ShieldView: View {
     /// against it that an enabled button looked disabled. So: a neutral near-black ground,
     /// a single rose bloom behind the headline, and an action colour bright enough that
     /// dimming it to 0.48 still reads as "not yet" rather than "broken".
+    /// A sunrise, not an alarm.
+    ///
+    /// The old backdrop was a dark red bloom, which made the shield read as a punishment
+    /// screen. That fights the product: Shift sells friction, not a prison, and this
+    /// appears *after* three nudges have already been ignored — being louder at this
+    /// point adds nothing. A dawn sky says "start the day again" instead, and its dark
+    /// upper half still carries white type at full contrast.
     private enum Palette {
-        static let ground = Color(red: 0.055, green: 0.059, blue: 0.078)
-        static let bloom = Color(red: 0.62, green: 0.14, blue: 0.28)
-        static let accent = Color(red: 1, green: 0.72, blue: 0.74)
-        static let action = Color(red: 0.89, green: 0.26, blue: 0.35)
+        static let night = Color(red: 0.05, green: 0.07, blue: 0.15)
+        static let dusk = Color(red: 0.16, green: 0.13, blue: 0.29)
+        static let violet = Color(red: 0.40, green: 0.21, blue: 0.36)
+        static let ember = Color(red: 0.76, green: 0.37, blue: 0.31)
+        static let horizon = Color(red: 0.96, green: 0.63, blue: 0.38)
+        static let sun = Color(red: 1.0, green: 0.84, blue: 0.56)
+
+        static let accent = Color(red: 1.0, green: 0.84, blue: 0.66)
+        static let action = Color(red: 0.90, green: 0.45, blue: 0.30)
     }
 
     var body: some View {
@@ -64,25 +76,38 @@ struct ShieldView: View {
 
     private var backdrop: some View {
         ZStack {
-            if !reduceTransparency {
-                BehindWindowBlur(material: .fullScreenUI)
-            }
-            Palette.ground.opacity(reduceTransparency ? 1 : 0.95)
+            // A real photograph rather than a gradient. A hand-rolled sky always looks
+            // hand-rolled at full-screen size, and this is the one surface in the app
+            // that fills a display. Twilight over dunes: dark enough overhead to carry
+            // white type at full contrast, with the horizon already glowing — the shield
+            // should read as "start again", not as a punishment screen.
+            // Tim de Groot, Unsplash License. See CREDITS.md.
+            Palette.night
+            Image("ShieldDawn")
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .opacity(1)
 
-            // One bloom, sitting behind the headline, so the backdrop reads as light
-            // falling on the message rather than as a gradient for its own sake.
-            EllipticalGradient(
-                colors: [Palette.bloom.opacity(0.66), Palette.bloom.opacity(0.17), .clear],
-                center: UnitPoint(x: 0.5, y: 0.32),
-                startRadiusFraction: 0, endRadiusFraction: 0.78
+            // Scrim. Deliberately light: the sky in this photograph is already dark
+            // enough to carry white type, so the scrim only has to steady it. Heavier
+            // and the photograph may as well not be there.
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0.40), location: 0.0),
+                    .init(color: .black.opacity(0.26), location: 0.42),
+                    .init(color: .black.opacity(0.05), location: 0.74),
+                    .init(color: .black.opacity(0.24), location: 1.0),
+                ],
+                startPoint: .top, endPoint: .bottom
             )
 
-            // Vignette. Holds the eye in the middle and hides where the bloom runs out.
+            // Vignette: holds the eye in the middle and keeps the corners quiet.
             RadialGradient(
-                colors: [.clear, .black.opacity(0.5)],
-                center: .center, startRadius: 300, endRadius: 1020
+                colors: [.clear, .black.opacity(0.22)],
+                center: .center, startRadius: 420, endRadius: 1150
             )
         }
+        .clipped()
         .ignoresSafeArea()
         .accessibilityHidden(true)
     }
@@ -90,14 +115,12 @@ struct ShieldView: View {
     private var content: some View {
         VStack(spacing: Theme.Space.loose) {
             // Haloed, so the badge sits inside the bloom rather than on top of it.
-            BlockBadge(symbol: "shield.lefthalf.filled", tint: .pink, size: 62)
-                .background {
-                    Circle()
-                        .fill(Palette.action)
-                        .frame(width: 112, height: 112)
-                        .blur(radius: 44)
-                        .opacity(0.42)
-                }
+            // A rising sun rather than a shield. The glyph should agree with the sky
+            // behind it; a red shield on a sunrise reads as two screens fighting.
+            // A rising sun rather than a shield: the glyph has to agree with the sky
+            // behind it. No halo — a blurred disc on top of a gradient only ever reads
+            // as a smudge, and the sky is already supplying the warmth.
+            BlockBadge(symbol: "sun.horizon.fill", tint: .orange, size: 62)
 
             VStack(spacing: Theme.Space.snug) {
                 Text("Not now.")
@@ -115,8 +138,6 @@ struct ShieldView: View {
                 .foregroundStyle(.white.opacity(0.85))
 
             VStack(spacing: Theme.Space.base) {
-                ladderBadge
-
                 phraseField
                 actions
             }
@@ -140,16 +161,6 @@ struct ShieldView: View {
         .padding(Theme.Space.vast)
         .frame(maxWidth: 720)
         .multilineTextAlignment(.center)
-    }
-
-    /// Says why the screen is covered: the nudges ran out.
-    private var ladderBadge: some View {
-        Label("\(NudgeLadder.stepCount) nudges, then this", systemImage: "hand.raised.fill")
-            .font(.callout.weight(.semibold))
-            .foregroundStyle(Palette.accent)
-            .padding(.horizontal, Theme.Space.base)
-            .padding(.vertical, Theme.Space.tight)
-            .background(Palette.accent.opacity(0.12), in: Capsule())
     }
 
     private var phraseField: some View {

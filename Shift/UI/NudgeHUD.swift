@@ -99,9 +99,9 @@ final class NudgeHUDController {
             transitionTask = Task { [panel] in await fade(panel, to: 1) }
         }
 
-        // A ladder rung is replaced by the next one, or taken down by the engine when the
-        // user leaves. The timer is only a backstop against a rung outliving its ladder.
-        scheduleAutoDismiss(after: isHint ? hintDuration : NudgeLadder.interval + .seconds(2))
+        // The ladder takes its own rungs down after `visible`. This timer is only a
+        // backstop against a rung outliving the ladder that put it there.
+        scheduleAutoDismiss(after: isHint ? hintDuration : NudgeLadder.visible + .seconds(2))
     }
 
     func hide() {

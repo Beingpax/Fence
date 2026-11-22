@@ -139,16 +139,27 @@ Rules that are easy to get wrong, and are covered by the tests:
 - **Platform:** Apple Silicon Macs running macOS 26 or later.
 - **Detection stays local.** Read browser addresses through Accessibility. Match enabled app, website, and path rules before considering a title-based nudge.
 - **Nudges come before the shield.** A rule match no longer raises the shield directly.
-  `NudgeLadder` shows 3 nudges, 5 s apart, re-checking between each that the user is still
-  on the same blocked thing. Leaving at any point ends it with nothing having happened.
-  Only when the nudges are spent does the shield appear. The point is the habit, not the
-  punishment — see "The nudge ladder" below.
+  `NudgeLadder` shows 3 nudges: each appears for 5 s, then **leaves the screen for 5 s**
+  before the next. The pause is deliberate — three nudges back to back read as one long
+  complaint, whereas appearing, leaving and returning reads as someone checking on you,
+  and it leaves a quiet moment in which to actually close the tab. The last rung also
+  clears before the shield lands. Leaving at any point ends it with nothing having
+  happened. See "The nudge ladder" below.
 - **Shield:** frosted full-screen window on every display and Space; while it's up, the Dock, menu bar and Cmd+Tab are disabled. The text says "Not now." plus a one-line reason.
   - **Quit the entire browser or app.** Let the user respond when the target shows a quit confirmation.
   - **One tier, not three.** The ladder is the escalation now, so the shield is always a
     10-second wait plus the phrase *"I am choosing to get distracted"*. The old per-day
     Gentle/Firm/Severe strike tiers and `DailyStrikeCounts` are gone — friction that grew
     with a count the user couldn't see explained nothing.
+  - **The backdrop is a photograph** (`ShieldDawn`), twilight over dunes, under the
+    Unsplash License — see `CREDITS.md`. A hand-rolled gradient always looks hand-rolled
+    at full-screen size, and this is the one surface that fills a display. It is also
+    deliberately *not* an angry red: this appears after three nudges have already been
+    ignored, so being louder adds nothing, and "start again" is the note to hit. Keep the
+    scrim light — the sky already carries white type, and a heavy scrim wastes the photo.
+  - **No progress indicator anywhere.** No "nudge 2 of 3" and no dots. A tally made the
+    whole thing read as a machine keeping score; the character's ears and colour say
+    where you are.
   - Only confident blocks reach the ladder; soft hints never do. Default to allow on work apps when unsure.
 - **Locked mode:** you can't end the session or quit Shift early.
 - **Honesty:** an admin can always win. We sell friction, not a prison.

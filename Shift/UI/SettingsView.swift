@@ -77,7 +77,7 @@ struct SettingsView: View {
             icon: "eye",
             tint: .orange
         ) {
-            PanelRow(title: "Nudges", detail: "Each rung, 5 seconds apart when it's real.") {
+            PanelRow(title: "Nudges", detail: "Each rung. Live: 5s on screen, 5s off.") {
                 HStack(spacing: Theme.Space.tight) {
                     ForEach(1...NudgeLadder.stepCount, id: \.self) { step in
                         Button("\(step)") { model.previewNudge(step: step) }
@@ -99,7 +99,7 @@ struct SettingsView: View {
 
     private var detection: some View {
         Panel("How blocking works", icon: "scope", tint: .purple) {
-            Text("Shift checks the current app and browser address against your enabled blocks. A rule can match a whole website, a path like YouTube Shorts, or an app. A match nudges you \(NudgeLadder.stepCount) times, 5 seconds apart, and only covers the screen if you are still there.")
+            Text("Shift checks the current app and browser address against your enabled blocks. A rule can match a whole website, a path like YouTube Shorts, or an app. A match nudges you \(NudgeLadder.stepCount) times — five seconds on screen, five seconds off — and only covers the screen if you are still there.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

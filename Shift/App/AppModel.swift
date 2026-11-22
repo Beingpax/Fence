@@ -276,6 +276,9 @@ final class AppModel {
                 self.nudgeHUD.ladder(step: step, headline: copy.headline, detail: copy.detail)
                 self.log("Nudge \(step) of \(NudgeLadder.stepCount) · \(location)", symbol: "hand.wave")
             },
+            onRest: { [weak self] in
+                self?.nudgeHUD.hide()
+            },
             isStillHere: { [weak self] in
                 self?.isStillBlocked(context) ?? false
             },
