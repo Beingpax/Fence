@@ -58,14 +58,20 @@ struct MainWindowView: View {
                 .background {
                     Theme.detailBackground.ignoresSafeArea(.container, edges: .top)
                 }
-                .slidingPanel(isPresented: $isInspectorPresented, width: 400) {
+                .slidingPanel(isPresented: $isInspectorPresented, width: 420) {
                     inspector
+                }
+                .onChange(of: isInspectorPresented) { _, presented in
+                    if !presented { selectedBlockID = nil }
                 }
         }
         .frame(minWidth: 900, minHeight: 560)
         .background {
             Theme.workspaceBackground.ignoresSafeArea(.container, edges: .top)
         }
+        // Content runs to the very top of the window, under the hidden title bar.
+        // Without this the sidebar and the panel both stop short of the traffic lights.
+        .ignoresSafeArea(.container, edges: .top)
         .sheet(isPresented: $isShowingTemplates) {
             TemplateGalleryView { template in
                 let block = template.makeBlock()
@@ -575,7 +581,8 @@ struct ActivityView: View {
             if model.activity.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
                     PageHeader("Activity")
-                        .padding(Theme.Space.loose)
+                        .padding(.horizontal, 28)
+                        .padding(.vertical, 26)
                     ContentUnavailableView(
                         "Nothing yet",
                         systemImage: "clock",
@@ -611,7 +618,8 @@ struct ActivityView: View {
                             }
                         }
                     }
-                    .padding(Theme.Space.loose)
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 26)
                 }
             }
         }

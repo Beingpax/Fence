@@ -168,7 +168,7 @@ struct PanelRow<Control: View>: View {
     @ViewBuilder var control: () -> Control
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Theme.Space.base) {
+        HStack(alignment: .top, spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.callout)
@@ -205,14 +205,14 @@ struct PageHeader<Trailing: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Theme.Space.base) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 7) {
                 Text(title)
-                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
                     .accessibilityAddTraits(.isHeader)
                 if let subtitle {
                     Text(subtitle)
-                        .font(.callout)
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -357,10 +357,11 @@ struct SidebarIconTile: View {
 
 /// A panel that slides in over the content from the trailing edge.
 ///
-/// Modelled on how IINA reveals its settings: the panel is a floating card, inset from
-/// the window edges with its own corners and shadow, rather than a split-view column
-/// welded to the side. It overlays the content instead of squeezing it, so the list
-/// underneath keeps its layout while something is being edited.
+/// Geometry copied from the reference build in Budget-Tracker: the panel is flush to the
+/// window's top, bottom and trailing edges and rounded only on its leading corners, so it
+/// reads as a drawer pulled out of the side rather than a card floating in the corner.
+/// While it is open the content behind it stops taking input, and clicking that content
+/// closes the panel.
 struct SlidingPanel<PanelContent: View>: ViewModifier {
     @Binding var isPresented: Bool
     var width: CGFloat = 400
@@ -371,42 +372,50 @@ struct SlidingPanel<PanelContent: View>: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .allowsHitTesting(!isPresented)
+            .accessibilityHidden(isPresented)
             .overlay(alignment: .trailing) {
-                if isPresented {
-                    panelBody
-                        .transition(
-                            reduceMotion
-                                ? .opacity
-                                : .move(edge: .trailing).combined(with: .opacity)
-                        )
+                GeometryReader { geometry in
+                    ZStack(alignment: .trailing) {
+                        if isPresented {
+                            // Click anywhere outside the panel to close it.
+                            Rectangle()
+                                .fill(.clear)
+                                .contentShape(Rectangle())
+                                .onTapGesture { isPresented = false }
+                                .accessibilityHidden(true)
+                                .transition(.identity)
+
+                            panelSurface
+                                .frame(width: min(max(width, 360), 460, geometry.size.width))
+                                .transition(reduceMotion ? .opacity : .move(edge: .trailing))
+                                .zIndex(1)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                 }
             }
-            .animation(
-                reduceMotion ? .none : .spring(response: 0.34, dampingFraction: 0.86),
-                value: isPresented
-            )
+            .clipped()
+            .animation(reduceMotion ? nil : .easeIn(duration: 0.24), value: isPresented)
     }
 
-    private var panelBody: some View {
-        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+    private var panelSurface: some View {
+        let shape = UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12, style: .continuous)
         return panel()
-            .frame(width: width)
-            .frame(maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background {
                 if reduceTransparency {
                     shape.fill(Color(nsColor: .windowBackgroundColor))
+                        .overlay { shape.strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1) }
                 } else {
-                    shape.fill(.regularMaterial)
+                    Color.clear
+                        .glassEffect(.regular.tint(Color(nsColor: .windowBackgroundColor).opacity(0.28)), in: shape)
                 }
             }
-            .overlay {
-                shape.strokeBorder(Color.primary.opacity(0.1), lineWidth: 1)
-            }
             .clipShape(shape)
-            .shadow(color: .black.opacity(0.22), radius: 22, x: -6, y: 6)
-            .padding(.vertical, 12)
-            .padding(.trailing, 12)
-            .padding(.leading, 0)
+            .contentShape(shape)
+            .accessibilityElement(children: .contain)
     }
 }
 

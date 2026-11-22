@@ -19,8 +19,9 @@ struct SettingsView: View {
                 detection
                 about
             }
-            .padding(Theme.Space.loose)
-            .frame(maxWidth: 720, alignment: .leading)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 26)
+            .frame(maxWidth: 760, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .scrollBounceBehavior(.basedOnSize)

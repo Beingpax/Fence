@@ -30,19 +30,12 @@ struct DashboardView: View {
                     activeList
                 }
             }
-            .padding(Theme.Space.loose)
-            .frame(maxWidth: 780, alignment: .leading)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 26)
+            .frame(maxWidth: 820, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .scrollBounceBehavior(.basedOnSize)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button(action: onAddBlock) {
-                    Label("New block", systemImage: "plus")
-                }
-                .help("Add a block")
-            }
-        }
     }
 
     // MARK: Header
