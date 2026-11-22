@@ -46,36 +46,7 @@ enum Theme {
 
 // MARK: - Glass surfaces
 
-/// A floating card. Liquid Glass when transparency is allowed, a solid material when it isn't.
-struct GlassCard: ViewModifier {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-
-    var radius: CGFloat = Theme.Radius.card
-    var padding: CGFloat = Theme.Space.base
-
-    func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        return Group {
-            if reduceTransparency {
-                content
-                    .padding(padding)
-                    .background(Color(nsColor: .controlBackgroundColor), in: shape)
-                    .overlay(shape.strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
-            } else {
-                content
-                    .padding(padding)
-                    .glassEffect(.regular, in: shape)
-            }
-        }
-    }
-}
-
 extension View {
-    /// Floating card surface. See `GlassCard`.
-    func glassCard(radius: CGFloat = Theme.Radius.card, padding: CGFloat = Theme.Space.base) -> some View {
-        modifier(GlassCard(radius: radius, padding: padding))
-    }
-
     /// Applies a transition only when the user hasn't asked for reduced motion.
     func calmTransition(_ transition: AnyTransition) -> some View {
         modifier(CalmTransition(transition: transition))

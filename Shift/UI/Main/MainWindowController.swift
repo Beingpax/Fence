@@ -29,6 +29,11 @@ final class MainWindowController {
         window.title = "Shift"
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
+        // The content paints its own translucent material, so the window must not paint
+        // an opaque one underneath it.
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.toolbarStyle = .unified
         window.contentView = NSHostingView(rootView: root)
         window.isReleasedWhenClosed = false
         window.setFrameAutosaveName("ShiftMainWindow")

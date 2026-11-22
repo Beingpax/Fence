@@ -128,13 +128,11 @@ final class BlockStore {
         guard existing.schedule == proposed.schedule else { return false }
         guard existing.lock.method == proposed.lock.method else { return false }
         guard existing.breaks.isEnabled == proposed.breaks.isEnabled else { return false }
-        guard existing.list.mode == proposed.list.mode else { return false }
         // Entries may be added but never removed.
         let grew = { (old: [String], new: [String]) in Set(old).isSubset(of: Set(new)) }
         guard grew(existing.list.hosts, proposed.list.hosts),
               grew(existing.list.paths, proposed.list.paths),
-              grew(existing.list.apps, proposed.list.apps),
-              grew(existing.list.keywords, proposed.list.keywords)
+              grew(existing.list.apps, proposed.list.apps)
         else { return false }
         // Exceptions may only shrink.
         guard Set(proposed.list.exceptions).isSubset(of: Set(existing.list.exceptions)) else { return false }

@@ -72,11 +72,9 @@ struct Block: Identifiable, Codable, Equatable {
     /// What the block covers, for the block row.
     var contentsSummary: String {
         var parts: [String] = []
-        let sites = list.hosts.count + list.paths.count
-        if sites > 0 { parts.append("\(sites) site\(sites == 1 ? "" : "s")") }
+        if list.siteCount > 0 { parts.append("\(list.siteCount) site\(list.siteCount == 1 ? "" : "s")") }
         if !list.apps.isEmpty { parts.append("\(list.apps.count) app\(list.apps.count == 1 ? "" : "s")") }
-        if !list.keywords.isEmpty { parts.append("\(list.keywords.count) keyword\(list.keywords.count == 1 ? "" : "s")") }
-        if parts.isEmpty { return list.mode == .allowlist ? "Everything except exceptions" : "Nothing yet" }
+        if parts.isEmpty { return "Nothing blocked yet" }
         return parts.joined(separator: " · ")
     }
 }
@@ -84,33 +82,18 @@ struct Block: Identifiable, Codable, Equatable {
 // MARK: - What a block covers
 
 struct BlockList: Codable, Equatable {
-    enum Mode: String, Codable, CaseIterable, Identifiable {
-        /// Block what's listed, allow everything else.
-        case blocklist
-        /// Allow only what's listed, block everything else. Cold Turkey calls this
-        /// "allowance only"; it's the nuclear option for writing days.
-        case allowlist
-
-        var id: String { rawValue }
-        var title: String { self == .blocklist ? "Block these" : "Allow only these" }
-    }
-
-    var mode: Mode = .blocklist
     /// Whole sites, subdomains included.
     var hosts: [String] = []
     /// Parts of sites, e.g. "youtube.com/shorts".
     var paths: [String] = []
     /// Native apps by bundle identifier.
     var apps: [String] = []
-    /// Words that trigger on *on-screen text*, read via Screen Recording. This is the
-    /// one rule that can see inside a page the address doesn't describe.
-    var keywords: [String] = []
     /// Always allowed, even when something else here matches.
     var exceptions: [String] = []
 
-    var isEmpty: Bool {
-        hosts.isEmpty && paths.isEmpty && apps.isEmpty && keywords.isEmpty
-    }
+    var isEmpty: Bool { hosts.isEmpty && paths.isEmpty && apps.isEmpty }
+
+    var siteCount: Int { hosts.count + paths.count }
 }
 
 // MARK: - When a block applies

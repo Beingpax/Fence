@@ -101,6 +101,12 @@ Rules that are easy to get wrong, and are covered by the tests:
 
 ## Product decisions (don't relitigate without asking)
 
+- **Blocks come from templates.** `BlockTemplate.all` is the gallery people start from.
+  A blank block is one of the options, not the only one.
+- **The app picker is in-app.** `InstalledApps` scans the application folders once, off the
+  main actor, and caches icons. Don't send people to an open panel.
+- **No allow-list mode and no on-screen keyword rules.** Both were cut as clutter. A block
+  blocks what's listed, with exceptions that always win.
 - **One window.** Settings is a section of the main window, not a `Settings` scene, so a
   menu bar app never puts two windows on screen. `MainSection` drives the sidebar, the
   model owns the selection, and Cmd+, opens the window at Settings. Don't reintroduce
@@ -117,6 +123,9 @@ Rules that are easy to get wrong, and are covered by the tests:
 - **Everything is local.** Never send screen content, OCR text, accessibility text or URLs off the device. No cloud fallback, not even optional.
 - **Nothing to download.** The model tier is Apple's built-in Foundation Models, not a 300 MB MLX classifier. This deleted the model downloader, the CDN, the signed manifest and version management from scope. A downloader only returns in M4 for the optional VLM tier.
 - **Detection is a cheap-first cascade:** rules → page text → embeddings → Foundation Models → VLM (M4, on demand). Rules must work with no model at all.
+- **Screen capture is currently idle.** `ScreenTextReader` is built and correct, but the
+  keyword rules that consumed it were cut, so `ContextMonitor.wantsScreenText` stays false.
+  The intent tier is its next consumer. Don't switch it on without one.
 - **Screen capture only runs when a rule needs it.** The engine sets `ContextMonitor.wantsScreenText` only when an active block has keywords and Screen Recording is granted. A perceptual-hash gate then skips recognition when the screen hasn't changed. Never put capture on a timer.
 - **Two text channels, compared not assumed.** Tier 1a is page text from the accessibility tree (exact strings, no Screen Recording permission, nearly free). Tier 1b is ScreenCaptureKit + Vision OCR (covers canvas, video, games, hostile apps). Both get built in M2 and compared on real usage against the gates in PRD §8.3 before either becomes the default. Expect AX to win in browsers and OCR to win everywhere else, but prove it.
 - **Read URLs from the accessibility tree**, not Apple Events. That removes the per-browser Automation prompt from onboarding. Apple Events stay only for *closing* a tab.
@@ -165,19 +174,30 @@ Shift/
 ├── Intelligence/   BlockEvaluator (tier 0), Hysteresis
 ├── Enforcement/    ShieldController, ShieldView, ShieldPolicy, GuardState,
 │                   LaunchAtLogin, WatchdogService, WatchdogRunner
-└── UI/             DesignSystem, MenuBarView, SettingsView (a pane, not a scene),
-                    NudgeHUD, PermissionsManager, Main/ (MainWindowController,
-                    MainWindowView + MainSection, DashboardView, BlockEditorView),
-                    Onboarding/
+└── UI/             DesignSystem (Theme, BlockBadge), Design/ (Materials, Controls),
+                    MenuBarView, SettingsView (a pane, not a scene), NudgeHUD,
+                    PermissionsManager, Main/ (MainWindowController, MainWindowView +
+                    MainSection, DashboardView, BlockEditorView + BlockInspector +
+                    AppPickerView), Onboarding/
 ```
 
-### Where glass belongs
-Liquid Glass goes on surfaces that float over *content*: the shield's controls, the
-onboarding preset chips, the permission cards. It does **not** go inside the menu bar
-popover, which is already a vibrant material, because glass on glass reads as washed out
-and Apple warns against it. Standard bordered controls are correct there. The shield and
-the nudge HUD use `BehindWindowBlur` rather than glass, because they float over *other
-apps* and must sample the desktop.
+### The design language
+Modelled on IINA: translucent chrome, depth from material weight rather than shadows, and
+generous spacing. Three rules hold it together.
+
+1. **Nothing is opaque** unless Reduce Transparency asks for it. The window, the sidebar,
+   the cards and the popover are all `NSVisualEffectView` materials, via `Surface` and
+   `VisualEffect` in `UI/Design/Materials.swift`. The window itself sets `isOpaque = false`
+   and a clear background so the content can paint its own.
+2. **Controls are Shift's own**, in `UI/Design/Controls.swift`: `SegmentedSelector`,
+   `ShiftSwitch`, `OptionCard`, `TimeField`, `NumberStepper`, `DayPicker`, `Chip`,
+   `ShiftTextField`, and the `shiftProminent` / `shiftSoft` button styles. Reach for these
+   before a stock control, so the app reads as one thing.
+3. **Structure comes from `Panel` and `PanelRow`**, not `Form`. Tint is carried by thin
+   strokes and content, never by large filled rectangles.
+
+Liquid Glass button styles are still right on the shield, which floats over other apps.
+The shield and the nudge HUD use `BehindWindowBlur` because they must sample the desktop.
 
 ### Design system
 All spacing, radii, verdict colours and glass surfaces come from `Theme` and `glassCard()` in

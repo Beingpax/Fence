@@ -163,11 +163,9 @@ final class AppModel {
             }
         }
 
-        // Screen capture is the expensive tier, so it only turns on when a rule needs it.
-        let needsScreenText = active.contains { !$0.list.keywords.isEmpty } && screenRecordingGranted
-        if monitor.wantsScreenText != needsScreenText {
-            monitor.wantsScreenText = needsScreenText
-        }
+        // Screen capture stays off: `ScreenTextReader` is built and ready, but nothing
+        // consumes its output until the intent tier lands. Turning it on without a
+        // consumer would cost battery for nothing.
 
         syncLockProtections()
 

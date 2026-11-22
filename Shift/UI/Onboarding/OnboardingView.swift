@@ -50,7 +50,9 @@ struct OnboardingView: View {
                 .padding(Theme.Space.wide)
             footer
         }
-        .background(.windowBackground)
+        .background {
+            VisualEffect(surface: .window, blending: .behindWindow).ignoresSafeArea()
+        }
         .onAppear(perform: seedFromExistingRules)
     }
 
@@ -81,12 +83,12 @@ struct OnboardingView: View {
 
             if step != .welcome {
                 Button("Back", action: goBack)
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.shiftSoft)
                     .keyboardShortcut(.cancelAction)
             }
 
             Button(primaryTitle, action: goForward)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.shiftProminent)
                 .keyboardShortcut(.defaultAction)
         }
         .controlSize(.large)
@@ -140,11 +142,14 @@ struct OnboardingView: View {
                 VStack(alignment: .leading, spacing: Theme.Space.tight) {
                     SectionLabel(text: "Anything else?")
                     HStack(spacing: Theme.Space.tight) {
-                        TextField("example.com, or example.com/feed", text: $customEntry)
-                            .textFieldStyle(.roundedBorder)
-                            .onSubmit(addCustom)
+                        ShiftTextField(
+                            prompt: "example.com, or example.com/feed",
+                            text: $customEntry,
+                            symbol: "plus",
+                            onSubmit: addCustom
+                        )
                         Button("Add", action: addCustom)
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.shiftSoft)
                             .disabled(customEntry.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                     if !customList.isEmpty {
@@ -213,7 +218,7 @@ struct OnboardingView: View {
             } label: {
                 Label("Preview the shield", systemImage: "play.fill")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.shiftSoft)
             .controlSize(.large)
 
             if hasSeenDemo {
@@ -229,8 +234,7 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: Theme.Space.base) {
             VStack(alignment: .leading, spacing: Theme.Space.tight) {
                 SectionLabel(text: "Name this block")
-                TextField("e.g. Distractions", text: $blockName)
-                    .textFieldStyle(.roundedBorder)
+                ShiftTextField(prompt: "e.g. Distractions", text: $blockName, symbol: "shield.lefthalf.filled")
                 Text("A block is a named set of sites and apps with its own schedule and lock. You can add more later, and keep them on different terms.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -469,10 +473,10 @@ private struct PermissionCard: View {
 
             if let actionTitle, let action, state != .granted {
                 Button(actionTitle, action: action)
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.shiftSoft)
             }
         }
-        .glassCard()
+        .glassSurface()
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(title), \(stateDescription)")
     }

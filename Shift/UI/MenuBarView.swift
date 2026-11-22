@@ -30,6 +30,9 @@ struct MenuBarView: View {
         }
         .padding(Theme.Space.base)
         .frame(width: Theme.menuWidth)
+        .background {
+            VisualEffect(surface: .window, blending: .behindWindow).ignoresSafeArea()
+        }
         .onAppear {
             model.refreshPermissions()
             model.refreshSystemState()
@@ -67,8 +70,7 @@ struct MenuBarView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Button("Open Shift") { model.presentMainWindow() }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .buttonStyle(.shiftProminent)
                 .frame(maxWidth: .infinity)
         }
     }
@@ -85,7 +87,9 @@ struct MenuBarView: View {
     private var footer: some View {
         HStack(spacing: Theme.Space.tight) {
             Button("Open Shift") { model.presentMainWindow() }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.tint)
 
             Spacer()
 
@@ -147,13 +151,13 @@ private struct MenuBlockRow: View {
 
             Spacer(minLength: Theme.Space.tight)
 
-            Toggle("", isOn: Binding(
-                get: { block.isEnabled },
-                set: { toggle(to: $0) }
-            ))
-            .labelsHidden()
-            .toggleStyle(.switch)
-            .controlSize(.mini)
+            ShiftSwitch(
+                isOn: .constant(block.isEnabled),
+                tint: block.tint.color,
+                isLocked: block.lock.isLocked(),
+                action: { toggle(to: $0) }
+            )
+            .scaleEffect(0.82)
             .accessibilityLabel("\(block.name) enabled")
         }
         .help(refused ? block.lock.statusText() : block.contentsSummary)

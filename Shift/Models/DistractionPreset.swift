@@ -129,11 +129,9 @@ extension BlockList {
             .filter { !$0.isEmpty }
 
         return BlockList(
-            mode: .blocklist,
             hosts: unique(presets.flatMap(\.hosts) + cleaned.filter { !$0.contains("/") }),
             paths: unique(presets.flatMap(\.paths) + cleaned.filter { $0.contains("/") }),
             apps: unique(presets.flatMap(\.apps)),
-            keywords: [],
             exceptions: []
         )
     }

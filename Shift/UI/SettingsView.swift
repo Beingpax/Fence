@@ -2,150 +2,32 @@ import SwiftUI
 
 /// Settings, as a pane in the main window rather than a separate window.
 ///
-/// Everything Shift can be configured with now lives behind one sidebar, so there is only
-/// ever one Shift window on screen. The three groups that used to be tabs are sections of
-/// a single form, which reads better in a detail pane than nested tabs would.
+/// Built from the same `Panel` and control pieces as everything else, so it reads as part
+/// of the app instead of a system settings window that wandered in.
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        Form {
-            GeneralSettingsView()
-            PermissionsSettingsView()
-            IntelligenceSettingsView()
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Space.base) {
+                startup
+                nudges
+                lockedBlocks
+                permissions
+                detection
+                about
+            }
+            .padding(Theme.Space.loose)
+            .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
-        .formStyle(.grouped)
-        .navigationTitle("Settings")
+        .scrollBounceBehavior(.basedOnSize)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Settings").font(.headline)
+            }
+        }
         .onAppear { model.refreshSystemState() }
-    }
-}
-
-// MARK: - General
-
-private struct GeneralSettingsView: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        @Bindable var model = model
-        Group {
-            Section {
-                Toggle("Open Shift at login", isOn: Binding(
-                    get: { model.launchAtLoginEnabled },
-                    set: { model.setLaunchAtLogin($0) }
-                ))
-                .help("Registers Shift as a login item so it's running before you need it.")
-
-                if LaunchAtLogin.requiresApproval {
-                    LabeledContent("Needs approval") {
-                        Button("Open Login Items…") { LaunchAtLogin.openLoginItemsSettings() }
-                    }
-                }
-
-                Toggle("Show Shift in the Dock", isOn: $model.showInDock)
-                    .help("Shift is a menu bar app and hides from the Dock by default.")
-            } header: {
-                Text("Startup")
-            } footer: {
-                Text("A blocker that isn't running blocks nothing. Shift lives in the menu bar, and hides from the Dock unless you ask for it.")
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                Toggle("Show nudges", isOn: $model.showNudges)
-                    .help("A small HUD for mild drift. It never covers the screen.")
-                LabeledContent("Preview") {
-                    Button("Show a nudge") { model.previewNudge() }
-                }
-            } header: {
-                Text("Nudges")
-            } footer: {
-                Text("Nudges appear for uncertain or mild drift and fade on their own. Only confident blocks raise the shield.")
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                Toggle("Keep the watchdog running at all times", isOn: $model.keepWatchdogAlways)
-                    .help("Otherwise the watchdog is installed only while a Locked session runs.")
-                LabeledContent("Watchdog") {
-                    Label(
-                        model.watchdogInstalled ? "Installed" : "Not installed",
-                        systemImage: model.watchdogInstalled ? "checkmark.circle.fill" : "circle.dashed"
-                    )
-                    .foregroundStyle(model.watchdogInstalled ? .green : .secondary)
-                    .labelStyle(.titleAndIcon)
-                }
-            } header: {
-                Text("Locked sessions")
-            } footer: {
-                Text("During a Locked session, Shift refuses to quit, a background watchdog relaunches it if it's killed, and the app is put back if it's moved to the Trash. An admin can still win with enough determination. Shift sells friction, not a prison.")
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                LabeledContent("Blocks") {
-                    Button("Open Shift…") { model.presentMainWindow() }
-                }
-                LabeledContent("Setup") {
-                    Button("Run setup again…") { model.presentOnboarding() }
-                }
-            } footer: {
-                Text("Walks through the distraction picker, permissions and the demo shield again.")
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-}
-
-// MARK: - Permissions
-
-private struct PermissionsSettingsView: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        Group {
-            Section {
-                permissionRow(
-                    title: "Accessibility",
-                    detail: "Reads the frontmost window's title and the page you're on. This is the one permission Shift needs to work.",
-                    granted: model.accessibilityGranted,
-                    actionTitle: "Open…",
-                    action: PermissionsManager.openAccessibilitySettings
-                )
-                permissionRow(
-                    title: "Automation (browsers)",
-                    detail: "Closes a distracting tab when you act on a shield. Asked once per browser, the first time a tab actually needs closing.",
-                    granted: nil,
-                    actionTitle: "Open…",
-                    action: PermissionsManager.openAutomationSettings
-                )
-                permissionRow(
-                    title: "Screen Recording",
-                    detail: "Only needed by blocks that use on-screen words. Everything else works without it.",
-                    granted: model.screenRecordingGranted,
-                    actionTitle: model.screenRecordingGranted ? nil : "Grant…",
-                    action: model.screenRecordingGranted ? nil : { model.requestScreenRecordingPermission() }
-                )
-            } header: {
-                Text("Permissions")
-            } footer: {
-                Text("Everything Shift reads stays on this Mac. Nothing is written to disk and nothing is uploaded.")
-                    .foregroundStyle(.secondary)
-            }
-
-            if !model.accessibilityGranted {
-                Section {
-                    Label(
-                        "If Shift already looks enabled in System Settings, remove it from the Accessibility list with the minus button, then add it again. macOS ties the permission to the app's signature, so a rebuilt or replaced copy needs a fresh grant.",
-                        systemImage: "lightbulb"
-                    )
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                } header: {
-                    Text("Granted it but still not working?")
-                }
-            }
-        }
-        .onAppear { model.refreshPermissions() }
         .task {
             while !Task.isCancelled {
                 model.refreshPermissions()
@@ -154,102 +36,220 @@ private struct PermissionsSettingsView: View {
         }
     }
 
-    private func permissionRow(
-        title: String,
-        detail: String,
-        granted: Bool?,
-        actionTitle: String?,
-        action: (() -> Void)?
-    ) -> some View {
-        HStack(alignment: .top, spacing: Theme.Space.snug) {
-            VStack(alignment: .leading, spacing: Theme.Space.hair) {
-                Text(title).font(.headline)
-                Text(detail)
+    // MARK: Sections
+
+    private var startup: some View {
+        @Bindable var model = model
+        return Panel("Startup", icon: "power") {
+            PanelRow(
+                title: "Open Shift at login",
+                detail: "A blocker that isn't running blocks nothing."
+            ) {
+                ShiftSwitch(
+                    isOn: .constant(model.launchAtLoginEnabled),
+                    action: { model.setLaunchAtLogin($0) }
+                )
+            }
+
+            if LaunchAtLogin.requiresApproval {
+                PanelRow(title: "Needs approval in System Settings") {
+                    Button("Open") { LaunchAtLogin.openLoginItemsSettings() }
+                        .buttonStyle(.shiftSoft)
+                }
+            }
+
+            PanelRow(
+                title: "Show Shift in the Dock",
+                detail: "Off by default. Shift lives in the menu bar."
+            ) {
+                ShiftSwitch(isOn: $model.showInDock)
+            }
+        }
+    }
+
+    private var nudges: some View {
+        @Bindable var model = model
+        return Panel(
+            "Nudges",
+            subtitle: "A small HUD for mild drift. It never covers the screen, and only confident blocks raise the shield.",
+            icon: "arrow.turn.up.left"
+        ) {
+            PanelRow(title: "Show nudges") {
+                ShiftSwitch(isOn: $model.showNudges)
+            }
+            PanelRow(title: "See what one looks like") {
+                Button("Preview") { model.previewNudge() }
+                    .buttonStyle(.shiftSoft)
+            }
+        }
+    }
+
+    private var lockedBlocks: some View {
+        @Bindable var model = model
+        return Panel(
+            "Locked blocks",
+            subtitle: "While a lock is engaged, Shift refuses to quit, a watchdog relaunches it if it's killed, and the app is put back if it's moved to the Trash. An admin can still win. Shift sells friction, not a prison.",
+            icon: "lock.shield"
+        ) {
+            PanelRow(
+                title: "Keep the watchdog running always",
+                detail: "Otherwise it's installed only while a lock is engaged."
+            ) {
+                ShiftSwitch(isOn: $model.keepWatchdogAlways)
+            }
+            PanelRow(title: "Watchdog") {
+                Label(
+                    model.watchdogInstalled ? "Installed" : "Not installed",
+                    systemImage: model.watchdogInstalled ? "checkmark.circle.fill" : "circle.dashed"
+                )
+                .font(.caption)
+                .foregroundStyle(model.watchdogInstalled ? .green : .secondary)
+                .labelStyle(.titleAndIcon)
+            }
+        }
+    }
+
+    private var permissions: some View {
+        Panel(
+            "Permissions",
+            subtitle: "Everything Shift reads stays on this Mac. Nothing is written to disk and nothing is uploaded.",
+            icon: "hand.raised"
+        ) {
+            PermissionLine(
+                title: "Accessibility",
+                detail: "Reads the frontmost window and the page you're on. The one permission Shift needs.",
+                granted: model.accessibilityGranted,
+                action: { model.requestAccessibilityPermission() }
+            )
+            PermissionLine(
+                title: "Automation",
+                detail: "Closes a distracting tab when you act on a shield. Asked once per browser.",
+                granted: nil,
+                action: { PermissionsManager.openAutomationSettings() }
+            )
+            PermissionLine(
+                title: "Screen Recording",
+                detail: "Not used yet. The intent tier will read on-screen text with it.",
+                granted: model.screenRecordingGranted,
+                action: { model.requestScreenRecordingPermission() }
+            )
+
+            if !model.accessibilityGranted {
+                Text("If Shift already looks enabled in System Settings, remove it from the list with the minus button and add it again. macOS ties the permission to the app's signature, so a rebuilt copy needs a fresh grant.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: Theme.Space.tight)
-            if let granted {
-                Image(systemName: granted ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                    .foregroundStyle(granted ? .green : .orange)
-                    .accessibilityLabel(granted ? "Granted" : "Not granted")
-            }
-            if let actionTitle, let action {
-                Button(actionTitle, action: action)
+                    .padding(.top, 2)
             }
         }
-        .padding(.vertical, Theme.Space.hair)
+    }
+
+    private var detection: some View {
+        Panel(
+            "Detection",
+            subtitle: "Shift works cheapest-first. Rules settle nearly everything without waking anything larger.",
+            icon: "sparkles"
+        ) {
+            TierLine(
+                title: "Rules",
+                detail: "Window titles, addresses and path-aware matching across every active block.",
+                status: "Active",
+                isActive: true
+            )
+            TierLine(
+                title: "Page text",
+                detail: "Reads the page from the accessibility tree. Exact, and costs nothing.",
+                status: "Next",
+                isActive: false
+            )
+            TierLine(
+                title: "On-device model",
+                detail: "Judges a page against a block's goal, using the model built into macOS.",
+                status: "Planned",
+                isActive: false
+            )
+        }
+    }
+
+    private var about: some View {
+        Panel("Setup", icon: "sparkle") {
+            PanelRow(title: "Run first-time setup again") {
+                Button("Open setup") { model.presentOnboarding() }
+                    .buttonStyle(.shiftSoft)
+            }
+        }
     }
 }
 
-// MARK: - Intelligence
+// MARK: - Rows
 
-private struct IntelligenceSettingsView: View {
-    @Environment(AppModel.self) private var model
+private struct PermissionLine: View {
+    let title: String
+    let detail: String
+    let granted: Bool?
+    let action: () -> Void
 
     var body: some View {
-        Group {
-            Section {
-                tierRow(
-                    "Rules",
-                    detail: "Window titles, addresses and path-aware rules, across every active block. Instant, and needs nothing installed.",
-                    status: "Active",
-                    isActive: true
-                )
-                tierRow(
-                    "On-screen text",
-                    detail: "Reads the frontmost window with screen capture and text recognition, so blocks can match words the address never mentions.",
-                    status: model.screenRecordingGranted ? "Active" : "Needs permission",
-                    isActive: model.screenRecordingGranted
-                )
-                tierRow(
-                    "Page text",
-                    detail: "Reads the page straight from the accessibility tree, which is exact and costs nothing.",
-                    status: "Next",
-                    isActive: false
-                )
-                tierRow(
-                    "On-device model",
-                    detail: "Judges the page against your goal using the model already built into macOS.",
-                    status: "M2",
-                    isActive: false
-                )
-                tierRow(
-                    "Vision model",
-                    detail: "For screens that are mostly video or images, where there's no text to read.",
-                    status: "M4",
-                    isActive: false
-                )
-            } header: {
-                Text("Detection tiers")
-            } footer: {
-                Text("Shift works cheapest-first: rules settle most cases without waking anything larger. There is no model to download and no account, because the on-device model ships with macOS.")
+        HStack(alignment: .top, spacing: Theme.Space.snug) {
+            Image(systemName: symbol)
+                .font(.callout)
+                .foregroundStyle(color)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.callout.weight(.medium))
+                Text(detail)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+
+            Spacer(minLength: Theme.Space.tight)
+
+            if granted != true {
+                Button(granted == nil ? "Open" : "Grant", action: action)
+                    .buttonStyle(.shiftSoft)
+            }
+        }
+        .padding(.vertical, 3)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var symbol: String {
+        switch granted {
+        case true: "checkmark.circle.fill"
+        case false: "exclamationmark.circle.fill"
+        default: "minus.circle"
         }
     }
 
-    private func tierRow(_ title: String, detail: String, status: String, isActive: Bool) -> some View {
+    private var color: Color {
+        switch granted {
+        case true: .green
+        case false: .orange
+        default: .secondary
+        }
+    }
+}
+
+private struct TierLine: View {
+    let title: String
+    let detail: String
+    let status: String
+    let isActive: Bool
+
+    var body: some View {
         HStack(alignment: .top, spacing: Theme.Space.snug) {
-            VStack(alignment: .leading, spacing: Theme.Space.hair) {
-                Text(title).font(.headline)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.callout.weight(.medium))
                 Text(detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: Theme.Space.tight)
-            Text(status)
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, Theme.Space.tight)
-                .padding(.vertical, Theme.Space.hair)
-                .background(
-                    (isActive ? Color.green : Color.secondary).opacity(0.15),
-                    in: Capsule()
-                )
-                .foregroundStyle(isActive ? .green : .secondary)
+            StatusTag(text: status, tint: isActive ? .green : .secondary)
         }
-        .padding(.vertical, Theme.Space.hair)
+        .padding(.vertical, 3)
     }
 }

@@ -42,15 +42,8 @@ struct BlockEvaluator {
     /// Returns a verdict only when this block has an opinion; nil means "no comment".
     private func judge(_ context: ScreenContext, against block: Block) -> Verdict? {
         if matchesException(context, block.list) { return nil }
-
-        switch block.list.mode {
-        case .blocklist:
-            guard let reason = blockedReason(context, block.list) else { return nil }
-            return verdict(reason: reason, for: block)
-        case .allowlist:
-            guard !matchesAnyEntry(context, block.list) else { return nil }
-            return verdict(reason: "\(context.displayLocation) isn't on the allow list", for: block)
-        }
+        guard let reason = blockedReason(context, block.list) else { return nil }
+        return verdict(reason: reason, for: block)
     }
 
     private func verdict(reason: String, for block: Block) -> Verdict {
@@ -71,10 +64,6 @@ struct BlockEvaluator {
         list.exceptions.contains { entry in
             matchesEntry(context, entry: entry)
         }
-    }
-
-    private func matchesAnyEntry(_ context: ScreenContext, _ list: BlockList) -> Bool {
-        (list.hosts + list.paths + list.apps).contains { matchesEntry(context, entry: $0) }
     }
 
     private func matchesEntry(_ context: ScreenContext, entry: String) -> Bool {
@@ -101,21 +90,8 @@ struct BlockEvaluator {
             return "\(matched) is blocked"
         }
 
-        if let app = list.apps.first(where: { context.bundleID.lowercased() == $0.lowercased() }) {
-            _ = app
+        if list.apps.contains(where: { context.bundleID.lowercased() == $0.lowercased() }) {
             return "\(context.appName) is blocked"
-        }
-
-        // Keywords read from the screen. This is the only rule that sees inside a page.
-        if let text = context.screenText,
-           let keyword = list.keywords.first(where: { text.localizedCaseInsensitiveContains($0) }) {
-            return "“\(keyword)” is on screen"
-        }
-
-        // Keywords also apply to the window title, which costs nothing to check.
-        if let title = context.windowTitle,
-           let keyword = list.keywords.first(where: { title.localizedCaseInsensitiveContains($0) }) {
-            return "“\(keyword)” is in the window title"
         }
 
         return nil

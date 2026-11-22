@@ -16,8 +16,8 @@ final class ContextMonitor {
     /// immediate; this only exists to catch tab and title changes.
     var pollInterval: TimeInterval = 1.5
 
-    /// Set by the engine when some active block has keywords, which are the only rule
-    /// that needs pixels. Screen capture is skipped entirely when this is false.
+    /// Screen capture is skipped entirely unless this is on. It stays off until the
+    /// intent tier gives the captured text a consumer.
     var wantsScreenText = false
 
     private let screenReader = ScreenTextReader()

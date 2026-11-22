@@ -1,299 +1,399 @@
 import AppKit
 import SwiftUI
 
-/// Creates or edits one block.
+/// Edits one block, in the trailing inspector.
 ///
-/// Laid out as a sheet with a form, because every field here is a setting rather than
-/// content. Fields that can't be changed while the block is locked are disabled with the
-/// reason shown, instead of silently refusing the save.
-struct BlockEditorView: View {
-    @Environment(\.dismiss) private var dismiss
+/// Changes are applied as you make them rather than behind a Save button, which is what
+/// the rest of macOS does for settings-shaped editing. The store refuses anything that
+/// would weaken a locked block, so the inspector shows which parts are frozen instead of
+/// letting an edit fail silently.
+struct BlockInspector: View {
     @Environment(AppModel.self) private var model
 
     @State private var draft: Block
-    @State private var newHost = ""
-    @State private var newApp = ""
-    @State private var newKeyword = ""
+    @State private var newSite = ""
     @State private var newException = ""
+    @State private var isShowingAppPicker = false
 
-    private let onSave: (Block) -> Void
-    private let isLocked: Bool
+    private let onClose: () -> Void
 
-    init(block: Block, onSave: @escaping (Block) -> Void) {
+    init(block: Block, onClose: @escaping () -> Void) {
         _draft = State(initialValue: block)
-        self.onSave = onSave
-        isLocked = block.lock.isLocked()
+        self.onClose = onClose
     }
+
+    private var isLocked: Bool { draft.lock.isLocked() }
+    private var tint: Color { draft.tint.color }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            Form {
-                identitySection
-                listSection
-                scheduleSection
-                breaksSection
-                lockSection
-                frictionSection
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Space.snug) {
+                identity
+                if isLocked { lockedBanner }
+                sites
+                apps
+                exceptions
+                schedule
+                breaks
+                lock
+                friction
+                deleteButton
             }
-            .formStyle(.grouped)
-            Divider()
-            footer
+            .padding(Theme.Space.base)
         }
-        .frame(width: 580, height: 620)
-    }
-
-    // MARK: Chrome
-
-    private var header: some View {
-        HStack(spacing: Theme.Space.snug) {
-            BlockBadge(symbol: draft.symbol, tint: draft.tint, size: 38)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(draft.name.isEmpty ? "New block" : draft.name)
-                    .font(.headline)
-                Text(isLocked ? draft.lock.statusText() : "\(draft.contentsSummary) · \(draft.scheduleSummary)")
-                    .font(.caption)
-                    .foregroundStyle(isLocked ? .orange : .secondary)
-            }
-            Spacer()
+        .scrollBounceBehavior(.basedOnSize)
+        .background {
+            VisualEffect(surface: .sidebar, blending: .behindWindow).ignoresSafeArea()
         }
-        .padding(Theme.Space.base)
-    }
-
-    private var footer: some View {
-        HStack {
-            if isLocked {
-                Label("Locked: you can add to this block but not weaken it.", systemImage: "lock.fill")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
+        .onChange(of: draft) { _, updated in
+            // Runtime fields are untouched here, so a refused edit just reverts the draft.
+            if !model.store.update(updated), let current = model.store.block(id: updated.id) {
+                draft = current
             }
-            Spacer()
-            Button("Cancel") { dismiss() }
-                .keyboardShortcut(.cancelAction)
-            Button("Save") {
-                onSave(draft)
-                dismiss()
-            }
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.defaultAction)
-            .disabled(draft.name.trimmingCharacters(in: .whitespaces).isEmpty)
         }
-        .padding(Theme.Space.base)
-    }
-
-    // MARK: Sections
-
-    private var identitySection: some View {
-        Section("Name and look") {
-            TextField("Name", text: $draft.name)
-            Picker("Colour", selection: $draft.tint) {
-                ForEach(BlockTint.allCases) { tint in
-                    HStack {
-                        Circle().fill(tint.color).frame(width: 10, height: 10)
-                        Text(tint.title)
-                    }
-                    .tag(tint)
-                }
-            }
-            Picker("Icon", selection: $draft.symbol) {
-                ForEach(Self.symbols, id: \.self) { symbol in
-                    Label(Self.symbolName(symbol), systemImage: symbol).tag(symbol)
-                }
-            }
+        .sheet(isPresented: $isShowingAppPicker) {
+            AppPickerView(selected: $draft.list.apps, tint: tint)
         }
     }
 
-    private var listSection: some View {
-        Section {
-            Picker("Mode", selection: $draft.list.mode) {
-                ForEach(BlockList.Mode.allCases) { mode in
-                    Text(mode.title).tag(mode)
+    // MARK: Identity
+
+    private var identity: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.snug) {
+            HStack(spacing: Theme.Space.snug) {
+                BlockBadge(symbol: draft.symbol, tint: draft.tint, size: 42)
+                VStack(alignment: .leading, spacing: 2) {
+                    TextField("Block name", text: $draft.name)
+                        .textFieldStyle(.plain)
+                        .font(.system(.title3, design: .rounded).weight(.bold))
+                    Text(draft.contentsSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-            }
-            .pickerStyle(.segmented)
-            .disabled(isLocked)
-
-            EntryEditor(
-                title: draft.list.mode == .allowlist ? "Allowed websites" : "Websites",
-                hint: "instagram.com, or youtube.com/shorts for part of a site",
-                entries: websiteBinding,
-                newEntry: $newHost,
-                canRemove: !isLocked
-            )
-
-            EntryEditor(
-                title: draft.list.mode == .allowlist ? "Allowed apps" : "Apps",
-                hint: "Pick an app, or type a bundle identifier",
-                entries: $draft.list.apps,
-                newEntry: $newApp,
-                canRemove: !isLocked,
-                accessory: AnyView(
-                    Button("Choose App…", action: chooseApp)
-                        .buttonStyle(.bordered)
-                )
-            )
-
-            if draft.list.mode == .blocklist {
-                EntryEditor(
-                    title: "On-screen words",
-                    hint: "Blocks when these appear on screen. Needs Screen Recording.",
-                    entries: $draft.list.keywords,
-                    newEntry: $newKeyword,
-                    canRemove: !isLocked
-                )
-
-                if !draft.list.keywords.isEmpty && !model.screenRecordingGranted {
-                    HStack {
-                        Label("Screen Recording is off, so these won't fire.", systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                        Spacer()
-                        Button("Grant…") { model.requestScreenRecordingPermission() }
-                            .buttonStyle(.bordered)
-                    }
+                Spacer()
+                Button {
+                    onClose()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.caption.weight(.bold))
                 }
-            }
-
-            EntryEditor(
-                title: "Always allow",
-                hint: "Exceptions win over everything else in this block",
-                entries: $draft.list.exceptions,
-                newEntry: $newException,
-                canRemove: true
-            )
-        } header: {
-            Text("What this block covers")
-        } footer: {
-            Text(draft.list.mode == .allowlist
-                 ? "Everything except these is blocked while this block is active. Finder and System Settings are never blocked."
-                 : "Subdomains are included. A slash makes it a path rule, so the rest of the site keeps working.")
-            .foregroundStyle(.secondary)
-        }
-    }
-
-    private var scheduleSection: some View {
-        Section {
-            Picker("When", selection: scheduleKind) {
-                Text("All the time").tag(ScheduleKind.always)
-                Text("On a schedule").tag(ScheduleKind.scheduled)
-                Text("Start on demand").tag(ScheduleKind.manual)
-            }
-            .disabled(isLocked)
-
-            if case .scheduled(let windows) = draft.schedule {
-                ForEach(Array(windows.enumerated()), id: \.element.id) { index, window in
-                    ScheduleWindowEditor(
-                        window: Binding(
-                            get: { window },
-                            set: { updated in
-                                guard case .scheduled(var all) = draft.schedule else { return }
-                                all[index] = updated
-                                draft.schedule = .scheduled(all)
-                            }
-                        ),
-                        onDelete: {
-                            guard case .scheduled(var all) = draft.schedule else { return }
-                            all.remove(at: index)
-                            draft.schedule = .scheduled(all)
-                        }
-                    )
-                    .disabled(isLocked)
-                }
-                Button("Add a time window") {
-                    guard case .scheduled(var all) = draft.schedule else { return }
-                    all.append(ScheduleWindow())
-                    draft.schedule = .scheduled(all)
-                }
-                .buttonStyle(.bordered)
-                .disabled(isLocked)
-            }
-
-            if case .manual(let minutes) = draft.schedule {
-                Picker("Length", selection: Binding(
-                    get: { minutes ?? 0 },
-                    set: { draft.schedule = .manual(minutes: $0 == 0 ? nil : $0) }
-                )) {
-                    Text("Until I turn it off").tag(0)
-                    Text("25 minutes").tag(25)
-                    Text("50 minutes").tag(50)
-                    Text("90 minutes").tag(90)
-                }
-                .disabled(isLocked)
-            }
-        } header: {
-            Text("When it applies")
-        }
-    }
-
-    private var breaksSection: some View {
-        Section {
-            Toggle("Allow breaks", isOn: $draft.breaks.isEnabled)
-                .disabled(isLocked)
-            if draft.breaks.isEnabled {
-                Stepper("Each break lasts \(draft.breaks.minutes) min", value: $draft.breaks.minutes, in: 1...60)
-                    .disabled(isLocked)
-                Stepper("Allow \(draft.breaks.allowance) per day", value: $draft.breaks.allowance, in: 1...20)
-                    .disabled(isLocked)
-            }
-        } header: {
-            Text("Breaks")
-        } footer: {
-            Text("Breaks are decided in advance, not in the moment. The shield offers one only when the block allows it and you have some left.")
+                .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
+                .accessibilityLabel("Close inspector")
+            }
+
+            HStack(spacing: 6) {
+                ForEach(BlockTint.allCases) { option in
+                    Button {
+                        draft.tint = option
+                    } label: {
+                        Circle()
+                            .fill(option.color.gradient)
+                            .frame(width: 20, height: 20)
+                            .overlay {
+                                if draft.tint == option {
+                                    Circle().strokeBorder(.white.opacity(0.9), lineWidth: 2)
+                                }
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(option.title)
+                }
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Self.symbols, id: \.self) { symbol in
+                        Button {
+                            draft.symbol = symbol
+                        } label: {
+                            Image(systemName: symbol)
+                                .font(.system(size: 14))
+                                .frame(width: 30, height: 30)
+                                .background {
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(draft.symbol == symbol ? AnyShapeStyle(tint.opacity(0.25)) : AnyShapeStyle(Color.primary.opacity(0.05)))
+                                }
+                                .foregroundStyle(draft.symbol == symbol ? tint : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(symbol)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .glassSurface(padding: Theme.Space.base, tint: tint)
+    }
+
+    private var lockedBanner: some View {
+        HStack(alignment: .top, spacing: Theme.Space.tight) {
+            Image(systemName: "lock.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(draft.lock.statusText())
+                    .font(.caption.weight(.semibold))
+                Text("You can add to this block, but not weaken it.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(Theme.Space.snug)
+        .background {
+            RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                .fill(Color.orange.opacity(0.12))
         }
     }
 
-    private var lockSection: some View {
-        Section {
-            Picker("Lock", selection: $draft.lock.method) {
-                ForEach(LockMethod.allCases) { method in
-                    Label(method.title, systemImage: method.symbol).tag(method)
+    // MARK: Lists
+
+    private var sites: some View {
+        Panel("Websites", icon: "globe") {
+            HStack(spacing: Theme.Space.tight) {
+                ShiftTextField(
+                    prompt: "instagram.com or youtube.com/shorts",
+                    text: $newSite,
+                    symbol: "plus",
+                    onSubmit: addSite
+                )
+                Button("Add", action: addSite)
+                    .buttonStyle(.shiftSoft)
+                    .disabled(newSite.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+
+            if draft.list.siteCount == 0 {
+                EmptyHint(text: "No sites yet. A slash blocks part of a site, so the rest keeps working.")
+            } else {
+                ChipFlow(
+                    items: draft.list.hosts + draft.list.paths,
+                    symbol: "globe",
+                    canRemove: !isLocked
+                ) { entry in
+                    draft.list.hosts.removeAll { $0 == entry }
+                    draft.list.paths.removeAll { $0 == entry }
                 }
             }
+        }
+    }
+
+    private var apps: some View {
+        Panel("Apps", icon: "app.badge") {
+            Button {
+                isShowingAppPicker = true
+            } label: {
+                Label("Choose apps", systemImage: "square.grid.2x2")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.shiftSoft)
+
+            if draft.list.apps.isEmpty {
+                EmptyHint(text: "No apps yet. Blocked apps are quit when they come up.")
+            } else {
+                ChipFlow(
+                    items: draft.list.apps,
+                    symbol: "app.badge",
+                    canRemove: !isLocked,
+                    label: { InstalledApps.shared.name(for: $0) ?? $0 },
+                    image: { InstalledApps.shared.icon(for: $0) }
+                ) { entry in
+                    draft.list.apps.removeAll { $0 == entry }
+                }
+            }
+        }
+    }
+
+    private var exceptions: some View {
+        Panel("Always allow", subtitle: "Exceptions win over everything else in this block.", icon: "checkmark.shield") {
+            HStack(spacing: Theme.Space.tight) {
+                ShiftTextField(
+                    prompt: "docs.google.com",
+                    text: $newException,
+                    symbol: "plus",
+                    onSubmit: addException
+                )
+                Button("Add", action: addException)
+                    .buttonStyle(.shiftSoft)
+                    .disabled(newException.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+
+            if !draft.list.exceptions.isEmpty {
+                ChipFlow(items: draft.list.exceptions, symbol: "checkmark", canRemove: true) { entry in
+                    draft.list.exceptions.removeAll { $0 == entry }
+                }
+            }
+        }
+    }
+
+    // MARK: Schedule
+
+    private var schedule: some View {
+        Panel("When it applies", icon: "calendar") {
+            SegmentedSelector(
+                selection: scheduleKind,
+                options: [
+                    .init(.always, "Always", symbol: "infinity"),
+                    .init(.scheduled, "Schedule", symbol: "calendar"),
+                    .init(.manual, "On demand", symbol: "play.fill"),
+                ],
+                tint: tint
+            )
             .disabled(isLocked)
+
+            switch draft.schedule {
+            case .always:
+                EmptyHint(text: "Active whenever the block is switched on.")
+
+            case .scheduled(let windows):
+                VStack(spacing: Theme.Space.snug) {
+                    ForEach(Array(windows.enumerated()), id: \.element.id) { index, window in
+                        WindowEditor(
+                            window: binding(for: index),
+                            tint: tint,
+                            canDelete: windows.count > 1,
+                            onDelete: { removeWindow(at: index) }
+                        )
+                    }
+                    Button {
+                        guard case .scheduled(var all) = draft.schedule else { return }
+                        all.append(ScheduleWindow())
+                        draft.schedule = .scheduled(all)
+                    } label: {
+                        Label("Add a time window", systemImage: "plus")
+                            .font(.caption)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.shiftSoft)
+                }
+                .disabled(isLocked)
+
+            case .manual(let minutes):
+                VStack(alignment: .leading, spacing: Theme.Space.tight) {
+                    Text("How long each run lasts")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    SegmentedSelector(
+                        selection: Binding(
+                            get: { minutes ?? 0 },
+                            set: { draft.schedule = .manual(minutes: $0 == 0 ? nil : $0) }
+                        ),
+                        options: [
+                            .init(0, "Open"),
+                            .init(25, "25m"),
+                            .init(50, "50m"),
+                            .init(90, "90m"),
+                        ],
+                        tint: tint
+                    )
+                }
+                .disabled(isLocked)
+            }
+        }
+    }
+
+    // MARK: Breaks, lock, friction
+
+    private var breaks: some View {
+        Panel("Breaks", icon: "cup.and.saucer") {
+            PanelRow(title: "Allow breaks", detail: "Decided now, not in the moment.") {
+                ShiftSwitch(isOn: $draft.breaks.isEnabled, tint: tint)
+                    .disabled(isLocked)
+            }
+
+            if draft.breaks.isEnabled {
+                PanelRow(title: "Each break") {
+                    NumberStepper(value: $draft.breaks.minutes, range: 1...60, width: 46, tint: tint)
+                }
+                PanelRow(title: "Per day") {
+                    NumberStepper(value: $draft.breaks.allowance, range: 1...20, width: 46, tint: tint)
+                }
+            }
+        }
+    }
+
+    private var lock: some View {
+        Panel("Lock", subtitle: "Engages the moment the block is switched on.", icon: "lock") {
+            VStack(spacing: Theme.Space.tight) {
+                ForEach(LockMethod.allCases) { method in
+                    OptionCard(
+                        title: method.title,
+                        detail: method.detail,
+                        symbol: method.symbol,
+                        isSelected: draft.lock.method == method,
+                        tint: tint
+                    ) {
+                        draft.lock.method = method
+                    }
+                    .disabled(isLocked)
+                }
+            }
 
             switch draft.lock.method {
             case .duration:
-                Picker("Stays on for", selection: $draft.lock.duration) {
-                    Text("30 minutes").tag(TimeInterval(1800))
-                    Text("1 hour").tag(TimeInterval(3600))
-                    Text("4 hours").tag(TimeInterval(14400))
-                    Text("8 hours").tag(TimeInterval(28800))
-                    Text("24 hours").tag(TimeInterval(86400))
-                }
+                SegmentedSelector(
+                    selection: $draft.lock.duration,
+                    options: [
+                        .init(TimeInterval(1800), "30m"),
+                        .init(TimeInterval(3600), "1h"),
+                        .init(TimeInterval(14400), "4h"),
+                        .init(TimeInterval(28800), "8h"),
+                        .init(TimeInterval(86400), "1d"),
+                    ],
+                    tint: tint
+                )
                 .disabled(isLocked)
             case .untilTime:
-                TimeOfDayPicker(label: "Stays on until", time: $draft.lock.untilTime)
-                    .disabled(isLocked)
+                HStack {
+                    Text("Until").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    TimeField(time: $draft.lock.untilTime, tint: tint)
+                        .disabled(isLocked)
+                }
             case .randomString:
-                Stepper("String length \(draft.lock.stringLength)", value: $draft.lock.stringLength, in: 8...128, step: 8)
-                    .disabled(isLocked)
+                PanelRow(title: "Characters to type") {
+                    NumberStepper(value: $draft.lock.stringLength, range: 8...128, step: 8, width: 52, tint: tint)
+                        .disabled(isLocked)
+                }
             case .none, .restart:
                 EmptyView()
             }
-        } header: {
-            Text("Lock")
-        } footer: {
-            Text(draft.lock.method.detail + " The lock engages the moment you switch the block on.")
-                .foregroundStyle(.secondary)
         }
     }
 
-    private var frictionSection: some View {
-        Section {
-            Picker("Friction", selection: $draft.friction) {
+    private var friction: some View {
+        Panel("When you hit it", icon: "hand.raised") {
+            VStack(spacing: Theme.Space.tight) {
                 ForEach(Friction.allCases) { level in
-                    Label(level.title, systemImage: level.symbol).tag(level)
+                    OptionCard(
+                        title: level.title,
+                        detail: level.summary,
+                        symbol: level.symbol,
+                        isSelected: draft.friction == level,
+                        tint: tint
+                    ) {
+                        draft.friction = level
+                    }
                 }
             }
-            TextField("Goal (optional)", text: $draft.goal, prompt: Text("e.g. Finish chapter 3"))
-        } header: {
-            Text("When you hit it")
-        } footer: {
-            Text(draft.friction.summary + " The goal, when set, is shown on the shield and will drive the intent tier later.")
-                .foregroundStyle(.secondary)
+
+            ShiftTextField(prompt: "Goal, optional. e.g. Finish chapter 3", text: $draft.goal, symbol: "scope")
         }
+    }
+
+    private var deleteButton: some View {
+        Button(role: .destructive) {
+            let id = draft.id
+            onClose()
+            _ = model.store.delete(id: id)
+        } label: {
+            Label("Delete this block", systemImage: "trash")
+                .font(.callout)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.shiftSoft)
+        .foregroundStyle(isLocked ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.red))
+        .disabled(isLocked)
+        .padding(.top, Theme.Space.tight)
     }
 
     // MARK: Helpers
@@ -311,7 +411,8 @@ struct BlockEditorView: View {
             },
             set: { kind in
                 switch kind {
-                case .always: draft.schedule = .always
+                case .always:
+                    draft.schedule = .always
                 case .scheduled:
                     if case .scheduled = draft.schedule { return }
                     draft.schedule = .scheduled([ScheduleWindow()])
@@ -323,189 +424,230 @@ struct BlockEditorView: View {
         )
     }
 
-    /// Hosts and paths are one list to the user; the model keeps them apart so the
-    /// evaluator can match them differently.
-    private var websiteBinding: Binding<[String]> {
+    private func binding(for index: Int) -> Binding<ScheduleWindow> {
         Binding(
-            get: { draft.list.hosts + draft.list.paths },
-            set: { combined in
-                draft.list.hosts = combined.filter { !$0.contains("/") }
-                draft.list.paths = combined.filter { $0.contains("/") }
+            get: {
+                guard case .scheduled(let all) = draft.schedule, all.indices.contains(index) else {
+                    return ScheduleWindow()
+                }
+                return all[index]
+            },
+            set: { updated in
+                guard case .scheduled(var all) = draft.schedule, all.indices.contains(index) else { return }
+                all[index] = updated
+                draft.schedule = .scheduled(all)
             }
         )
     }
 
-    private func chooseApp() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.application]
-        panel.allowsMultipleSelection = true
-        panel.directoryURL = URL(fileURLWithPath: "/Applications")
-        panel.prompt = "Add"
-        guard panel.runModal() == .OK else { return }
-        for url in panel.urls {
-            guard let bundle = Bundle(url: url), let id = bundle.bundleIdentifier else { continue }
-            if !draft.list.apps.contains(id) { draft.list.apps.append(id) }
+    private func removeWindow(at index: Int) {
+        guard case .scheduled(var all) = draft.schedule, all.indices.contains(index) else { return }
+        all.remove(at: index)
+        draft.schedule = .scheduled(all)
+    }
+
+    private func addSite() {
+        let value = newSite.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !value.isEmpty else { return }
+        if value.contains("/") {
+            if !draft.list.paths.contains(value) { draft.list.paths.append(value) }
+        } else {
+            if !draft.list.hosts.contains(value) { draft.list.hosts.append(value) }
         }
+        newSite = ""
+    }
+
+    private func addException() {
+        let value = newException.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !value.isEmpty, !draft.list.exceptions.contains(value) else { return }
+        draft.list.exceptions.append(value)
+        newException = ""
     }
 
     static let symbols = [
-        "shield.lefthalf.filled", "moon.fill", "laptopcomputer", "book.closed.fill",
-        "brain.head.profile", "briefcase.fill", "gamecontroller.fill", "bubble.left.and.bubble.right.fill",
-        "tv.fill", "cart.fill", "newspaper.fill", "bolt.fill",
+        "shield.lefthalf.filled", "moon.stars.fill", "brain.head.profile", "book.closed.fill",
+        "briefcase.fill", "gamecontroller.fill", "bubble.left.and.bubble.right.fill",
+        "tv.fill", "cart.fill", "newspaper.fill", "bolt.fill", "leaf.fill",
     ]
-
-    static func symbolName(_ symbol: String) -> String {
-        symbol
-            .replacingOccurrences(of: ".fill", with: "")
-            .replacingOccurrences(of: ".", with: " ")
-            .capitalized
-    }
 }
 
-// MARK: - Entry editor
+// MARK: - Small pieces
 
-/// A labelled list of strings with add and remove. Used for every list in the editor so
-/// they all behave identically.
-struct EntryEditor: View {
-    let title: String
-    let hint: String
-    @Binding var entries: [String]
-    @Binding var newEntry: String
-    var canRemove: Bool = true
-    var accessory: AnyView?
+private struct EmptyHint: View {
+    let text: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.tight) {
-            Text(title)
-                .font(.callout.weight(.medium))
-
-            HStack(spacing: Theme.Space.tight) {
-                TextField(hint, text: $newEntry)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(add)
-                Button("Add", action: add)
-                    .buttonStyle(.bordered)
-                    .disabled(newEntry.trimmingCharacters(in: .whitespaces).isEmpty)
-                if let accessory {
-                    accessory
-                }
-            }
-
-            if entries.isEmpty {
-                Text("Nothing yet")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            } else {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 150), spacing: Theme.Space.tight)],
-                    alignment: .leading,
-                    spacing: Theme.Space.tight
-                ) {
-                    ForEach(entries, id: \.self) { entry in
-                        HStack(spacing: 4) {
-                            Text(entry)
-                                .font(.caption)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            if canRemove {
-                                Button {
-                                    entries.removeAll { $0 == entry }
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.caption2)
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(.secondary)
-                                .accessibilityLabel("Remove \(entry)")
-                            }
-                        }
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(.background.secondary, in: Capsule())
-                    }
-                }
-            }
-        }
-        .padding(.vertical, 2)
-    }
-
-    private func add() {
-        let value = newEntry.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !value.isEmpty, !entries.contains(value) else { return }
-        entries.append(value)
-        newEntry = ""
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.tertiary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
-// MARK: - Schedule pieces
+/// Wrapping row of chips.
+struct ChipFlow: View {
+    let items: [String]
+    var symbol: String?
+    var canRemove: Bool = true
+    var label: ((String) -> String)?
+    var image: ((String) -> NSImage?)?
+    let onRemove: (String) -> Void
 
-struct ScheduleWindowEditor: View {
+    var body: some View {
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 130), spacing: 6)],
+            alignment: .leading,
+            spacing: 6
+        ) {
+            ForEach(items, id: \.self) { item in
+                Chip(
+                    text: label?(item) ?? item,
+                    symbol: symbol,
+                    image: image?(item),
+                    onRemove: canRemove ? { onRemove(item) } : nil
+                )
+            }
+        }
+    }
+}
+
+/// One recurring time window: the days, and the two ends of the range.
+struct WindowEditor: View {
     @Binding var window: ScheduleWindow
+    var tint: Color = .accentColor
+    var canDelete: Bool
     let onDelete: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.tight) {
+        VStack(alignment: .leading, spacing: Theme.Space.snug) {
             HStack {
-                ForEach(Weekday.allCases) { day in
-                    Button {
-                        if window.days.contains(day) {
-                            window.days.remove(day)
-                        } else {
-                            window.days.insert(day)
-                        }
-                    } label: {
-                        Text(day.letter)
-                            .font(.caption.weight(.semibold))
-                            .frame(width: 24, height: 24)
-                            .background(
-                                window.days.contains(day) ? Color.accentColor : Color.secondary.opacity(0.15),
-                                in: Circle()
-                            )
-                            .foregroundStyle(window.days.contains(day) ? .white : .secondary)
+                Text(window.summary)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if canDelete {
+                    Button(action: onDelete) {
+                        Image(systemName: "trash")
+                            .font(.caption)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(day.shortTitle)
-                    .accessibilityValue(window.days.contains(day) ? "on" : "off")
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Remove this time window")
                 }
-                Spacer()
-                Button(role: .destructive, action: onDelete) {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Remove this time window")
             }
 
-            HStack(spacing: Theme.Space.base) {
-                TimeOfDayPicker(label: "From", time: $window.start)
-                TimeOfDayPicker(label: "To", time: $window.end)
+            DayPicker(days: $window.days, tint: tint)
+
+            HStack(spacing: Theme.Space.snug) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("From").font(.caption2).foregroundStyle(.tertiary)
+                    TimeField(time: $window.start, tint: tint)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("To").font(.caption2).foregroundStyle(.tertiary)
+                    TimeField(time: $window.end, tint: tint)
+                }
             }
         }
-        .padding(.vertical, 4)
+        .glassSurface(radius: Theme.Radius.control, padding: Theme.Space.snug)
     }
 }
 
-/// A time-of-day field backed by `DatePicker`, so the user gets the system's own control
-/// and locale formatting rather than something bespoke.
-struct TimeOfDayPicker: View {
-    let label: String
-    @Binding var time: TimeOfDay
+// MARK: - App picker
 
-    private var binding: Binding<Date> {
-        Binding(
-            get: {
-                var components = DateComponents()
-                components.hour = time.hour
-                components.minute = time.minute
-                return Calendar.current.date(from: components) ?? Date()
-            },
-            set: { date in
-                let components = Calendar.current.dateComponents([.hour, .minute], from: date)
-                time = TimeOfDay(hour: components.hour ?? 0, minute: components.minute ?? 0)
-            }
-        )
-    }
+/// Every installed app, searchable, with icons. Replaces sending people to an open panel.
+struct AppPickerView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var selected: [String]
+    var tint: Color = .accentColor
+
+    @State private var catalog = InstalledApps.shared
+    @State private var query = ""
 
     var body: some View {
-        DatePicker(label, selection: binding, displayedComponents: .hourAndMinute)
+        VStack(spacing: 0) {
+            HStack(spacing: Theme.Space.snug) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Choose apps")
+                        .font(.system(.title3, design: .rounded).weight(.bold))
+                    Text("\(selected.count) selected")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                ShiftTextField(prompt: "Search", text: $query, symbol: "magnifyingglass")
+                    .frame(width: 200)
+                Button("Done") { dismiss() }
+                    .buttonStyle(.shiftProminent(tint))
+            }
+            .padding(Theme.Space.base)
+
+            Divider()
+
+            if catalog.isLoading {
+                ProgressView("Looking for apps…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 180), spacing: Theme.Space.tight)],
+                        spacing: Theme.Space.tight
+                    ) {
+                        ForEach(catalog.matching(query)) { app in
+                            AppTile(
+                                app: app,
+                                isSelected: selected.contains(app.bundleID),
+                                tint: tint
+                            ) {
+                                if let index = selected.firstIndex(of: app.bundleID) {
+                                    selected.remove(at: index)
+                                } else {
+                                    selected.append(app.bundleID)
+                                }
+                            }
+                        }
+                    }
+                    .padding(Theme.Space.base)
+                }
+            }
+        }
+        .frame(width: 640, height: 520)
+        .background {
+            VisualEffect(surface: .window, blending: .behindWindow).ignoresSafeArea()
+        }
+        .onAppear { catalog.loadIfNeeded() }
+    }
+}
+
+private struct AppTile: View {
+    let app: InstalledApp
+    let isSelected: Bool
+    var tint: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Theme.Space.tight) {
+                if let icon = app.icon {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .frame(width: 24, height: 24)
+                }
+                Text(app.name)
+                    .font(.callout)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 0)
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(tint)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .glassSurface(radius: Theme.Radius.control, padding: Theme.Space.tight, tint: isSelected ? tint : nil, isSelected: isSelected)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }
