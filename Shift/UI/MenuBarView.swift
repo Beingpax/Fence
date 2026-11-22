@@ -58,7 +58,6 @@ struct MenuBarView: View {
             Text("Shift")
                 .font(.system(.title3, design: .rounded).weight(.bold))
             Spacer()
-            StatusPill(isActive: model.isWatching)
         }
         .accessibilityAddTraits(.isHeader)
     }
@@ -160,6 +159,7 @@ private struct MenuBlockRow: View {
     @State private var isHovering = false
 
     private var isActive: Bool { block.isActive() }
+    private var showsLockStatus: Bool { block.isLocked() && !block.requiresUnlockChallenge() }
 
     var body: some View {
         HStack(spacing: Theme.Space.snug) {
@@ -171,7 +171,7 @@ private struct MenuBlockRow: View {
                     .lineLimit(1)
                 Text(statusLine)
                     .font(.caption2)
-                    .foregroundStyle(block.isLocked() ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(showsLockStatus ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.secondary))
                     .lineLimit(1)
             }
 
@@ -211,7 +211,7 @@ private struct MenuBlockRow: View {
     }
 
     private var statusLine: String {
-        if block.isLocked() { return block.lockStatus() }
+        if showsLockStatus { return block.lockStatus() }
         if isActive { return "Active · \(block.contentsSummary)" }
         return block.scheduleSummary
     }

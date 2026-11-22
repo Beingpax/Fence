@@ -7,7 +7,6 @@ struct DashboardView: View {
     let onSelect: (Block) -> Void
 
     private var active: [Block] { model.store.activeBlocks }
-    private var locked: [Block] { model.store.lockedBlocks }
 
     var body: some View {
         ScrollView {
@@ -39,9 +38,7 @@ struct DashboardView: View {
     // MARK: Header
 
     private var header: some View {
-        PageHeader("Dashboard", subtitle: subtitle) {
-            StatusPill(isActive: model.isWatching)
-        }
+        PageHeader("Dashboard", subtitle: subtitle)
     }
 
     /// The one line that answers "is anything happening right now".
@@ -56,8 +53,7 @@ struct DashboardView: View {
             }
             return model.store.blocks.isEmpty ? "Add a block to get started." : "Switch a block on when you're ready."
         }
-        let names = active.map(\.name).joined(separator: ", ")
-        return locked.isEmpty ? names : "\(names) · \(locked.count) locked"
+        return active.map(\.name).joined(separator: ", ")
     }
 
     // MARK: Stats
@@ -75,12 +71,6 @@ struct DashboardView: View {
                 label: "Times stopped",
                 symbol: "hand.raised.fill",
                 tint: .orange
-            )
-            StatTile(
-                value: "\(locked.count)",
-                label: "Locked",
-                symbol: "lock.fill",
-                tint: .indigo
             )
         }
     }
@@ -213,7 +203,7 @@ struct BlockMiniRow: View {
 
             Spacer(minLength: Theme.Space.tight)
 
-            if block.isLocked() {
+            if block.isLocked(), !block.requiresUnlockChallenge() {
                 Label(block.lockStatus(), systemImage: "lock.fill")
                     .font(.caption2)
                     .foregroundStyle(.orange)
@@ -235,32 +225,5 @@ struct BlockMiniRow: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .padding(.vertical, 2)
-    }
-}
-
-/// Compact live state, sized to sit beside a page title.
-struct StatusPill: View {
-    let isActive: Bool
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(isActive ? Color.green : Color.secondary.opacity(0.55))
-                .frame(width: 7, height: 7)
-            Text(isActive ? "Watching" : "Idle")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(isActive ? AnyShapeStyle(Color.green) : AnyShapeStyle(.secondary))
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background {
-            Capsule(style: .continuous)
-                .fill(isActive ? Color.green.opacity(0.12) : Color.primary.opacity(0.06))
-        }
-        .overlay {
-            Capsule(style: .continuous)
-                .strokeBorder(isActive ? Color.green.opacity(0.28) : Color.primary.opacity(0.08), lineWidth: 1)
-        }
-        .accessibilityLabel(isActive ? "Shift is watching" : "Shift is idle")
     }
 }

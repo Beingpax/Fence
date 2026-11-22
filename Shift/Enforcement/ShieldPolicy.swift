@@ -97,6 +97,6 @@ struct ShieldRequest: Equatable {
 
 enum ShieldResolution: Equatable {
     case closeTab
-    case forceQuit
+    case quitApp
     case takeBreak
 }

@@ -85,6 +85,7 @@ final class AppModel {
     @ObservationIgnored private var intentInFlight: IntentRequest?
     @ObservationIgnored private var evaluatedIntent: EvaluatedIntent?
     @ObservationIgnored private let shield = ShieldController()
+    @ObservationIgnored private var resolvingProcesses: Set<pid_t> = []
     @ObservationIgnored private let nudgeHUD = NudgeHUDController()
     @ObservationIgnored private let onboarding = OnboardingController()
     @ObservationIgnored private let mainWindow = MainWindowController()
@@ -213,7 +214,7 @@ final class AppModel {
             lastVerdict = nil
             nudgeHUD.hide()
         }
-        guard !shield.isShowing else { return }
+        guard !shield.isShowing, !resolvingProcesses.contains(context.processID) else { return }
 
         let evaluator = BlockEvaluator(blocks: store.activeBlocks, driftKeywords: driftKeywords)
         if let verdict = evaluator.ruleVerdict(for: context) {
@@ -357,6 +358,7 @@ final class AppModel {
     }
 
     private func enforce(_ verdict: Verdict, on context: ScreenContext) {
+        guard !resolvingProcesses.contains(context.processID) else { return }
         nudgeHUD.hide()
 
         let now = Date()
@@ -400,30 +402,70 @@ final class AppModel {
         resetIntent()
         monitor.invalidate()
 
-        let app = NSRunningApplication(processIdentifier: request.processID)
+        let app = NSRunningApplication(processIdentifier: request.processID).flatMap {
+            $0.bundleIdentifier == request.bundleID && !$0.isTerminated ? $0 : nil
+        }
         switch resolution {
         case .closeTab:
-            guard let context, let browser = Browser(bundleID: context.bundleID), let app else { return }
+            guard let context, let browser = Browser(bundleID: context.bundleID), let app,
+                  resolvingProcesses.insert(request.processID).inserted else { return }
             app.activate()
             Task {
+                defer { resolvingProcesses.remove(request.processID) }
                 let snapshot = await WindowInspector.snapshot(
                     pid: context.processID, browser: browser, prepareAccessibility: false
                 )
-                let sameTab = NSWorkspace.shared.frontmostApplication?.processIdentifier == context.processID
-                    && snapshot.windowID == context.windowID && snapshot.url == context.url
-                    && (context.url != nil || snapshot.title == context.windowTitle)
-                let closed = sameTab ? await browser.closeFrontTab(pid: context.processID) : false
+                let sameTab = !app.isTerminated && NSWorkspace.shared.frontmostApplication?.processIdentifier == context.processID
+                    && context.windowID != nil && snapshot.windowID == context.windowID && snapshot.url == context.url
+                    && (context.url != nil || (context.windowTitle != nil && snapshot.title == context.windowTitle))
+                let closed = sameTab ? await browser.closeFrontTab(pid: context.processID, expectedURL: context.url) : false
                 let result = closed ? "Close requested" : "Couldn’t close tab"
                 log("\(result) · \(context.displayLocation)", symbol: "xmark.circle")
             }
-        case .forceQuit:
-            app?.forceTerminate()
-            log("Quit \(request.appName)", symbol: "power")
+        case .quitApp:
+            guard let app, resolvingProcesses.insert(request.processID).inserted else { return }
+            Task { await quit(app, for: request) }
         case .takeBreak:
             if let blockID = request.blockID, store.startBreak(id: blockID) {
                 log("Break started · \(request.blockName)", symbol: "cup.and.saucer")
             }
             app?.activate()
+        }
+    }
+
+    private func quit(_ app: NSRunningApplication, for request: ShieldRequest) async {
+        let pid = request.processID
+        defer { resolvingProcesses.remove(pid) }
+
+        app.activate()
+        _ = app.terminate()
+        for _ in 0..<12 {
+            guard !app.isTerminated else { break }
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        guard !app.isTerminated else {
+            log("Quit \(request.appName)", symbol: "power")
+            return
+        }
+
+        let dialog = await WindowInspector.quitDialog(pid: pid)
+        if dialog == .present {
+            log("Finish quitting \(request.appName) in its dialog", symbol: "power")
+            while !app.isTerminated {
+                try? await Task.sleep(for: .seconds(1))
+                guard await WindowInspector.quitDialog(pid: pid) == .present else { break }
+            }
+            if app.isTerminated { log("Quit \(request.appName)", symbol: "power") }
+            return
+        }
+
+        if app.isTerminated {
+            log("Quit \(request.appName)", symbol: "power")
+        } else if dialog == .absent, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+                  app.forceTerminate() {
+            log("Force quit requested · \(request.appName)", symbol: "power")
+        } else {
+            log("Couldn’t quit \(request.appName)", symbol: "power")
         }
     }
 

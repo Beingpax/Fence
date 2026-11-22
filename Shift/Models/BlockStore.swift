@@ -241,7 +241,7 @@ final class BlockStore {
 
     func createUnlockChallenge(for id: Block.ID) -> String? {
         guard let block = block(id: id), block.requiresUnlockChallenge() else { return nil }
-        let challenge = Self.randomChallenge(length: block.lock.stringLength)
+        let challenge = Self.randomChallenge(length: block.lock.challengeLength)
         unlockChallenges[id] = challenge
         return challenge
     }
@@ -387,7 +387,15 @@ final class BlockStore {
 
     /// The challenge string for a random-string unlock.
     private static func randomChallenge(length: Int) -> String {
-        let alphabet = Array("abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789")
-        return String((0..<max(8, length)).map { _ in alphabet.randomElement() ?? "x" })
+        let groups = [
+            Array("abcdefghijkmnopqrstuvwxyz"),
+            Array("ABCDEFGHJKLMNPQRSTUVWXYZ"),
+            Array("23456789"),
+            Array("%!?@#&*+=")
+        ]
+        let alphabet = groups.flatMap { $0 }
+        var characters = groups.compactMap { $0.randomElement() }
+        characters.append(contentsOf: (characters.count..<length).compactMap { _ in alphabet.randomElement() })
+        return String(characters.shuffled())
     }
 }

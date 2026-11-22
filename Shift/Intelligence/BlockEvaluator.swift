@@ -23,8 +23,9 @@ struct BlockEvaluator {
             return .allow("\(context.appName) is never blocked")
         }
 
+        let website = context.websiteAddress
         for block in blocks {
-            if let verdict = ruleMatch(context, against: block) {
+            if let verdict = ruleMatch(context, website: website, against: block) {
                 return verdict
             }
         }
@@ -49,22 +50,24 @@ struct BlockEvaluator {
         return .allow(hasIntentGoals ? "No blocking rule matched. Intent could not be confirmed." : "No blocking rule matched")
     }
 
-    private func ruleMatch(_ context: ScreenContext, against block: Block) -> Verdict? {
+    private func ruleMatch(_ context: ScreenContext, website: WebsiteAddress?, against block: Block) -> Verdict? {
         let list = block.list
         let target: StrikeTarget
         let name: String
 
-        if let hostAndPath = context.hostAndPath,
-           let path = list.paths.first(where: { hostAndPath.hasPrefix($0.lowercased()) }) {
-            target = .path(path.lowercased())
-            name = path
-        } else if let host = context.host,
-                  let domain = list.hosts.first(where: {
-                      let rule = $0.lowercased()
-                      return host == rule || host.hasSuffix("." + rule)
-                  }) {
-            target = .website(domain.lowercased())
-            name = domain
+        let matchingRules = website.map { address in
+            // Older onboarding data can have a URL stored in the other list.
+            (list.paths + list.hosts).compactMap { entry -> (entry: String, rule: WebsiteAddress)? in
+                guard let rule = WebsiteAddress(entry: entry), rule.matches(address) else { return nil }
+                return (entry, rule)
+            }
+        } ?? []
+        if let path = matchingRules.first(where: { !$0.rule.isDomainOnly }) {
+            target = .path(path.entry)
+            name = path.entry
+        } else if let domain = matchingRules.first {
+            target = .website(domain.entry.lowercased())
+            name = domain.entry
         } else if list.apps.contains(where: { context.bundleID.lowercased() == $0.lowercased() }) {
             target = .app(context.bundleID.lowercased())
             name = context.appName

@@ -105,6 +105,15 @@ struct BlockList: Codable, Equatable {
     var isEmpty: Bool { hosts.isEmpty && paths.isEmpty && apps.isEmpty }
 
     var siteCount: Int { hosts.count + paths.count }
+
+    mutating func addWebsite(_ address: WebsiteAddress) {
+        guard !(hosts + paths).contains(where: { WebsiteAddress(entry: $0) == address }) else { return }
+        if address.isDomainOnly {
+            hosts.append(address.entry)
+        } else {
+            paths.append(address.entry)
+        }
+    }
 }
 
 // MARK: - When a block applies
@@ -290,6 +299,8 @@ enum LockMethod: String, Codable, CaseIterable, Identifiable {
 }
 
 struct BlockLock: Codable, Equatable {
+    static let challengeLengths = [32, 64, 80, 100]
+
     var method: LockMethod = .none
     /// For `.duration`, in seconds.
     var duration: TimeInterval = 60 * 60
@@ -305,6 +316,11 @@ struct BlockLock: Codable, Equatable {
     var engagedAtBootTime: Date?
     /// Used on newer saves to identify a reboot independently of the wall clock.
     var engagedBootSessionID: String?
+
+    /// Resolves older settings to a length offered by the picker.
+    var challengeLength: Int {
+        Self.challengeLengths.first { $0 >= stringLength } ?? 100
+    }
 
     func hasSameSettings(as other: Self) -> Bool {
         method == other.method && duration == other.duration

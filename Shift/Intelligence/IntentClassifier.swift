@@ -155,7 +155,7 @@ actor IntentClassifier {
             Choose nudge for plausible drift and block only for clear unrelated distractions.
             Give a short reason without quoting screen text, names, or private details.
             """
-        let session = LanguageModelSession(instructions: instructions)
+        let session = LanguageModelSession(model: SystemLanguageModel.default, instructions: instructions)
         let goalExcerpt = String(decoding: goal.text.utf8.prefix(600), as: UTF8.self)
         let screenExcerpt = String(decoding: text.utf8.prefix(3_000), as: UTF8.self)
         let prompt = "Focus goal: \(goalExcerpt)\n\nVisible screen text:\n\(screenExcerpt)"

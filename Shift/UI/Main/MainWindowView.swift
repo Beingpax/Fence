@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Sections of the main window. Settings is one of these rather than a separate window:
@@ -160,7 +161,7 @@ private struct Sidebar: View {
 
                 Spacer(minLength: 16)
 
-                WatchStatus()
+                ActiveBlockStatus()
                     .padding(.horizontal, SidebarLayout.horizontalInset)
                     .padding(.bottom, 6)
 
@@ -181,16 +182,17 @@ private struct Sidebar: View {
 }
 
 /// The one piece of live state worth keeping on screen at all times.
-private struct WatchStatus: View {
+private struct ActiveBlockStatus: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
+        let active = model.store.activeBlocks.count
         HStack(spacing: 7) {
             Circle()
-                .fill(model.isWatching ? Color.green : Color.secondary.opacity(0.45))
+                .fill(active > 0 ? Color.green : Color.secondary.opacity(0.45))
                 .frame(width: 7, height: 7)
 
-            Text(model.isWatching ? statusDetail : "No block active")
+            Text(active == 0 ? "No block active" : "\(active) block\(active == 1 ? "" : "s") active")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -199,12 +201,6 @@ private struct WatchStatus: View {
         }
         .padding(.horizontal, 8)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(model.isWatching ? "Shift is watching" : "Shift is idle")
-    }
-
-    private var statusDetail: String {
-        let active = model.store.activeBlocks.count
-        return "\(active) block\(active == 1 ? "" : "s") active"
     }
 }
 
@@ -313,7 +309,7 @@ struct BlockCard: View {
                     Label(block.scheduleSummary, systemImage: scheduleSymbol)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
-                    if isLocked {
+                    if isLocked, !block.requiresUnlockChallenge() {
                         Label(block.lockStatus(), systemImage: "lock.fill")
                             .font(.caption2.weight(.medium))
                             .foregroundStyle(.orange)
@@ -517,46 +513,67 @@ struct RandomStringUnlockView: View {
     @Environment(\.dismiss) private var dismiss
     let block: Block
 
+    private enum Feedback {
+        case mismatch(Int)
+        case incomplete
+        case extra
+        case unavailable
+    }
+
     @State private var challenge = ""
     @State private var typed = ""
-    @State private var failed = false
+    @State private var result: Feedback?
+    @State private var isEntryFocused = false
+    @State private var entryFocusRequest = 0
+
+    private var tint: Color { block.tint.color }
+    private var revealedMismatch: Int? {
+        if case let .mismatch(index) = result { return index }
+        return nil
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.base) {
-            VStack(alignment: .leading, spacing: Theme.Space.tight) {
-                Text("Type this to unlock “\(block.name)”")
-                    .font(.system(.headline, design: .rounded))
-                Text("Enter the generated code exactly as shown to switch off this block.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: Theme.Space.loose) {
+            HStack(spacing: Theme.Space.base) {
+                BlockBadge(symbol: block.symbol, tint: block.tint, size: 50)
+
+                VStack(alignment: .leading, spacing: Theme.Space.hair) {
+                    Text("Unlock \(block.name)")
+                        .font(.system(.title2, design: .rounded).weight(.bold))
+                        .accessibilityAddTraits(.isHeader)
+                    Text("Type the code exactly as shown. Use Backspace to erase from the end.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
-            Text(challenge)
-                .font(.system(.callout, design: .monospaced))
-                .textSelection(.disabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .glassSurface(radius: Theme.Radius.control, padding: Theme.Space.snug)
+            VStack(alignment: .leading, spacing: Theme.Space.snug) {
+                codeTiles
 
-            ShiftTextField(prompt: "Type it here", text: $typed, symbol: "keyboard", onSubmit: attempt)
+                codeEntry
 
-            if failed {
-                Label("That doesn't match yet.", systemImage: "exclamationmark.triangle.fill")
+                feedback
                     .font(.caption)
-                    .foregroundStyle(.orange)
             }
 
             HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }
+                Button("Keep blocking") { dismiss() }
                     .buttonStyle(.shiftSoft)
                     .keyboardShortcut(.cancelAction)
-                Button("Unlock", action: attempt)
-                    .buttonStyle(.shiftProminent)
-                    .disabled(typed.isEmpty)
+
+                Spacer()
+
+                Button(action: attempt) {
+                    Label("Unlock", systemImage: "lock.open")
+                }
+                .buttonStyle(.shiftProminent(tint))
+                .keyboardShortcut(.defaultAction)
+                .disabled(challenge.isEmpty)
             }
         }
-        .padding(Theme.Space.loose)
-        .frame(width: 480)
+        .padding(Theme.Space.wide)
+        .frame(width: 488)
         .background {
             VisualEffect(surface: .window, blending: .behindWindow).ignoresSafeArea()
         }
@@ -569,12 +586,245 @@ struct RandomStringUnlockView: View {
         }
     }
 
+    private var codeEntry: some View {
+        let border: Color = result != nil ? .red : (isEntryFocused ? tint : Color.primary.opacity(0.12))
+
+        return HStack(spacing: Theme.Space.snug) {
+            Image(systemName: "keyboard")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+
+            HStack(spacing: 3) {
+                if typed.isEmpty {
+                    Text("Type the code here")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(verbatim: typed.replacingOccurrences(of: " ", with: "␣"))
+                        .truncationMode(.head)
+                }
+
+                if isEntryFocused {
+                    Capsule()
+                        .fill(tint)
+                        .frame(width: 2, height: 15)
+                }
+            }
+            .font(.system(.body, design: .monospaced))
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityHidden(true)
+        }
+        .padding(Theme.Space.snug)
+        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: Theme.Radius.control))
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.Radius.control)
+                .strokeBorder(border, lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .overlay {
+            ChallengeKeyInput(
+                focusRequest: entryFocusRequest,
+                value: typed,
+                onFocusChange: { isEntryFocused = $0 },
+                onEdit: editEntry
+            )
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var codeTiles: some View {
+        let characters = Array(challenge)
+        let enteredCount = typed.count
+        let mismatch = revealedMismatch
+        let columns = 16
+        let tileHeight: CGFloat = 28
+        let gap: CGFloat = 4
+        let rows = min(8, max(1, (characters.count + columns - 1) / columns))
+
+        return ScrollView {
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.fixed(22), spacing: gap), count: columns),
+                alignment: .leading,
+                spacing: gap
+            ) {
+                ForEach(characters.indices, id: \.self) { index in
+                    let isEntered = index < enteredCount
+                    let isWrong = index == mismatch
+                    let tileColor: Color = isWrong ? .red : .green
+                    let outline: Color = isWrong ? .red : (index == enteredCount ? tint : .clear)
+                    Text(String(characters[index]))
+                        .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                        .frame(width: 22, height: tileHeight)
+                        .background {
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(isEntered ? tileColor.opacity(0.18) : Color.primary.opacity(0.06))
+                        }
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 5)
+                                .strokeBorder(outline, lineWidth: 1)
+                        }
+                        .overlay(alignment: .bottom) {
+                            if isEntered {
+                                Capsule()
+                                    .fill(tileColor)
+                                    .frame(width: 10, height: 2)
+                                    .padding(.bottom, 2)
+                            }
+                        }
+                }
+            }
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .textSelection(.disabled)
+        .frame(height: CGFloat(rows) * tileHeight + CGFloat(rows - 1) * gap)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(challenge).speechSpellsOutCharacters())
+    }
+
+    @ViewBuilder
+    private var feedback: some View {
+        switch result {
+        case .unavailable:
+            Label("This block can’t be unlocked right now.", systemImage: "exclamationmark.circle")
+                .foregroundStyle(.secondary)
+        case .extra:
+            Label("Remove the extra characters.", systemImage: "exclamationmark.circle")
+        case .mismatch(let index):
+            Label("Backspace through character \(index + 1), then retype from there.", systemImage: "exclamationmark.circle")
+        case .incomplete:
+            let remaining = challenge.count - typed.count
+            Label("Finish typing the code. \(remaining) left.", systemImage: "exclamationmark.circle")
+        case nil:
+            Text("\(typed.count) of \(challenge.count) characters entered")
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func editEntry(_ edit: ChallengeKeyInput.Edit) {
+        switch edit {
+        case .append(let character):
+            typed.append(character)
+        case .backspace:
+            guard !typed.isEmpty else { return }
+            typed.removeLast()
+        }
+
+        // Keep the submitted error visible until that character has been erased.
+        if let revealedMismatch, revealedMismatch < typed.count { return }
+        result = nil
+    }
+
     private func attempt() {
-        if model.store.unlockWithString(typed, for: block.id) {
+        guard !challenge.isEmpty else { return }
+        let matched = zip(challenge, typed).prefix { $0.0 == $0.1 }.count
+        if matched < min(challenge.count, typed.count) {
+            result = .mismatch(matched)
+        } else if typed.count < challenge.count {
+            result = .incomplete
+        } else if typed.count > challenge.count {
+            result = .extra
+        } else if model.store.unlockWithString(typed, for: block.id) {
             model.log("\(block.name) unlocked", symbol: "lock.open")
             dismiss()
+            return
         } else {
-            failed = true
+            result = .unavailable
+        }
+        entryFocusRequest += 1
+    }
+}
+
+/// Receives native keyboard events without exposing a selectable text buffer.
+private struct ChallengeKeyInput: NSViewRepresentable {
+    enum Edit {
+        case append(Character)
+        case backspace
+    }
+
+    let focusRequest: Int
+    let value: String
+    let onFocusChange: (Bool) -> Void
+    let onEdit: (Edit) -> Void
+
+    func makeNSView(context: Context) -> InputView {
+        let view = InputView(frame: .zero)
+        view.focusRequest = focusRequest
+        view.setAccessibilityElement(true)
+        view.setAccessibilityRole(.textField)
+        view.setAccessibilityLabel("Challenge code input")
+        view.setAccessibilityHelp("Type at the end. Press Backspace to erase one character.")
+        return view
+    }
+
+    func updateNSView(_ view: InputView, context: Context) {
+        view.onFocusChange = onFocusChange
+        view.onEdit = onEdit
+        view.setAccessibilityValue(value)
+        if view.focusRequest != focusRequest {
+            view.focusRequest = focusRequest
+            view.requestFocus()
+        }
+    }
+
+    final class InputView: NSView {
+        var focusRequest = 0
+        var onFocusChange: ((Bool) -> Void)?
+        var onEdit: ((Edit) -> Void)?
+
+        override var acceptsFirstResponder: Bool { true }
+
+        func requestFocus() {
+            Task { @MainActor [weak self] in
+                guard let self, let window else { return }
+                window.makeFirstResponder(self)
+            }
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window != nil { requestFocus() }
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            window?.makeFirstResponder(self)
+        }
+
+        override func becomeFirstResponder() -> Bool {
+            onFocusChange?(true)
+            return true
+        }
+
+        override func resignFirstResponder() -> Bool {
+            onFocusChange?(false)
+            return true
+        }
+
+        override func keyDown(with event: NSEvent) {
+            let modifiers = event.modifierFlags
+            guard modifiers.intersection([.command, .control]).isEmpty else {
+                super.keyDown(with: event)
+                return
+            }
+
+            guard let characters = event.characters else { return }
+            if characters == "\t" || characters == "\u{19}" {
+                if modifiers.contains(.shift) {
+                    window?.selectPreviousKeyView(self)
+                } else {
+                    window?.selectNextKeyView(self)
+                }
+            } else if characters == "\u{7F}" || characters == "\u{08}" {
+                onEdit?(.backspace)
+            } else if characters.unicodeScalars.count == 1,
+                      let scalar = characters.unicodeScalars.first,
+                      (0x20...0x7E).contains(scalar.value) {
+                let character = Character(scalar)
+                onEdit?(.append(character))
+            } else {
+                super.keyDown(with: event)
+            }
         }
     }
 }

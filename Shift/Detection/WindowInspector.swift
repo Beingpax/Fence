@@ -9,17 +9,54 @@ enum WindowInspector {
         let windowID: CGWindowID?
     }
 
+    enum QuitDialog: Equatable {
+        case present, absent, unavailable
+    }
+
+    private static let addressFieldIDs: Set<String> = [
+        "addressbar", "omnibox", "urlbar", "urlbar-input", "urlfieldinput", "web_browser_address_and_search_field",
+    ]
+    private static let addressFieldLabels: Set<String> = [
+        "address and search bar", "address and search field", "address bar", "search or enter website name",
+    ]
+
     static func snapshot(pid: pid_t, browser: Browser?, prepareAccessibility: Bool) async -> Snapshot {
         await Task.detached(priority: .userInitiated) {
             var window = focusedWindow(pid: pid, browser: browser, enableWebAccessibility: prepareAccessibility)
-            var url = browser.flatMap { _ in window.flatMap(browserURL) }
-            if prepareAccessibility, url == nil {
+            var url = browser.flatMap { _ in window.flatMap { pageURL(in: $0) } }
+            if browser != nil, prepareAccessibility, url == nil {
                 try? await Task.sleep(for: .milliseconds(150))
                 window = focusedWindow(pid: pid, browser: browser)
-                url = window.flatMap(browserURL)
+                url = window.flatMap { pageURL(in: $0) }
             }
             let title = window.flatMap { string($0, "AXTitle") }
             return Snapshot(title: title, url: url, windowID: frontWindowID(pid: pid, bounds: window.flatMap(bounds)))
+        }.value
+    }
+
+    static func quitDialog(pid: pid_t) async -> QuitDialog {
+        await Task.detached(priority: .userInitiated) {
+            guard let window = focusedWindow(pid: pid, browser: nil),
+                  let role = string(window, "AXRole") else { return QuitDialog.unavailable }
+            let subrole = string(window, "AXSubrole")
+            if role == "AXSheet" || role == "AXDialog" || subrole == "AXDialog" || subrole == "AXSystemDialog"
+                || attribute(window, "AXModal") as? Bool == true {
+                return .present
+            }
+            var sheets: CFIndex = 0
+            if AXUIElementGetAttributeValueCount(window, "AXSheets" as CFString, &sheets) == .success {
+                return sheets > 0 ? .present : .absent
+            }
+            var count: CFIndex = 0
+            guard AXUIElementGetAttributeValueCount(window, "AXChildren" as CFString, &count) == .success
+            else { return .unavailable }
+            guard count > 0 else { return .absent }
+            var values: CFArray?
+            guard AXUIElementCopyAttributeValues(window, "AXChildren" as CFString, 0, min(count, 24), &values) == .success,
+                  let children = values as? [AXUIElement] else { return .unavailable }
+            let roles = children.compactMap { string($0, "AXRole") }
+            if roles.contains("AXSheet") { return .present }
+            return roles.count == count ? .absent : .unavailable
         }.value
     }
 
@@ -100,24 +137,64 @@ enum WindowInspector {
         return []
     }
 
-    static func pageURL(_ area: AXUIElement) -> URL? {
-        webURL(attribute(area, "AXURL"))
+ d    static func pageURL(in window: AXUIElement, area: AXUIElement? = nil) -> URL? {
+        let document = url(attribute(window, "AXDocument"))
+        if let document, isWebURL(document) { return document }
+        if let area = area ?? webArea(in: window), let page = url(attribute(area, "AXURL")), page.scheme != nil {
+            return isWebURL(page) ? page : nil
+        }
+        guard document?.scheme == nil else { return nil }
+        return addressBarURL(in: window)
     }
 
-    private static func browserURL(_ window: AXUIElement) -> URL? {
-        if let url = webURL(attribute(window, "AXDocument")) { return url }
-        return webArea(in: window).flatMap(pageURL)
+    private static func addressBarURL(in window: AXUIElement) -> URL? {
+        // Search browser chrome only. Never interpret page content as a location.
+        let excludedRoles: Set<String> = ["AXWebArea", "AXMenu", "AXMenuBar", "AXSheet", "AXDialog"]
+        var queue = [(element: window, inToolbar: false)]
+        let deadline = ContinuousClock.now.advanced(by: .milliseconds(130))
+        var index = 0
+        while index < queue.count, index < 60, ContinuousClock.now < deadline {
+            let (element, inToolbar) = queue[index]
+            index += 1
+            guard let role = string(element, "AXRole"), !excludedRoles.contains(role) else { continue }
+            if (role == "AXTextField" || role == "AXComboBox"),
+               isAddressField(element, inToolbar: inToolbar),
+               attribute(element, "AXFocused") as? Bool == false,
+               let value = string(element, "AXValue"), let url = addressBarValue(value) {
+                return url
+            }
+            let childIsInToolbar = inToolbar || role == "AXToolbar"
+            queue.append(contentsOf: children(of: element, limit: 24).map { ($0, childIsInToolbar) })
+        }
+        return nil
     }
 
-    static func pageURL(_ area: AXUIElement, window: AXUIElement) -> URL? {
-        pageURL(area) ?? webURL(attribute(window, "AXDocument"))
+    private static func isAddressField(_ element: AXUIElement, inToolbar: Bool) -> Bool {
+        if ["AXIdentifier", "AXDOMIdentifier"].contains(where: {
+            string(element, $0).map { addressFieldIDs.contains($0.lowercased()) } ?? false
+        }) { return true }
+        return inToolbar && ["AXDescription", "AXPlaceholderValue", "AXTitle"].contains(where: {
+            string(element, $0).map { addressFieldLabels.contains($0.lowercased()) } ?? false
+        })
     }
 
-    private static func webURL(_ value: CFTypeRef?) -> URL? {
-        let url = (value as? URL) ?? (value as? String).flatMap { URL(string: $0) }
-        guard let url, let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
-              url.host() != nil else { return nil }
+    private static func addressBarValue(_ value: String) -> URL? {
+        guard value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else { return nil }
+        if let url = URL(string: value), isWebURL(url) { return url }
+        // Browsers can omit the scheme. Require a recognizable host before assuming HTTPS.
+        guard let url = URL(string: "https://\(value)"), let host = url.host(),
+              url.user() == nil, url.password() == nil,
+              host.contains(".") || host.contains(":") || host.lowercased() == "localhost" else { return nil }
         return url
+    }
+
+    private static func url(_ value: CFTypeRef?) -> URL? {
+        (value as? URL) ?? (value as? String).flatMap { URL(string: $0) }
+    }
+
+    private static func isWebURL(_ url: URL) -> Bool {
+        let scheme = url.scheme?.lowercased()
+        return (scheme == "http" || scheme == "https") && url.host()?.isEmpty == false
     }
 
     static func bounds(_ window: AXUIElement) -> CGRect? {

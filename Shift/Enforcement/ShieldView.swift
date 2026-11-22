@@ -166,7 +166,7 @@ struct ShieldView: View {
             }
 
             Button {
-                onResolve(request.isBrowser ? .closeTab : .forceQuit)
+                onResolve(request.isBrowser ? .closeTab : .quitApp)
             } label: {
                 Label(request.primaryActionTitle, systemImage: request.isBrowser ? "xmark" : "power")
                     .frame(minWidth: 180)

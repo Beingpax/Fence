@@ -49,18 +49,47 @@ enum Browser: String, CaseIterable, Sendable {
     /// Firefox exposes no scripting dictionary for closing tabs.
     var supportsAppleEvents: Bool { self != .firefox }
 
-    private var closeTabScript: String {
+    private func closeTabScript(expectedURL: URL?) -> String {
         let tab = self == .safari ? "current tab" : "active tab"
+        let urlCheck: String
+        if let expectedURL {
+            var addresses = [expectedURL.absoluteString]
+            if var components = URLComponents(url: expectedURL, resolvingAgainstBaseURL: false),
+               components.percentEncodedPath.isEmpty || components.percentEncodedPath == "/" {
+                components.percentEncodedPath = components.percentEncodedPath.isEmpty ? "/" : ""
+                if let alternate = components.string { addresses.append(alternate) }
+            }
+            let mismatch = addresses.map { "actualURL is not \(Self.scriptLiteral($0))" }.joined(separator: " and ")
+            urlCheck = """
+                set actualURL to URL of targetTab
+                considering case
+                    if \(mismatch) then return "changed"
+                end considering
+            """
+        } else {
+            urlCheck = ""
+        }
         return """
         with timeout of 2 seconds
-            tell application id "\(bundleID)" to close \(tab) of front window
+            tell application id "\(bundleID)"
+                set targetTab to \(tab) of front window
+                \(urlCheck)
+                close targetTab
+            end tell
         end timeout
         return "closed"
         """
     }
 
-    func closeFrontTab(pid: pid_t) async -> Bool {
-        if supportsAppleEvents { return await AppleScriptRunner.run(closeTabScript) == "closed" }
+    private static func scriptLiteral(_ value: String) -> String {
+        let escaped = value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
+    }
+
+    func closeFrontTab(pid: pid_t, expectedURL: URL?) async -> Bool {
+        if supportsAppleEvents {
+            return await AppleScriptRunner.run(closeTabScript(expectedURL: expectedURL)) == "closed"
+        }
 
         // Firefox has no tab scripting dictionary. Target its process directly, and
         // require Accessibility so the shortcut can be delivered to that process.

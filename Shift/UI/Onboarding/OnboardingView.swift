@@ -13,6 +13,7 @@ struct OnboardingView: View {
     @State private var selected: Set<String> = []
     @State private var customEntry = ""
     @State private var customList: [String] = []
+    @State private var showsInvalidWebsite = false
     @State private var focusGoal = ""
     @State private var blockName = "Distractions"
     @State private var lockChoice = LockMethod.none
@@ -155,12 +156,14 @@ struct OnboardingView: View {
                             .buttonStyle(.shiftSoft)
                             .disabled(customEntry.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
+                    .onChange(of: customEntry) { _, _ in showsInvalidWebsite = false }
                     if !customList.isEmpty {
                         WrappingTags(tags: customList) { tag in
                             customList.removeAll { $0 == tag }
                         }
                     }
-                    Text("Adding a slash blocks only that part of a site, so the rest of it keeps working.")
+                    Text(showsInvalidWebsite ? "Enter a website like example.com." :
+                        "Add a path like /feed to block only that part of a site.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -277,9 +280,13 @@ struct OnboardingView: View {
     }
 
     private func addCustom() {
-        let entry = customEntry.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !entry.isEmpty, !customList.contains(entry) else { return }
-        customList.append(entry)
+        guard let address = WebsiteAddress(entry: customEntry) else {
+            showsInvalidWebsite = true
+            return
+        }
+        if !customList.contains(where: { WebsiteAddress(entry: $0) == address }) {
+            customList.append(address.entry)
+        }
         customEntry = ""
     }
 

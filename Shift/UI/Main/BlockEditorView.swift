@@ -21,7 +21,12 @@ struct BlockInspector: View {
         self.onClose = onClose
     }
 
-    private var isLocked: Bool { model.store.block(id: draft.id)?.isLocked() == true }
+    private var savedBlock: Block? { model.store.block(id: draft.id) }
+    private var isLocked: Bool { savedBlock?.isLocked() == true }
+    private var canRequestUnlock: Bool {
+        guard let savedBlock else { return false }
+        return savedBlock.requiresUnlockChallenge() && !savedBlock.lock.isLocked()
+    }
     private var tint: Color { draft.tint.color }
     private var hasChanges: Bool { draft != original }
     private var canSave: Bool {
@@ -33,7 +38,6 @@ struct BlockInspector: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Space.snug) {
                     identity
-                    if isLocked { lockedBanner }
                     focusGoal
                     blockedItems
                     schedule
@@ -46,13 +50,7 @@ struct BlockInspector: View {
 
             Hairline()
 
-            Button("Save", action: save)
-                .buttonStyle(.shiftProminent(tint))
-                .disabled(!canSave)
-                .opacity(canSave ? 1 : 0.45)
-                .keyboardShortcut("s", modifiers: .command)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(Theme.Space.base)
+            footer
         }
         .background {
             VisualEffect(surface: .sidebar, blending: .behindWindow).ignoresSafeArea()
@@ -72,6 +70,42 @@ struct BlockInspector: View {
             Button("Discard changes", role: .destructive, action: onClose)
             Button("Keep editing", role: .cancel) {}
         }
+    }
+
+    private var footer: some View {
+        HStack(spacing: Theme.Space.snug) {
+            if isLocked, !canRequestUnlock, let savedBlock {
+                Label(savedBlock.lock.statusText(), systemImage: "lock.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+
+            if isLocked {
+                if canSave {
+                    Button("Save", action: save)
+                        .buttonStyle(.shiftSoft)
+                        .keyboardShortcut("s", modifiers: .command)
+                }
+
+                if canRequestUnlock {
+                    Button {
+                        model.requestBlockUnlock(id: draft.id)
+                    } label: {
+                        Label("Unlock", systemImage: "lock.open")
+                    }
+                    .buttonStyle(.shiftProminent(tint))
+                }
+            } else {
+                Button("Save", action: save)
+                    .buttonStyle(.shiftProminent(tint))
+                    .disabled(!canSave)
+                    .opacity(canSave ? 1 : 0.45)
+                    .keyboardShortcut("s", modifiers: .command)
+            }
+        }
+        .padding(Theme.Space.base)
     }
 
     private func save() {
@@ -176,26 +210,6 @@ struct BlockInspector: View {
             }
         }
         .glassSurface(padding: Theme.Space.base, tint: tint)
-    }
-
-    private var lockedBanner: some View {
-        HStack(alignment: .top, spacing: Theme.Space.tight) {
-            Image(systemName: "lock.fill")
-                .foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(model.store.block(id: draft.id)?.lockStatus() ?? draft.lockStatus())
-                    .font(.caption.weight(.semibold))
-                Text("You can add websites and apps. Existing rules, the schedule, the lock, breaks, and the focus goal are fixed until the block unlocks.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-        .padding(Theme.Space.snug)
-        .background {
-            RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                .fill(Color.orange.opacity(0.12))
-        }
     }
 
     private var focusGoal: some View {
@@ -367,8 +381,11 @@ struct BlockInspector: View {
                         .foregroundStyle(.secondary)
                         .accessibilityHidden(true)
                     SegmentedSelector(
-                        selection: $draft.lock.stringLength,
-                        options: [.init(16, "16"), .init(32, "32"), .init(64, "64"), .init(128, "128")],
+                        selection: Binding(
+                            get: { draft.lock.challengeLength },
+                            set: { draft.lock.stringLength = $0 }
+                        ),
+                        options: BlockLock.challengeLengths.map { .init($0, String($0)) },
                         tint: tint
                     )
                     .accessibilityElement(children: .contain)
@@ -431,12 +448,8 @@ struct BlockInspector: View {
         draft.schedule = .scheduled(all)
     }
 
-    private func addSite(_ entry: String) {
-        if entry.contains("/") {
-            if !draft.list.paths.contains(entry) { draft.list.paths.append(entry) }
-        } else {
-            if !draft.list.hosts.contains(entry) { draft.list.hosts.append(entry) }
-        }
+    private func addSite(_ address: WebsiteAddress) {
+        draft.list.addWebsite(address)
     }
 
     static let symbols = [
@@ -451,7 +464,7 @@ struct BlockInspector: View {
 private struct SiteEntryField: View {
     let label: String
     let prompt: String
-    let onAdd: (String) -> Void
+    let onAdd: (WebsiteAddress) -> Void
 
     @State private var text = ""
     @State private var showsInvalidEntry = false
@@ -489,23 +502,11 @@ private struct SiteEntryField: View {
         guard !entry.isEmpty else { return }
         isFocused = true
 
-        let address = entry.contains("://") ? entry : "https://\(entry)"
-        guard entry.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
-              let url = URL(string: address),
-              let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
-              let host = url.host()?.lowercased(), !host.isEmpty else {
+        guard let address = WebsiteAddress(entry: entry) else {
             showsInvalidEntry = true
             return
         }
-
-        // Match the host and path format used for the active browser tab.
-        let domain = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-        guard !domain.isEmpty else {
-            showsInvalidEntry = true
-            return
-        }
-        let path = url.path().lowercased()
-        onAdd(path == "/" ? domain : domain + path)
+        onAdd(address)
         text = ""
     }
 }

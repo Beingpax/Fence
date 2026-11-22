@@ -23,7 +23,7 @@ struct AXTextReader: ScreenTextReading {
         let root: AXUIElement
         if browser != nil {
             guard let area = WindowInspector.webArea(in: window),
-                  context.url == nil || WindowInspector.pageURL(area, window: window) == context.url
+                  context.url == nil || WindowInspector.pageURL(in: window, area: area) == context.url
             else { return nil }
             root = area
         } else {

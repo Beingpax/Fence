@@ -12,17 +12,8 @@ struct ScreenContext: Equatable, Sendable {
     /// Advances when focus or a mouse interaction may have changed visible content.
     var revision: UInt64
 
-    /// Lowercased host without a leading "www.".
-    var host: String? {
-        guard let host = url?.host()?.lowercased() else { return nil }
-        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-    }
-
-    /// "youtube.com/shorts/abc", used for path-aware rules.
-    var hostAndPath: String? {
-        guard let host else { return nil }
-        return host + (url?.path() ?? "")
-    }
+    var websiteAddress: WebsiteAddress? { url.flatMap(WebsiteAddress.init(url:)) }
+    var host: String? { websiteAddress?.host }
 
     var isBrowser: Bool { Browser(bundleID: bundleID) != nil }
 

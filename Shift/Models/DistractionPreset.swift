@@ -71,7 +71,8 @@ struct DistractionPreset: Identifiable, Hashable, Codable {
             id: "news",
             title: "News and Hacker News",
             symbol: "newspaper",
-            hosts: ["news.ycombinator.com", "news.google.com", "cnn.com", "bbc.com/news"],
+            hosts: ["news.ycombinator.com", "news.google.com", "cnn.com"],
+            paths: ["bbc.com/news"],
             effect: "Blocks the usual news stops."
         ),
         DistractionPreset(
@@ -94,14 +95,14 @@ struct DistractionPreset: Identifiable, Hashable, Codable {
             title: "Discord",
             symbol: "message",
             apps: ["com.hnc.Discord"],
-            effect: "Force quits Discord when it comes up."
+            effect: "Asks you to quit Discord when it comes up."
         ),
         DistractionPreset(
             id: "games",
             title: "Games and Steam",
             symbol: "arcade.stick",
             apps: ["com.valvesoftware.steam"],
-            effect: "Force quits Steam when it comes up."
+            effect: "Asks you to quit Steam when it comes up."
         ),
         DistractionPreset(
             id: "shopping",
@@ -121,18 +122,15 @@ struct DistractionPreset: Identifiable, Hashable, Codable {
 }
 
 extension BlockList {
-    /// Builds a list from onboarding answers. Entries containing a slash become path
-    /// rules, so the useful half of a site survives; everything else is a whole site.
+    /// Builds a list from onboarding answers using the same rule parsing as the editor.
     static func from(presets: [DistractionPreset], custom: [String] = []) -> BlockList {
-        let cleaned = custom
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            .filter { !$0.isEmpty }
-
-        return BlockList(
-            hosts: unique(presets.flatMap(\.hosts) + cleaned.filter { !$0.contains("/") }),
-            paths: unique(presets.flatMap(\.paths) + cleaned.filter { $0.contains("/") }),
+        var list = BlockList(
+            hosts: unique(presets.flatMap(\.hosts)),
+            paths: unique(presets.flatMap(\.paths)),
             apps: unique(presets.flatMap(\.apps))
         )
+        for address in custom.compactMap(WebsiteAddress.init(entry:)) { list.addWebsite(address) }
+        return list
     }
 
     /// Which presets this list already covers, so the picker can be re-entered with the
