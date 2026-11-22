@@ -170,11 +170,10 @@ struct BlockBadge: View {
     let symbol: String
     let tint: BlockTint
     var size: CGFloat = 34
-    var isActive: Bool = true
 
     var body: some View {
         RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-            .fill(tint.color.gradient.opacity(isActive ? 1 : 0.35))
+            .fill(tint.color.gradient)
             .frame(width: size, height: size)
             .overlay {
                 Image(systemName: symbol)

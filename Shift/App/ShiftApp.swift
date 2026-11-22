@@ -36,19 +36,23 @@ private struct MenuBarLabel: View {
         let active = model.store.activeBlocks.count
         HStack(spacing: 3) {
             Image(systemName: symbol(activeCount: active))
+                .symbolRenderingMode(.monochrome)
             if active > 0 {
                 Text("\(active)").monospacedDigit()
             }
         }
-        .accessibilityLabel(
-            active == 0
-                ? "Shift: nothing blocked"
-                : "Shift: \(active) block\(active == 1 ? "" : "s") active"
-        )
+        .accessibilityLabel(statusLabel(activeCount: active))
+    }
+
+    private func statusLabel(activeCount: Int) -> String {
+        if activeCount > 0 {
+            return "Shift, \(activeCount) block\(activeCount == 1 ? "" : "s") active"
+        }
+        return model.store.hasLockedBlock ? "Shift, lock active" : "Shift, idle"
     }
 
     private func symbol(activeCount: Int) -> String {
-        if model.store.hasLockedBlock { return "lock.fill" }
-        return activeCount > 0 ? "shield.lefthalf.filled" : "shield"
+        if model.store.hasLockedBlock { return "lock.circle.fill" }
+        return activeCount > 0 ? "viewfinder.circle.fill" : "scope"
     }
 }

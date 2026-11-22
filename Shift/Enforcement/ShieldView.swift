@@ -1,19 +1,14 @@
 import AppKit
 import SwiftUI
 
-/// The full-screen "Not now." shield. Frosted: you can see what you were doing, you just
-/// can't touch it.
-///
-/// This is the one loud surface in the app, so it's also the one place that breaks the calm
-/// typography rules on purpose. Everything still degrades properly: Reduce Transparency
-/// swaps the blur for a solid ground, and Reduce Motion drops the entrance animation.
+/// A full-screen shield with a shared action layout and a different palette for each strike level.
 struct ShieldView: View {
     let request: ShieldRequest
-    /// Only the primary display shows text and buttons; the others are just frosted.
     let showsControls: Bool
     let onResolve: (ShieldResolution) -> Void
 
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var secondsLeft: Int
     @State private var typedPhrase = ""
@@ -27,161 +22,171 @@ struct ShieldView: View {
         _secondsLeft = State(initialValue: request.policy.countdownSeconds)
     }
 
-    private var phraseMatches: Bool {
-        typedPhrase.trimmingCharacters(in: .whitespacesAndNewlines)
+    private var unlocked: Bool {
+        let phraseMatches = typedPhrase.trimmingCharacters(in: .whitespacesAndNewlines)
             .caseInsensitiveCompare(ShieldPolicy.phrase) == .orderedSame
+        return secondsLeft == 0 && (!request.policy.requiresPhrase || phraseMatches)
     }
 
-    private var unlocked: Bool {
-        secondsLeft == 0 && (!request.policy.requiresPhrase || phraseMatches)
+    private var colors: (accent: Color, button: Color) {
+        switch request.policy.level {
+        case .gentle:
+            (Color(red: 0.59, green: 0.91, blue: 0.81), Color(red: 0.08, green: 0.36, blue: 0.32))
+        case .firm:
+            (Color(red: 1, green: 0.80, blue: 0.53), Color(red: 0.46, green: 0.29, blue: 0.10))
+        case .severe:
+            (Color(red: 1, green: 0.64, blue: 0.67), Color(red: 0.49, green: 0.20, blue: 0.28))
+        }
+    }
+
+    private var headline: String {
+        switch request.policy.level {
+        case .gentle: "Your focus comes first."
+        case .firm: "Protect the time you set aside."
+        case .severe: "Choose what gets your time."
+        }
     }
 
     var body: some View {
         ZStack {
-            background
+            backdrop
             if showsControls {
-                content
-                    .scaleEffect(appeared ? 1 : 0.97)
+                GeometryReader { geometry in
+                    ScrollView {
+                        content
+                            .frame(minHeight: geometry.size.height)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
                     .opacity(appeared ? 1 : 0)
+                }
+                .task {
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.24)) { appeared = true }
+                    await runCountdown()
+                }
             }
         }
-        .task {
-            withAnimation(.easeOut(duration: 0.28)) { appeared = true }
-            await runCountdown()
-        }
+        .environment(\.colorScheme, .dark)
     }
 
-    @ViewBuilder
-    private var background: some View {
-        if reduceTransparency {
-            Color.black.opacity(0.92).ignoresSafeArea()
-        } else {
-            BehindWindowBlur(material: .fullScreenUI).ignoresSafeArea()
-            Color.black.opacity(0.38).ignoresSafeArea()
+    private var backdrop: some View {
+        ZStack {
+            let ground = Color(red: 0.04, green: 0.07, blue: 0.09)
+            if reduceTransparency {
+                ground
+            } else {
+                BehindWindowBlur(material: .fullScreenUI)
+                ground.opacity(0.92)
+            }
+            RadialGradient(
+                colors: [colors.accent.opacity(0.22), .clear],
+                center: .topTrailing, startRadius: 0, endRadius: 780
+            )
+            RadialGradient(
+                colors: [colors.accent.opacity(0.10), .clear],
+                center: .bottomLeading, startRadius: 0, endRadius: 650
+            )
         }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
     }
 
     private var content: some View {
         VStack(spacing: Theme.Space.loose) {
-            Image(systemName: request.policy.level.symbol)
-                .font(.system(size: 50, weight: .semibold))
-                .foregroundStyle(strikeColor)
-                .accessibilityHidden(true)
+            strikeBadge
 
             VStack(spacing: Theme.Space.snug) {
-                Text("Not now.")
-                    .font(.system(size: 64, weight: .bold, design: .rounded))
+                Text(headline)
+                    .font(.system(size: 64, weight: .semibold, design: .serif))
                     .foregroundStyle(.white)
                     .accessibilityAddTraits(.isHeader)
 
                 Text(request.reason)
-                    .font(.title2)
-                    .foregroundStyle(.white.opacity(0.88))
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .font(.title3)
+                    .foregroundStyle(.white.opacity(0.85))
             }
 
             VStack(spacing: Theme.Space.tight) {
                 Label(request.blockName, systemImage: "shield.lefthalf.filled")
-                    .font(.headline)
-                    .foregroundStyle(.white.opacity(0.78))
-                    .labelStyle(.titleAndIcon)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(colors.accent)
                 if !request.goal.isEmpty {
-                    Text("You're here to: \(request.goal)")
+                    Label(request.goal, systemImage: "scope")
                         .font(.callout)
-                        .foregroundStyle(.white.opacity(0.62))
+                        .foregroundStyle(.white.opacity(0.78))
                 }
             }
 
-            strikeBadge
-
-            if request.policy.requiresPhrase {
-                phraseField
-            }
+            if request.policy.requiresPhrase { phraseField }
 
             actions
 
             if request.isPreview {
-                Text("Preview. Nothing will be closed.")
+                Text("Shield preview")
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(.white.opacity(0.65))
             }
         }
         .padding(Theme.Space.vast)
-        .frame(maxWidth: 760)
+        .frame(maxWidth: 720)
         .multilineTextAlignment(.center)
+    }
+
+    private var strikeBadge: some View {
+        Label("\(request.policy.level.rawValue) · Strike \(request.strike)", systemImage: request.policy.level.symbol)
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(colors.accent)
+            .padding(.horizontal, Theme.Space.base)
+            .padding(.vertical, Theme.Space.tight)
+            .background(Color.black.opacity(0.22), in: Capsule())
+            .overlay { Capsule().strokeBorder(colors.accent.opacity(0.34)) }
     }
 
     private var phraseField: some View {
         VStack(spacing: Theme.Space.tight) {
             Text("Type “\(ShieldPolicy.phrase)” to continue")
                 .font(.callout)
-                .foregroundStyle(.white.opacity(0.75))
-            TextField("", text: $typedPhrase)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 380)
+                .foregroundStyle(.white.opacity(0.82))
+            TextField("Type the phrase", text: $typedPhrase)
+                .textFieldStyle(.plain)
+                .padding(Theme.Space.snug)
+                .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: Theme.Radius.control))
                 .focused($phraseFocused)
                 .onAppear { phraseFocused = true }
-                .accessibilityLabel("Type the phrase to continue")
         }
+        .frame(maxWidth: 380)
     }
 
     private var actions: some View {
         VStack(spacing: Theme.Space.snug) {
             if secondsLeft > 0 {
-                Text("Available in \(secondsLeft)s")
+                Text("Actions available in \(secondsLeft)s")
                     .font(.callout.monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.75))
+                    .foregroundStyle(colors.accent)
             }
 
             Button {
                 onResolve(request.isBrowser ? .closeTab : .forceQuit)
             } label: {
-                Text(request.primaryActionTitle)
-                    .font(.title3.weight(.semibold))
-                    .frame(minWidth: 280)
-                    .padding(.vertical, Theme.Space.hair + 2)
+                Label(request.primaryActionTitle, systemImage: request.isBrowser ? "xmark" : "power")
+                    .frame(minWidth: 180)
             }
-            .buttonStyle(.glassProminent)
-            .controlSize(.extraLarge)
+            .buttonStyle(.shiftProminent(colors.button))
             .disabled(!unlocked)
+            .opacity(unlocked ? 1 : 0.48)
             .keyboardShortcut(.defaultAction)
 
             if let minutes = request.breakMinutes {
-                Button("Take a \(minutes)-minute break") {
+                Button {
                     onResolve(.takeBreak)
+                } label: {
+                    Label("Pause for \(minutes) minutes", systemImage: "pause")
                 }
-                .buttonStyle(.plain)
-                .font(.callout)
-                .foregroundStyle(.white.opacity(unlocked ? 0.72 : 0.3))
+                .buttonStyle(.shiftSoft)
                 .disabled(!unlocked)
+                .opacity(unlocked ? 1 : 0.48)
             }
         }
-    }
-
-    private var strikeColor: Color {
-        switch request.policy.level {
-        case .gentle: .white.opacity(0.9)
-        case .firm: .orange
-        case .severe: .red
-        }
-    }
-
-    private var strikeBadge: some View {
-        HStack(spacing: Theme.Space.tight) {
-            HStack(spacing: Theme.Space.hair + 2) {
-                ForEach(1...3, id: \.self) { index in
-                    Circle()
-                        .fill(index <= request.strike ? Color.white : Color.white.opacity(0.22))
-                        .frame(width: 8, height: 8)
-                }
-            }
-            Text("Strike \(request.strike) · \(request.policy.level.rawValue)")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white.opacity(0.7))
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Strike \(request.strike), \(request.policy.level.rawValue)")
     }
 
     private func runCountdown() async {

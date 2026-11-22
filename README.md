@@ -4,9 +4,9 @@ Shift is a local app and website blocker for Apple Silicon Macs running macOS 26
 
 ## Use a block
 
-Create a block from **Blocks → New block**, then add websites, paths or apps. Choose **Always**, **Schedule**, or **None**. For **None**, right-click the block in Blocks or the menu bar to start a timed run.
+Create a block from **Blocks → New block**, then add websites, paths or apps. Choose **Always**, **Schedule**, or **None**. For **None**, right-click the block in the menu bar to start a timed run.
 
-A break pauses only that block for the selected length. The daily allowance is the number of breaks you can start before local midnight. The shield automatically escalates from Gentle to Firm to Severe for repeat hits on the same rule or target, with a fresh count each local day.
+Save applies the edits in the block inspector. When breaks are enabled, the shield offers up to two two-minute pauses for that block each local day. The shield automatically escalates from Gentle to Firm to Severe for repeat hits on the same rule or target, with a fresh count each local day.
 
 An optional **Focus goal** enables intent detection. Explicit rules take priority. For unresolved screens, Shift reads accessible text and can use Vision to read a snapshot of the foreground window. Apple Intelligence judges the text on-device where available. **What Shift sees** shows the latest context, verdict and evidence source.
 

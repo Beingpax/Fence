@@ -398,8 +398,7 @@ struct SidebarIconTile: View {
 /// Geometry copied from the reference build in Budget-Tracker: the panel is flush to the
 /// window's top, bottom and trailing edges and rounded only on its leading corners, so it
 /// reads as a drawer pulled out of the side rather than a card floating in the corner.
-/// While it is open the content behind it stops taking input, and clicking that content
-/// closes the panel.
+/// The page behind the panel stops taking input while the inspector is open.
 struct SlidingPanel<PanelContent: View>: ViewModifier {
     @Binding var isPresented: Bool
     var width: CGFloat = 400
@@ -417,18 +416,9 @@ struct SlidingPanel<PanelContent: View>: ViewModifier {
                 GeometryReader { geometry in
                     ZStack(alignment: .trailing) {
                         if isPresented {
-                            // Click anywhere outside the panel to close it.
-                            Rectangle()
-                                .fill(.clear)
-                                .contentShape(Rectangle())
-                                .onTapGesture { isPresented = false }
-                                .accessibilityHidden(true)
-                                .transition(.identity)
-
                             panelSurface
                                 .frame(width: min(max(width, 360), 460, geometry.size.width))
                                 .transition(reduceMotion ? .opacity : .move(edge: .trailing))
-                                .zIndex(1)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)

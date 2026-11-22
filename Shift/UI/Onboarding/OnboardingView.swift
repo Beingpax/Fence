@@ -116,7 +116,9 @@ struct OnboardingView: View {
         case .distractions: distractionsStep
         case .permissions: permissionsStep
         case .demo: demoStep
-        case .ready: readyStep
+        case .ready:
+            ScrollView { readyStep }
+                .scrollBounceBehavior(.basedOnSize)
         }
     }
 
@@ -251,10 +253,6 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: Theme.Space.tight) {
                 SectionLabel(text: "How hard should it be to switch off?")
                 LockMethodPicker(selection: $lockChoice)
-                Text(lockChoice.detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Label("It starts switched off. Turn it on from the menu bar when you want it.", systemImage: "power")

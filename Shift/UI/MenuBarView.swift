@@ -163,7 +163,7 @@ private struct MenuBlockRow: View {
 
     var body: some View {
         HStack(spacing: Theme.Space.snug) {
-            BlockBadge(symbol: block.symbol, tint: block.tint, size: 26, isActive: isActive)
+            BlockBadge(symbol: block.symbol, tint: block.tint, size: 26)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(block.name)
@@ -171,7 +171,7 @@ private struct MenuBlockRow: View {
                     .lineLimit(1)
                 Text(statusLine)
                     .font(.caption2)
-                    .foregroundStyle(block.lock.isLocked() ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(block.isLocked() ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.secondary))
                     .lineLimit(1)
             }
 
@@ -179,7 +179,7 @@ private struct MenuBlockRow: View {
 
             ShiftSwitch(
                 isOn: .constant(block.isEnabled),
-                isLocked: block.lock.isLocked(),
+                isLocked: block.isLocked(),
                 action: { toggle(to: $0) }
             )
             .scaleEffect(0.8)
@@ -211,7 +211,7 @@ private struct MenuBlockRow: View {
     }
 
     private var statusLine: String {
-        if block.lock.isLocked() { return block.lock.statusText() }
+        if block.isLocked() { return block.lockStatus() }
         if isActive { return "Active · \(block.contentsSummary)" }
         return block.scheduleSummary
     }
@@ -220,9 +220,27 @@ private struct MenuBlockRow: View {
         switch model.store.setEnabled(enabled, for: block.id) {
         case .changed:
             break
-        case .refusedLocked, .needsRandomString, .needsTimedStart:
-            // Unlocking needs the main window, where there's room to explain it.
+        case .needsRandomString:
+            model.requestBlockUnlock(id: block.id)
+        case .refusedLocked, .needsTimedStart:
             model.presentMainWindow(section: .blocks)
+        }
+    }
+}
+
+private struct TimedBlockActions: View {
+    @Environment(AppModel.self) private var model
+    let block: Block
+
+    var body: some View {
+        if block.canStartTimedRun {
+            ForEach([25, 50, 90], id: \.self) { minutes in
+                Button("Start for \(minutes) minutes") {
+                    if model.store.startManualRun(id: block.id, minutes: minutes) {
+                        model.log("Started \(block.name) for \(minutes) minutes", symbol: "timer")
+                    }
+                }
+            }
         }
     }
 }

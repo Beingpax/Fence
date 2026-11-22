@@ -66,10 +66,10 @@ A **block** is the unit of everything. It owns:
 
 - a **list**: website domains, paths and apps;
 - a **schedule**: Always, Schedule, or None. None uses the existing `.manual(minutes:)`
-  storage and starts timed runs from the block’s context menu;
+  storage and starts timed runs from the block’s menu bar context menu;
 - a **lock**: `none`, `duration`, `untilTime`, `randomString`, or `restart`, which engages
   the moment the block is switched on;
-- **breaks**: optional, with a fixed length and a count of starts per local day.
+- **breaks**: optional, with two two-minute pauses per local day.
 
 Several blocks can be active at once. `BlockEvaluator` asks each active block in order and
 the first with an opinion wins. A block is active when it is enabled or locked on, is
@@ -79,7 +79,8 @@ Rules that are easy to get wrong, and are covered by the tests:
 
 - Schedule windows may run past midnight; the window belongs to the day it started on.
 - An `untilTime` lock set to a time already past today rolls to tomorrow.
-- A `restart` lock is released by comparing boot time, not app lifetime.
+- A `restart` lock releases after the boot session changes. Saves from older builds
+  use their stored boot time during migration.
 - While locked, a block may be edited only to become stricter. Entries can be added,
   and the schedule, break settings and lock method are frozen.
 - `Finder`, System Settings and Shift itself are never blocked, so a bad allow-list can't

@@ -48,7 +48,21 @@ struct Block: Identifiable, Codable, Equatable {
         }
     }
 
-    var canStartTimedRun: Bool { schedule.isManual && !isEnabled && !lock.isLocked() }
+    var canStartTimedRun: Bool { schedule.isManual && !isEnabled && !isLocked() }
+
+    func requiresUnlockChallenge(at date: Date = Date()) -> Bool {
+        guard isEnabled, lock.method == .randomString else { return false }
+        return !schedule.isManual || manualRunEndsAt.map { $0 > date } == true
+    }
+
+    func isLocked(at date: Date = Date()) -> Bool {
+        lock.isLocked(at: date) || requiresUnlockChallenge(at: date)
+    }
+
+    func lockStatus(at date: Date = Date()) -> String {
+        if requiresUnlockChallenge(at: date) { return "Typing challenge required" }
+        return lock.statusText(at: date)
+    }
 
     /// One line describing when it applies, for the block row.
     var scheduleSummary: String {
@@ -203,10 +217,8 @@ struct ScheduleWindow: Codable, Equatable, Identifiable {
 /// set in advance rather than in the moment of weakness.
 struct BreakPlan: Codable, Equatable {
     var isEnabled: Bool = false
-    /// Length of each break.
-    var minutes: Int = 5
-    /// How many breaks can start each local calendar day.
-    var allowance: Int = 2
+    static let minutes = 2
+    static let dailyAllowance = 2
 
     /// Runtime: when the current break ends.
     var currentBreakEndsAt: Date?
@@ -219,18 +231,18 @@ struct BreakPlan: Codable, Equatable {
     }
 
     func remaining(at date: Date = Date()) -> Int {
-        guard isEnabled, minutes > 0 else { return 0 }
+        guard isEnabled else { return 0 }
         let usedToday = lastResetDay.map { Calendar.current.isDate($0, inSameDayAs: date) } == true
             ? breaksTakenToday : 0
-        return max(0, allowance - usedToday)
+        return max(0, Self.dailyAllowance - usedToday)
     }
 
     mutating func start(at date: Date) -> Bool {
         let available = remaining(at: date)
         guard available > 0, !isOnBreak(at: date) else { return false }
-        breaksTakenToday = allowance - available + 1
+        breaksTakenToday = Self.dailyAllowance - available + 1
         lastResetDay = date
-        currentBreakEndsAt = date.addingTimeInterval(TimeInterval(minutes) * 60)
+        currentBreakEndsAt = date.addingTimeInterval(TimeInterval(Self.minutes) * 60)
         return true
     }
 }
@@ -249,20 +261,20 @@ enum LockMethod: String, Codable, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .none: "No lock"
-        case .duration: "Locked for a while"
-        case .untilTime: "Locked until a time"
-        case .randomString: "Type a random string"
-        case .restart: "Locked until restart"
+        case .duration: "Lock for a duration"
+        case .untilTime: "Lock until a time"
+        case .randomString: "Typing challenge"
+        case .restart: "Lock until restart"
         }
     }
 
     var detail: String {
         switch self {
-        case .none: "You can switch this block off at any time."
-        case .duration: "The timer starts when you switch the block on."
-        case .untilTime: "Once switched on, the block stays locked until the next occurrence of the selected time."
-        case .randomString: "Turning the block off opens a typing challenge."
-        case .restart: "Restart this Mac to release the lock."
+        case .none: "Switch this block off whenever you want."
+        case .duration: "The countdown starts when the block is switched on. You can turn it off when the timer ends."
+        case .untilTime: "Choose the next time the block can be turned off. If that time has passed today, the lock ends tomorrow."
+        case .randomString: "Enter a generated code exactly as shown to turn off the block early."
+        case .restart: "The block stays locked until this Mac restarts. At restart, Shift switches the block off."
         }
     }
 
@@ -291,6 +303,13 @@ struct BlockLock: Codable, Equatable {
     var engagedUntilRestart: Bool = false
     /// Boot time when a restart lock engaged, so we can tell a real restart happened.
     var engagedAtBootTime: Date?
+    /// Used on newer saves to identify a reboot independently of the wall clock.
+    var engagedBootSessionID: String?
+
+    func hasSameSettings(as other: Self) -> Bool {
+        method == other.method && duration == other.duration
+            && untilTime == other.untilTime && stringLength == other.stringLength
+    }
 
     func isLocked(at date: Date = Date()) -> Bool {
         if engagedUntilRestart { return true }
@@ -302,7 +321,9 @@ struct BlockLock: Codable, Equatable {
     func statusText(at date: Date = Date()) -> String {
         if engagedUntilRestart { return "Locked until restart" }
         if let engagedUntil, date < engagedUntil {
-            return "Locked until \(engagedUntil.formatted(date: .omitted, time: .shortened))"
+            let sameDay = Calendar.current.isDate(engagedUntil, inSameDayAs: date)
+            let deadline = engagedUntil.formatted(date: sameDay ? .omitted : .abbreviated, time: .shortened)
+            return "Locked until \(deadline)"
         }
         return method == .none ? "Unlocked" : "Unlocked · \(method.title)"
     }

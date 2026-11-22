@@ -85,12 +85,12 @@ people actually want. Cold Turkey got this right, and the block is the correct u
   switched on and off one at a time and several can be active at once.
 - **List:** website domains, paths, and apps to block.
 - **Schedule:** Always, recurring Schedule, or None. A block with None starts as a timed
-  run from the block’s context menu.
+  run from the block’s menu bar context menu.
 - **Lock:** whether the user may switch a block off. Engages the moment the block is
   switched on. Methods: none, for a duration, until a time, after typing a random string,
   or until the Mac restarts.
-- **Break:** an optional pause for one block, started from its shield. The configured
-  length applies to each break, and the number of break starts resets at local midnight.
+- **Break:** an optional two-minute pause for one block, started from its shield.
+  Each block allows two starts per day, resetting at local midnight.
 - **Verdict:** `allow`, `nudge` (mild drift) or `block` (confident), each with a
   one-line reason and the block that produced it.
 - **Strike:** each enforced hit, counted separately for the matched rule within a block

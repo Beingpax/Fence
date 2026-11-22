@@ -32,7 +32,8 @@ final class AppModel {
 
     /// Which section the main window is showing. Owned here so the menu bar and the
     /// Settings command can open the window straight to a section.
-    var mainSection: MainSection = .blocks
+    var mainSection: MainSection = .dashboard
+    var unlockTarget: Block?
 
     var showNudges: Bool {
         didSet { Preferences.showNudges = showNudges }
@@ -139,6 +140,7 @@ final class AppModel {
         monitor.stop()
         resetIntent()
         engineTimer?.invalidate()
+        store.flushPendingSaves()
     }
 
     /// The app delegate asks before every polite quit.
@@ -366,7 +368,7 @@ final class AppModel {
         if let blockID { store.recordTrigger(id: blockID, now: now) }
 
         let breaks = blockID.flatMap { store.block(id: $0)?.breaks }
-        let breakMinutes = breaks.flatMap { $0.remaining(at: now) > 0 ? $0.minutes : nil }
+        let breakMinutes = breaks.flatMap { $0.remaining(at: now) > 0 ? BreakPlan.minutes : nil }
 
         log("Blocked \(context.displayLocation)", symbol: "hand.raised.fill")
 
@@ -451,7 +453,7 @@ final class AppModel {
     }
 
     private func writeGuardState() {
-        let names = store.blocks.filter { $0.lock.isLocked() }.map(\.name)
+        let names = store.lockedBlocks.map(\.name)
         guard let deadline = store.lockedUntil else { return }
         GuardState(
             lockedUntil: deadline,
@@ -462,16 +464,16 @@ final class AppModel {
     }
 
     private func warnCannotQuit() {
-        let locked = store.blocks.filter { $0.lock.isLocked() }
+        let locked = store.lockedBlocks
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = locked.count == 1
             ? "“\(locked[0].name)” is locked."
             : "\(locked.count) blocks are locked."
         alert.informativeText = locked
-            .map { "\($0.name): \($0.lock.statusText())" }
+            .map { "\($0.name): \($0.lockStatus())" }
             .joined(separator: "\n")
-            + "\n\nShift can't be quit while a lock is standing. That's the point of locking it."
+            + "\n\nRelease the active locks before quitting Shift."
         alert.addButton(withTitle: "OK")
         NSApp.activate()
         alert.runModal()
@@ -492,7 +494,7 @@ final class AppModel {
             goal: "Finish chapter 3",
             strike: strike,
             policy: .make(strike: strike),
-            breakMinutes: strike == 1 ? 5 : nil,
+            breakMinutes: strike == 1 ? BreakPlan.minutes : nil,
             isPreview: true
         )
         shield.present(request) { [weak self] resolution in
@@ -505,6 +507,12 @@ final class AppModel {
     }
 
     // MARK: Windows
+
+    func requestBlockUnlock(id: Block.ID) {
+        guard let block = store.block(id: id), block.requiresUnlockChallenge() else { return }
+        presentMainWindow()
+        unlockTarget = block
+    }
 
     func presentMainWindow(section: MainSection? = nil) {
         if let section { mainSection = section }

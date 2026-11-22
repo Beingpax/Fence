@@ -7,7 +7,7 @@ struct DashboardView: View {
     let onSelect: (Block) -> Void
 
     private var active: [Block] { model.store.activeBlocks }
-    private var locked: [Block] { model.store.blocks.filter { $0.lock.isLocked() } }
+    private var locked: [Block] { model.store.lockedBlocks }
 
     var body: some View {
         ScrollView {
@@ -200,7 +200,7 @@ struct BlockMiniRow: View {
 
     var body: some View {
         HStack(spacing: Theme.Space.snug) {
-            BlockBadge(symbol: block.symbol, tint: block.tint, size: 28, isActive: block.isActive())
+            BlockBadge(symbol: block.symbol, tint: block.tint, size: 28)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(block.name)
@@ -213,8 +213,8 @@ struct BlockMiniRow: View {
 
             Spacer(minLength: Theme.Space.tight)
 
-            if block.lock.isLocked() {
-                Label(block.lock.statusText(), systemImage: "lock.fill")
+            if block.isLocked() {
+                Label(block.lockStatus(), systemImage: "lock.fill")
                     .font(.caption2)
                     .foregroundStyle(.orange)
                     .labelStyle(.titleAndIcon)
@@ -222,12 +222,15 @@ struct BlockMiniRow: View {
 
             ShiftSwitch(
                 isOn: .constant(block.isEnabled),
-                isLocked: block.lock.isLocked(),
+                isLocked: block.isLocked(),
                 action: { enabled in
-                    _ = model.store.setEnabled(enabled, for: block.id)
+                    if model.store.setEnabled(enabled, for: block.id) == .needsRandomString {
+                        model.requestBlockUnlock(id: block.id)
+                    }
                 }
             )
             .accessibilityLabel("\(block.name) enabled")
+            .disabled(block.canStartTimedRun)
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)

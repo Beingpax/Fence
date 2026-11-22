@@ -46,10 +46,13 @@ struct MainWindowView: View {
     @Environment(AppModel.self) private var model
 
     @State private var selectedBlockID: Block.ID?
+    @State private var newBlock: Block?
     @State private var isInspectorPresented = false
     @State private var isShowingTemplates = false
 
     var body: some View {
+        @Bindable var model = model
+
         HStack(spacing: 0) {
             Sidebar()
 
@@ -62,7 +65,10 @@ struct MainWindowView: View {
                     inspector
                 }
                 .onChange(of: isInspectorPresented) { _, presented in
-                    if !presented { selectedBlockID = nil }
+                    if !presented {
+                        selectedBlockID = nil
+                        newBlock = nil
+                    }
                 }
         }
         .frame(minWidth: 900, minHeight: 560)
@@ -74,15 +80,20 @@ struct MainWindowView: View {
         .ignoresSafeArea(.container, edges: .top)
         .sheet(isPresented: $isShowingTemplates) {
             TemplateGalleryView { template in
-                let block = template.makeBlock()
-                model.store.add(block)
-                selectedBlockID = block.id
+                selectedBlockID = nil
+                newBlock = template.makeBlock()
                 isInspectorPresented = true
             }
         }
-        .onChange(of: selectedBlockID) { _, newValue in
-            if newValue != nil { isInspectorPresented = true }
+        .sheet(item: $model.unlockTarget) { block in
+            RandomStringUnlockView(block: block)
         }
+    }
+
+    private func selectBlock(_ block: Block) {
+        newBlock = nil
+        selectedBlockID = block.id
+        isInspectorPresented = true
     }
 
     @ViewBuilder
@@ -91,11 +102,11 @@ struct MainWindowView: View {
         case .dashboard:
             DashboardView(
                 onAddBlock: { isShowingTemplates = true },
-                onSelect: { selectedBlockID = $0.id }
+                onSelect: selectBlock
             )
         case .blocks:
             BlocksView(
-                selection: $selectedBlockID,
+                onSelect: selectBlock,
                 onAddBlock: { isShowingTemplates = true }
             )
         case .activity:
@@ -107,10 +118,9 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private var inspector: some View {
-        if let id = selectedBlockID, let block = model.store.block(id: id) {
-            BlockInspector(block: block) {
+        if let block = newBlock ?? selectedBlockID.flatMap({ model.store.block(id: $0) }) {
+            BlockInspector(block: block, isNew: newBlock != nil) {
                 isInspectorPresented = false
-                selectedBlockID = nil
             }
             .id(block.id)
         } else {
@@ -202,10 +212,8 @@ private struct WatchStatus: View {
 
 struct BlocksView: View {
     @Environment(AppModel.self) private var model
-    @Binding var selection: Block.ID?
+    let onSelect: (Block) -> Void
     let onAddBlock: () -> Void
-
-    @State private var unlockTarget: Block?
 
     private var subtitle: String {
         let active = model.store.activeBlocks.count
@@ -226,9 +234,6 @@ struct BlocksView: View {
                 list
             }
         }
-        .sheet(item: $unlockTarget) { block in
-            RandomStringUnlockView(block: block)
-        }
     }
 
     private var list: some View {
@@ -246,9 +251,7 @@ struct BlocksView: View {
                 ForEach(model.store.blocks) { block in
                     BlockCard(
                         block: block,
-                        isSelected: selection == block.id,
-                        onSelect: { selection = block.id },
-                        onRequestStringUnlock: { unlockTarget = block }
+                        onSelect: { onSelect(block) }
                     )
                 }
 
@@ -279,18 +282,16 @@ struct BlocksView: View {
 struct BlockCard: View {
     @Environment(AppModel.self) private var model
     let block: Block
-    let isSelected: Bool
     let onSelect: () -> Void
-    let onRequestStringUnlock: () -> Void
 
     @State private var showingLockedNotice = false
 
     private var isActive: Bool { block.isActive() }
-    private var isLocked: Bool { block.lock.isLocked() }
+    private var isLocked: Bool { block.isLocked() }
 
     var body: some View {
         HStack(spacing: Theme.Space.base) {
-            BlockBadge(symbol: block.symbol, tint: block.tint, size: 40, isActive: isActive)
+            BlockBadge(symbol: block.symbol, tint: block.tint, size: 40)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: Theme.Space.tight) {
@@ -313,7 +314,7 @@ struct BlockCard: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                     if isLocked {
-                        Label(block.lock.statusText(), systemImage: "lock.fill")
+                        Label(block.lockStatus(), systemImage: "lock.fill")
                             .font(.caption2.weight(.medium))
                             .foregroundStyle(.orange)
                     }
@@ -333,15 +334,9 @@ struct BlockCard: View {
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
-        .glassSurface(tint: isActive ? Color.accentColor : nil, isSelected: isSelected)
+        .glassSurface()
         .contextMenu {
             Button("Edit", action: onSelect)
-            TimedBlockActions(block: block)
-            Divider()
-            Button("Move up") { model.store.move(id: block.id, by: -1) }
-                .disabled(!model.store.canMove(id: block.id, by: -1))
-            Button("Move down") { model.store.move(id: block.id, by: 1) }
-                .disabled(!model.store.canMove(id: block.id, by: 1))
             Divider()
             Button("Delete", role: .destructive) {
                 if !model.store.delete(id: block.id) { showingLockedNotice = true }
@@ -351,7 +346,7 @@ struct BlockCard: View {
         .alert("“\(block.name)” is locked", isPresented: $showingLockedNotice) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(block.lock.statusText())
+            Text(block.lockStatus())
         }
     }
 
@@ -370,26 +365,9 @@ struct BlockCard: View {
         case .refusedLocked:
             showingLockedNotice = true
         case .needsRandomString:
-            onRequestStringUnlock()
+            model.requestBlockUnlock(id: block.id)
         case .needsTimedStart:
             break
-        }
-    }
-}
-
-struct TimedBlockActions: View {
-    @Environment(AppModel.self) private var model
-    let block: Block
-
-    var body: some View {
-        if block.canStartTimedRun {
-            ForEach([25, 50, 90], id: \.self) { minutes in
-                Button("Start for \(minutes) minutes") {
-                    if model.store.startManualRun(id: block.id, minutes: minutes) {
-                        model.log("Started \(block.name) for \(minutes) minutes", symbol: "timer")
-                    }
-                }
-            }
         }
     }
 }
@@ -548,7 +526,7 @@ struct RandomStringUnlockView: View {
             VStack(alignment: .leading, spacing: Theme.Space.tight) {
                 Text("Type this to unlock “\(block.name)”")
                     .font(.system(.headline, design: .rounded))
-                Text("No copy and paste. The typing is the friction.")
+                Text("Enter the generated code exactly as shown to switch off this block.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -582,11 +560,17 @@ struct RandomStringUnlockView: View {
         .background {
             VisualEffect(surface: .window, blending: .behindWindow).ignoresSafeArea()
         }
-        .onAppear { challenge = BlockStore.randomChallenge(length: block.lock.stringLength) }
+        .onAppear {
+            if let code = model.store.createUnlockChallenge(for: block.id) {
+                challenge = code
+            } else {
+                dismiss()
+            }
+        }
     }
 
     private func attempt() {
-        if model.store.unlockWithString(typed, challenge: challenge, for: block.id) {
+        if model.store.unlockWithString(typed, for: block.id) {
             model.log("\(block.name) unlocked", symbol: "lock.open")
             dismiss()
         } else {

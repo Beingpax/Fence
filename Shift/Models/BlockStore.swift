@@ -17,6 +17,7 @@ final class BlockStore {
     private(set) var blocks: [Block] = []
 
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private var unlockChallenges: [Block.ID: String] = [:]
 
     // MARK: Storage
 
@@ -59,6 +60,12 @@ final class BlockStore {
         enqueueSave()
     }
 
+    /// Drains queued writes and any debounced edits before a normal quit.
+    func flushPendingSaves() {
+        saveNow()
+        Self.saveQueue.sync {}
+    }
+
     private func enqueueSave() {
         let snapshot = blocks
         Self.saveQueue.async { Self.write(snapshot) }
@@ -83,13 +90,18 @@ final class BlockStore {
 
     var activeBlocks: [Block] { blocks.filter { $0.isActive() } }
 
-    var hasLockedBlock: Bool { blocks.contains { $0.lock.isLocked() } }
+    var lockedBlocks: [Block] { blocks.filter { $0.isLocked() } }
+    var hasLockedBlock: Bool { blocks.contains { $0.isLocked() } }
 
     /// The furthest-out lock deadline, which is what the watchdog needs to know.
     var lockedUntil: Date? {
+        let now = Date()
         let deadlines = blocks.compactMap { block -> Date? in
-            if block.lock.engagedUntilRestart { return Date.distantFuture }
-            return block.lock.isLocked() ? block.lock.engagedUntil : nil
+            if block.lock.engagedUntilRestart { return .distantFuture }
+            if block.requiresUnlockChallenge(at: now) {
+                return block.schedule.isManual ? block.manualRunEndsAt : .distantFuture
+            }
+            return block.lock.isLocked(at: now) ? block.lock.engagedUntil : nil
         }
         return deadlines.max()
     }
@@ -100,15 +112,15 @@ final class BlockStore {
 
     func add(_ block: Block) {
         blocks.append(block)
-        scheduleSave()
+        saveNow()
     }
 
     /// Edits are refused while the block is locked, so a lock can't be edited away.
     @discardableResult
-    func update(_ block: Block) -> Bool {
+    func update(_ block: Block, now: Date = Date()) -> Bool {
         guard let index = blocks.firstIndex(where: { $0.id == block.id }) else { return false }
         let current = blocks[index]
-        if current.lock.isLocked(), !isSafeEditWhileLocked(from: current, to: block) {
+        if current.isLocked(at: now), !isSafeEditWhileLocked(from: current, to: block) {
             return false
         }
         var updated = block
@@ -122,11 +134,15 @@ final class BlockStore {
         updated.lock.engagedUntil = current.lock.engagedUntil
         updated.lock.engagedUntilRestart = current.lock.engagedUntilRestart
         updated.lock.engagedAtBootTime = current.lock.engagedAtBootTime
+        updated.lock.engagedBootSessionID = current.lock.engagedBootSessionID
+        if updated.isEnabled && !updated.lock.hasSameSettings(as: current.lock) {
+            engageLock(on: &updated, now: now)
+        }
         updated.breaks.currentBreakEndsAt = current.breaks.currentBreakEndsAt
         updated.breaks.breaksTakenToday = current.breaks.breaksTakenToday
         updated.breaks.lastResetDay = current.breaks.lastResetDay
         blocks[index] = updated
-        scheduleSave()
+        saveNow()
         return true
     }
 
@@ -134,10 +150,8 @@ final class BlockStore {
     /// are purely cosmetic. Anything that could weaken it is refused.
     private func isSafeEditWhileLocked(from existing: Block, to proposed: Block) -> Bool {
         guard existing.schedule == proposed.schedule, existing.goal == proposed.goal else { return false }
-        guard existing.lock.method == proposed.lock.method else { return false }
-        guard existing.breaks.isEnabled == proposed.breaks.isEnabled,
-              existing.breaks.minutes == proposed.breaks.minutes,
-              existing.breaks.allowance == proposed.breaks.allowance
+        guard existing.lock.hasSameSettings(as: proposed.lock),
+              existing.breaks.isEnabled == proposed.breaks.isEnabled
         else { return false }
         // Entries may be added but never removed.
         let grew = { (old: [String], new: [String]) in Set(old).isSubset(of: Set(new)) }
@@ -151,28 +165,10 @@ final class BlockStore {
     @discardableResult
     func delete(id: UUID) -> Bool {
         guard let index = blocks.firstIndex(where: { $0.id == id }) else { return false }
-        guard !blocks[index].lock.isLocked() else { return false }
+        guard !blocks[index].isLocked() else { return false }
         blocks.remove(at: index)
         scheduleSave()
         return true
-    }
-
-    func canMove(id: UUID, by offset: Int) -> Bool {
-        movableIndex(for: id, offset: offset) != nil
-    }
-
-    func move(id: UUID, by offset: Int) {
-        guard let index = movableIndex(for: id, offset: offset) else { return }
-        blocks.swapAt(index, index + offset)
-        scheduleSave()
-    }
-
-    private func movableIndex(for id: UUID, offset: Int) -> Int? {
-        guard offset == -1 || offset == 1, let index = blocks.firstIndex(where: { $0.id == id }),
-              blocks.indices.contains(index + offset),
-              !blocks[index].lock.isLocked(), !blocks[index + offset].lock.isLocked()
-        else { return nil }
-        return index
     }
 
     // MARK: Turning blocks on and off
@@ -196,7 +192,7 @@ final class BlockStore {
             return .refusedLocked(block.lock.statusText(at: now))
         }
 
-        if !enabled, block.lock.method == .randomString {
+        if !enabled, block.requiresUnlockChallenge(at: now) {
             return .needsRandomString
         }
 
@@ -206,11 +202,7 @@ final class BlockStore {
         if enabled {
             engageLock(on: &block, now: now)
         } else {
-            block.lock.engagedUntil = nil
-            block.lock.engagedUntilRestart = false
-            block.lock.engagedAtBootTime = nil
-            block.manualRunEndsAt = nil
-            block.breaks.currentBreakEndsAt = nil
+            endRun(&block)
         }
 
         blocks[index] = block
@@ -219,6 +211,7 @@ final class BlockStore {
     }
 
     private func engageLock(on block: inout Block, now: Date) {
+        clearEngagement(&block.lock)
         switch block.lock.method {
         case .none, .randomString:
             break
@@ -227,23 +220,41 @@ final class BlockStore {
         case .restart:
             block.lock.engagedUntilRestart = true
             block.lock.engagedAtBootTime = Self.bootTime()
+            block.lock.engagedBootSessionID = Self.bootSessionID
         }
     }
 
-    /// Unlock path for the random-string method. The caller shows the challenge and
-    /// passes back what the user typed.
+    private func clearEngagement(_ lock: inout BlockLock) {
+        lock.engagedUntil = nil
+        lock.engagedUntilRestart = false
+        lock.engagedAtBootTime = nil
+        lock.engagedBootSessionID = nil
+    }
+
+    private func endRun(_ block: inout Block) {
+        unlockChallenges.removeValue(forKey: block.id)
+        block.isEnabled = false
+        block.manualRunEndsAt = nil
+        block.breaks.currentBreakEndsAt = nil
+        clearEngagement(&block.lock)
+    }
+
+    func createUnlockChallenge(for id: Block.ID) -> String? {
+        guard let block = block(id: id), block.requiresUnlockChallenge() else { return nil }
+        let challenge = Self.randomChallenge(length: block.lock.stringLength)
+        unlockChallenges[id] = challenge
+        return challenge
+    }
+
     @discardableResult
-    func unlockWithString(_ typed: String, challenge: String, for id: UUID) -> Bool {
-        guard typed == challenge else { return false }
-        guard let index = blocks.firstIndex(where: { $0.id == id }),
-              blocks[index].isEnabled, blocks[index].lock.method == .randomString,
-              !blocks[index].lock.isLocked()
+    func unlockWithString(_ typed: String, for id: Block.ID) -> Bool {
+        guard let challenge = unlockChallenges[id], typed == challenge,
+              let index = blocks.firstIndex(where: { $0.id == id }),
+              blocks[index].requiresUnlockChallenge(), !blocks[index].lock.isLocked()
         else { return false }
-        blocks[index].isEnabled = false
-        blocks[index].manualRunEndsAt = nil
-        blocks[index].lock.engagedUntil = nil
-        blocks[index].lock.engagedUntilRestart = false
-        blocks[index].breaks.currentBreakEndsAt = nil
+        var block = blocks[index]
+        endRun(&block)
+        blocks[index] = block
         saveNow()
         return true
     }
@@ -278,17 +289,29 @@ final class BlockStore {
     // MARK: Housekeeping
 
     /// A `.restart` lock is released only when the machine has genuinely rebooted.
-    /// Comparing boot time is how we know, rather than trusting the app's own lifetime.
+    /// The boot session ID survives app relaunches and wall-clock changes.
     private func resolveRestartLocks() {
         let currentBoot = Self.bootTime()
+        let bootSessionID = Self.bootSessionID
         var changed = false
         for index in blocks.indices where blocks[index].lock.engagedUntilRestart {
-            guard let engagedBoot = blocks[index].lock.engagedAtBootTime else { continue }
-            // Boot times drift by a second or two between samples; a real reboot moves them far.
-            if abs(currentBoot.timeIntervalSince(engagedBoot)) > 60 {
-                blocks[index].lock.engagedUntilRestart = false
-                blocks[index].lock.engagedAtBootTime = nil
-                blocks[index].isEnabled = false
+            var block = blocks[index]
+            let restarted: Bool
+            if let bootSessionID, let engagedSession = block.lock.engagedBootSessionID {
+                restarted = bootSessionID != engagedSession
+            } else if let engagedBoot = block.lock.engagedAtBootTime {
+                restarted = abs(currentBoot.timeIntervalSince(engagedBoot)) > 60
+            } else {
+                restarted = false
+            }
+
+            if restarted {
+                endRun(&block)
+            } else if let bootSessionID, block.lock.engagedBootSessionID == nil {
+                block.lock.engagedBootSessionID = bootSessionID
+            }
+            if block != blocks[index] {
+                blocks[index] = block
                 changed = true
             }
         }
@@ -300,7 +323,11 @@ final class BlockStore {
         let now = Date()
         var changed = false
         for index in blocks.indices {
-            if retireTimedRun(&blocks[index], at: now) { changed = true }
+            var block = blocks[index]
+            if retireTimedRun(&block, at: now) {
+                blocks[index] = block
+                changed = true
+            }
         }
         if changed { saveNow() }
     }
@@ -330,9 +357,7 @@ final class BlockStore {
         guard block.schedule.isManual, block.isEnabled, !block.lock.isLocked(at: date),
               block.manualRunEndsAt.map({ $0 <= date }) ?? true
         else { return false }
-        block.manualRunEndsAt = nil
-        block.isEnabled = false
-        block.breaks.currentBreakEndsAt = nil
+        endRun(&block)
         return true
     }
 
@@ -343,13 +368,25 @@ final class BlockStore {
         scheduleSave()
     }
 
+    private static let bootSessionID: String? = {
+        var length = 0
+        guard sysctlbyname("kern.bootsessionuuid", nil, &length, nil, 0) == 0, length > 1 else { return nil }
+        var bytes = [CChar](repeating: 0, count: length)
+        return bytes.withUnsafeMutableBufferPointer { buffer in
+            guard let base = buffer.baseAddress,
+                  sysctlbyname("kern.bootsessionuuid", base, &length, nil, 0) == 0
+            else { return nil }
+            return String(cString: base)
+        }
+    }()
+
     /// Boot time, derived from uptime. Stable across samples on the same boot.
     static func bootTime() -> Date {
         Date(timeIntervalSinceNow: -ProcessInfo.processInfo.systemUptime)
     }
 
     /// The challenge string for a random-string unlock.
-    static func randomChallenge(length: Int) -> String {
+    private static func randomChallenge(length: Int) -> String {
         let alphabet = Array("abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789")
         return String((0..<max(8, length)).map { _ in alphabet.randomElement() ?? "x" })
     }

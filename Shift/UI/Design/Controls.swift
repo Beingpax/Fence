@@ -323,21 +323,17 @@ struct LockMethodPicker: View {
         Button {
             isShowingOptions.toggle()
         } label: {
-            HStack(spacing: Theme.Space.tight) {
-                Label(selection.title, systemImage: selection.symbol)
-                Spacer(minLength: Theme.Space.tight)
+            HStack(spacing: Theme.Space.snug) {
+                methodLabel(selection)
+                Spacer(minLength: Theme.Space.hair)
                 Image(systemName: "chevron.down")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
             }
-            .font(.callout.weight(.medium))
-            .padding(.horizontal, Theme.Space.snug)
-            .frame(minHeight: 32)
-            .background {
-                RoundedRectangle(cornerRadius: Theme.Radius.control)
-                    .fill(.quaternary.opacity(0.5))
-            }
+            .padding(Theme.Space.snug)
+            .background(.quaternary.opacity(0.45),
+                        in: RoundedRectangle(cornerRadius: Theme.Radius.control))
             .overlay {
                 RoundedRectangle(cornerRadius: Theme.Radius.control)
                     .strokeBorder(Color.primary.opacity(0.08))
@@ -347,6 +343,7 @@ struct LockMethodPicker: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Lock method")
         .accessibilityValue(selection.title)
+        .accessibilityHint(selection.detail)
         .popover(isPresented: $isShowingOptions, arrowEdge: .bottom) {
             VStack(spacing: Theme.Space.hair) {
                 ForEach(LockMethod.allCases) { method in
@@ -355,19 +352,18 @@ struct LockMethodPicker: View {
                         selection = method
                         isShowingOptions = false
                     } label: {
-                        HStack(spacing: Theme.Space.tight) {
-                            Label(method.title, systemImage: method.symbol)
-                            Spacer(minLength: Theme.Space.tight)
+                        HStack(spacing: Theme.Space.snug) {
+                            methodLabel(method)
+                            Spacer(minLength: Theme.Space.hair)
                             if isSelected {
                                 Image(systemName: "checkmark")
+                                    .font(.caption.weight(.semibold))
                                     .foregroundStyle(tint)
                                     .accessibilityHidden(true)
                             }
                         }
-                        .font(.callout)
-                        .padding(.horizontal, Theme.Space.snug)
-                        .padding(.vertical, Theme.Space.tight)
-                        .background(isSelected ? tint.opacity(0.12) : .clear,
+                        .padding(Theme.Space.snug)
+                        .background(isSelected ? Color.primary.opacity(0.07) : .clear,
                                     in: RoundedRectangle(cornerRadius: Theme.Radius.control))
                         .contentShape(Rectangle())
                     }
@@ -376,7 +372,27 @@ struct LockMethodPicker: View {
                 }
             }
             .padding(Theme.Space.tight)
-            .frame(width: 240)
+            .frame(width: 320)
+        }
+    }
+
+    private func methodLabel(_ method: LockMethod) -> some View {
+        HStack(alignment: .top, spacing: Theme.Space.snug) {
+            Image(systemName: method.symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 28, height: 28)
+                .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: Theme.Radius.control))
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: Theme.Space.hair) {
+                Text(method.title)
+                    .font(.callout.weight(.semibold))
+                Text(method.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

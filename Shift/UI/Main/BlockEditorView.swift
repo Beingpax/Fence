@@ -1,56 +1,111 @@
 import AppKit
 import SwiftUI
 
-/// Edits one block, in the trailing inspector.
-///
-/// Changes are applied as you make them rather than behind a Save button, which is what
-/// the rest of macOS does for settings-shaped editing. The store refuses anything that
-/// would weaken a locked block, so the inspector shows which parts are frozen instead of
-/// letting an edit fail silently.
+/// Edits a draft and applies it when the user saves.
 struct BlockInspector: View {
     @Environment(AppModel.self) private var model
 
     @State private var draft: Block
+    @State private var original: Block
     @State private var isShowingAppPicker = false
+    @State private var isShowingSaveError = false
+    @State private var isShowingDiscardConfirmation = false
 
+    private let isNew: Bool
     private let onClose: () -> Void
 
-    init(block: Block, onClose: @escaping () -> Void) {
+    init(block: Block, isNew: Bool, onClose: @escaping () -> Void) {
         _draft = State(initialValue: block)
+        _original = State(initialValue: block)
+        self.isNew = isNew
         self.onClose = onClose
     }
 
-    private var isLocked: Bool { draft.lock.isLocked() }
+    private var isLocked: Bool { model.store.block(id: draft.id)?.isLocked() == true }
     private var tint: Color { draft.tint.color }
+    private var hasChanges: Bool { draft != original }
+    private var canSave: Bool {
+        (isNew || hasChanges) && !draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Theme.Space.snug) {
-                identity
-                if isLocked { lockedBanner }
-                focusGoal
-                blockedItems
-                schedule
-                breaks
-                lock
-                deleteButton
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.Space.snug) {
+                    identity
+                    if isLocked { lockedBanner }
+                    focusGoal
+                    blockedItems
+                    schedule
+                    breaks
+                    lock
+                }
+                .padding(Theme.Space.base)
             }
-            .padding(Theme.Space.base)
+            .scrollBounceBehavior(.basedOnSize)
+
+            Hairline()
+
+            Button("Save", action: save)
+                .buttonStyle(.shiftProminent(tint))
+                .disabled(!canSave)
+                .opacity(canSave ? 1 : 0.45)
+                .keyboardShortcut("s", modifiers: .command)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(Theme.Space.base)
         }
-        .scrollBounceBehavior(.basedOnSize)
         .background {
             VisualEffect(surface: .sidebar, blending: .behindWindow).ignoresSafeArea()
         }
-        .onChange(of: draft) { _, updated in
-            guard let current = model.store.block(id: updated.id), current != updated else { return }
-            if !model.store.update(updated) { draft = current }
-        }
-        .onChange(of: model.store.block(id: draft.id)) { _, updated in
-            if let updated, updated != draft { draft = updated }
+        .onChange(of: isLocked) { _, locked in
+            if locked { preserveLockedRules() }
         }
         .sheet(isPresented: $isShowingAppPicker) {
             AppPickerView(selected: $draft.list.apps, tint: tint, canRemove: !isLocked)
         }
+        .alert("Couldn’t save block", isPresented: $isShowingSaveError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("The block changed while you were editing. Review the draft and try again.")
+        }
+        .confirmationDialog("Discard unsaved changes?", isPresented: $isShowingDiscardConfirmation) {
+            Button("Discard changes", role: .destructive, action: onClose)
+            Button("Keep editing", role: .cancel) {}
+        }
+    }
+
+    private func save() {
+        guard canSave else { return }
+        var updated = draft
+        updated.name = updated.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isNew {
+            model.store.add(updated)
+        } else if !model.store.update(updated) {
+            preserveLockedRules()
+            isShowingSaveError = true
+            return
+        }
+        onClose()
+    }
+
+    /// A draft can already be open when the block is locked from the menu bar.
+    /// Restore protected settings while keeping additions and cosmetic edits.
+    private func preserveLockedRules() {
+        guard let saved = model.store.block(id: draft.id), saved.isLocked() else { return }
+        func adding(_ values: [String], to savedValues: [String]) -> [String] {
+            var seen = Set(savedValues)
+            return savedValues + values.filter { seen.insert($0).inserted }
+        }
+
+        var allowed = saved
+        allowed.list.hosts = adding(draft.list.hosts, to: saved.list.hosts)
+        allowed.list.paths = adding(draft.list.paths, to: saved.list.paths)
+        allowed.list.apps = adding(draft.list.apps, to: saved.list.apps)
+        allowed.name = draft.name
+        allowed.tint = draft.tint
+        allowed.symbol = draft.symbol
+        original = saved
+        draft = allowed
     }
 
     // MARK: Identity
@@ -69,7 +124,7 @@ struct BlockInspector: View {
                 }
                 Spacer()
                 Button {
-                    onClose()
+                    if hasChanges { isShowingDiscardConfirmation = true } else { onClose() }
                 } label: {
                     Image(systemName: "xmark")
                         .font(.caption.weight(.bold))
@@ -128,9 +183,9 @@ struct BlockInspector: View {
             Image(systemName: "lock.fill")
                 .foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 2) {
-                Text(draft.lock.statusText())
+                Text(model.store.block(id: draft.id)?.lockStatus() ?? draft.lockStatus())
                     .font(.caption.weight(.semibold))
-                Text("You can add to this block, but not weaken it.")
+                Text("You can add websites and apps. Existing rules, the schedule, the lock, breaks, and the focus goal are fixed until the block unlocks.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -276,54 +331,11 @@ struct BlockInspector: View {
                     .accessibilityLabel("Allow breaks")
                     .disabled(isLocked)
             }
-
-            if draft.breaks.isEnabled {
-                Grid(alignment: .leading, horizontalSpacing: Theme.Space.snug, verticalSpacing: Theme.Space.tight) {
-                    GridRow {
-                        Text("Length")
-                            .accessibilityHidden(true)
-                        SegmentedSelector(
-                            selection: $draft.breaks.minutes,
-                            options: [
-                                .init(2, "2 min"), .init(5, "5 min"), .init(10, "10 min"), .init(15, "15 min"),
-                            ],
-                            tint: tint
-                        )
-                        .accessibilityElement(children: .contain)
-                        .accessibilityLabel("Break duration")
-                    }
-
-                    GridRow {
-                        Text("Breaks per day")
-                            .accessibilityHidden(true)
-                        SegmentedSelector(
-                            selection: $draft.breaks.allowance,
-                            options: [
-                                .init(1, "1"), .init(2, "2"), .init(3, "3"), .init(5, "5"),
-                            ],
-                            tint: tint
-                        )
-                        .accessibilityElement(children: .contain)
-                        .accessibilityLabel("Breaks per day")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .disabled(isLocked)
-
-                Text("Start a break from the shield to pause this block. Your allowance resets at midnight.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
         }
     }
 
     private var lock: some View {
-        Panel(
-            "Lock",
-            icon: "lock",
-            help: draft.lock.method.detail
-        ) {
+        Panel("Lock", icon: "lock") {
             LockMethodPicker(selection: $draft.lock.method, tint: tint)
                 .disabled(isLocked)
 
@@ -367,21 +379,6 @@ struct BlockInspector: View {
                 EmptyView()
             }
         }
-    }
-
-    private var deleteButton: some View {
-        Button(role: .destructive) {
-            let id = draft.id
-            onClose()
-            _ = model.store.delete(id: id)
-        } label: {
-            Label("Delete this block", systemImage: "trash")
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.shiftProminent(.red))
-        .opacity(isLocked ? 0.4 : 1)
-        .disabled(isLocked)
-        .padding(.top, Theme.Space.tight)
     }
 
     // MARK: Helpers
@@ -735,11 +732,17 @@ private struct AppTile: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: Theme.Space.tight) {
-                if let icon = app.icon {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .frame(width: 24, height: 24)
+                Group {
+                    if let icon = app.icon {
+                        Image(nsImage: icon).resizable()
+                    } else {
+                        Image(systemName: "app")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .frame(width: 24, height: 24)
+                .accessibilityHidden(true)
                 Text(app.name)
                     .font(.callout)
                     .lineLimit(1)
@@ -751,10 +754,16 @@ private struct AppTile: View {
                         .foregroundStyle(tint)
                 }
             }
+            .padding(Theme.Space.tight)
+            .background(Color(nsColor: .controlBackgroundColor),
+                        in: RoundedRectangle(cornerRadius: Theme.Radius.control))
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.Radius.control)
+                    .strokeBorder(Color.primary.opacity(0.08))
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .glassSurface(radius: Theme.Radius.control, padding: Theme.Space.tight, tint: isSelected ? tint : nil, isSelected: isSelected)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }
