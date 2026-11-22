@@ -185,3 +185,105 @@ struct PanelRow<Control: View>: View {
         .padding(.vertical, 2)
     }
 }
+
+// MARK: - Page header
+
+/// The title at the top of a pane.
+///
+/// Replaces a `.principal` toolbar item, which macOS 26 renders as a floating capsule
+/// stranded in the middle of the title bar. A heading that sits with its own content
+/// reads better and leaves the title bar to the window controls.
+struct PageHeader<Trailing: View>: View {
+    let title: String
+    var subtitle: String?
+    @ViewBuilder var trailing: () -> Trailing
+
+    init(_ title: String, subtitle: String? = nil, @ViewBuilder trailing: @escaping () -> Trailing) {
+        self.title = title
+        self.subtitle = subtitle
+        self.trailing = trailing
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Theme.Space.base) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .accessibilityAddTraits(.isHeader)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: Theme.Space.snug)
+            trailing()
+        }
+    }
+}
+
+extension PageHeader where Trailing == EmptyView {
+    init(_ title: String, subtitle: String? = nil) {
+        self.init(title, subtitle: subtitle) { EmptyView() }
+    }
+}
+
+// MARK: - Sidebar row
+
+/// A sidebar item.
+///
+/// Built by hand rather than with `List`'s sidebar style, which paints a solid accent
+/// capsule behind the selected row and renders SF Symbols in their multicolour form.
+/// Neither matches the rest of the app. This keeps the same translucent surface, hairline
+/// and tinted badge language used everywhere else.
+struct SidebarRow: View {
+    let title: String
+    let symbol: String
+    let isSelected: Bool
+    var tint: Color = .accentColor
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Theme.Space.snug) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(isSelected ? AnyShapeStyle(tint.gradient) : AnyShapeStyle(Color.primary.opacity(0.07)))
+                        .frame(width: 24, height: 24)
+                    Image(systemName: symbol)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(isSelected ? AnyShapeStyle(Color.white) : AnyShapeStyle(.secondary))
+                }
+
+                Text(title)
+                    .font(.callout.weight(isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Theme.Space.tight)
+            .padding(.vertical, 6)
+            .background {
+                let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
+                if isSelected {
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(tint.opacity(0.14))
+                } else if isHovering {
+                    shape.fill(Color.primary.opacity(0.05))
+                }
+            }
+            .overlay {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .strokeBorder(tint.opacity(0.28), lineWidth: 1)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+}

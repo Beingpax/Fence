@@ -18,10 +18,19 @@ enum MainSection: String, CaseIterable, Identifiable, Hashable {
 
     var symbol: String {
         switch self {
-        case .dashboard: "gauge.with.dots.needle.33percent"
+        case .dashboard: "square.grid.2x2.fill"
         case .blocks: "shield.lefthalf.filled"
-        case .activity: "clock.arrow.circlepath"
+        case .activity: "clock.fill"
         case .settings: "gearshape.fill"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .dashboard: .indigo
+        case .blocks: .blue
+        case .activity: .teal
+        case .settings: .gray
         }
     }
 }
@@ -110,26 +119,30 @@ private struct Sidebar: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let selection = Binding<MainSection?>(
-            get: { model.mainSection },
-            set: { if let new = $0 { model.mainSection = new } }
-        )
-
         VStack(spacing: 0) {
-            List(selection: selection) {
+            // Clears the traffic lights, which sit over the sidebar in a full-size-content
+            // window. The sidebar toggle lives here too, so leave room for both.
+            Color.clear.frame(height: 38)
+
+            VStack(spacing: 3) {
                 ForEach(MainSection.allCases) { item in
-                    Label(item.title, systemImage: item.symbol)
-                        .font(.callout.weight(.medium))
-                        .padding(.vertical, 3)
-                        .tag(item)
+                    SidebarRow(
+                        title: item.title,
+                        symbol: item.symbol,
+                        isSelected: model.mainSection == item,
+                        tint: item.tint
+                    ) {
+                        model.mainSection = item
+                    }
                 }
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
+            .padding(.horizontal, Theme.Space.snug)
+
+            Spacer(minLength: Theme.Space.base)
 
             WatchStatus()
         }
-        .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 260)
+        .navigationSplitViewColumnWidth(min: 196, ideal: 214, max: 260)
         .background {
             VisualEffect(surface: .sidebar, blending: .behindWindow).ignoresSafeArea()
         }
@@ -141,30 +154,31 @@ private struct WatchStatus: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        HStack(spacing: Theme.Space.tight) {
+        HStack(spacing: Theme.Space.snug) {
             ZStack {
                 Circle()
-                    .fill(model.isWatching ? Color.green : Color.secondary.opacity(0.4))
+                    .fill(model.isWatching ? Color.green.opacity(0.18) : Color.secondary.opacity(0.12))
+                    .frame(width: 24, height: 24)
+                Circle()
+                    .fill(model.isWatching ? Color.green : Color.secondary.opacity(0.5))
                     .frame(width: 7, height: 7)
-                if model.isWatching {
-                    Circle()
-                        .stroke(Color.green.opacity(0.35), lineWidth: 5)
-                        .frame(width: 7, height: 7)
-                }
             }
+
             VStack(alignment: .leading, spacing: 0) {
                 Text(model.isWatching ? "Watching" : "Idle")
-                    .font(.caption.weight(.medium))
+                    .font(.caption.weight(.semibold))
                 Text(statusDetail)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            Spacer()
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, Theme.Space.base)
-        .padding(.vertical, Theme.Space.snug)
+        .glassSurface(radius: Theme.Radius.control, padding: Theme.Space.tight)
+        .padding(.horizontal, Theme.Space.snug)
+        .padding(.bottom, Theme.Space.snug)
         .accessibilityElement(children: .combine)
+        .accessibilityLabel(model.isWatching ? "Shift is watching" : "Shift is idle")
     }
 
     private var statusDetail: String {
@@ -183,6 +197,13 @@ struct BlocksView: View {
 
     @State private var unlockTarget: Block?
 
+    private var subtitle: String {
+        let active = model.store.activeBlocks.count
+        let total = model.store.blocks.count
+        if active == 0 { return "\(total) block\(total == 1 ? "" : "s"), none active" }
+        return "\(active) of \(total) active right now"
+    }
+
     var body: some View {
         Group {
             if model.store.blocks.isEmpty {
@@ -192,10 +213,6 @@ struct BlocksView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text("Blocks")
-                    .font(.headline)
-            }
             ToolbarItem(placement: .primaryAction) {
                 Button(action: onAddBlock) {
                     Label("New block", systemImage: "plus")
@@ -211,6 +228,9 @@ struct BlocksView: View {
     private var list: some View {
         ScrollView {
             LazyVStack(spacing: Theme.Space.snug) {
+                PageHeader("Blocks", subtitle: subtitle)
+                    .padding(.bottom, Theme.Space.tight)
+
                 ForEach(model.store.blocks) { block in
                     BlockCard(
                         block: block,
@@ -551,14 +571,22 @@ struct ActivityView: View {
     var body: some View {
         Group {
             if model.activity.isEmpty {
-                ContentUnavailableView(
-                    "Nothing yet",
-                    systemImage: "clock.arrow.circlepath",
-                    description: Text("Blocks, nudges and shields show up here as they happen.")
-                )
+                VStack(alignment: .leading, spacing: 0) {
+                    PageHeader("Activity")
+                        .padding(Theme.Space.loose)
+                    ContentUnavailableView(
+                        "Nothing yet",
+                        systemImage: "clock",
+                        description: Text("Blocks, nudges and shields show up here as they happen.")
+                    )
+                    .frame(maxHeight: .infinity)
+                }
             } else {
                 ScrollView {
                     LazyVStack(spacing: 2) {
+                        PageHeader("Activity", subtitle: "\(model.activity.count) recent event\(model.activity.count == 1 ? "" : "s")")
+                            .padding(.bottom, Theme.Space.snug)
+
                         ForEach(model.activity) { event in
                             HStack(spacing: Theme.Space.snug) {
                                 Image(systemName: event.symbol)
@@ -583,11 +611,6 @@ struct ActivityView: View {
                     }
                     .padding(Theme.Space.loose)
                 }
-            }
-        }
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text("Activity").font(.headline)
             }
         }
     }

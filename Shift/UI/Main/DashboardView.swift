@@ -12,7 +12,7 @@ struct DashboardView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Space.base) {
-                hero
+                header
 
                 if !permissionIssues.isEmpty {
                     VStack(spacing: Theme.Space.tight) {
@@ -36,9 +36,6 @@ struct DashboardView: View {
         }
         .scrollBounceBehavior(.basedOnSize)
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text("Dashboard").font(.headline)
-            }
             ToolbarItem(placement: .primaryAction) {
                 Button(action: onAddBlock) {
                     Label("New block", systemImage: "plus")
@@ -48,34 +45,15 @@ struct DashboardView: View {
         }
     }
 
-    // MARK: Hero
+    // MARK: Header
 
-    private var hero: some View {
-        HStack(alignment: .center, spacing: Theme.Space.base) {
-            ZStack {
-                Circle()
-                    .fill(model.isWatching ? AnyShapeStyle(Color.green.gradient.opacity(0.22)) : AnyShapeStyle(Color.secondary.opacity(0.12)))
-                    .frame(width: 62, height: 62)
-                Image(systemName: model.isWatching ? "eye.fill" : "eye.slash.fill")
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundStyle(model.isWatching ? .green : .secondary)
-            }
-            .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(model.isWatching ? "Shift is watching" : "Nothing is blocked")
-                    .font(.system(.title2, design: .rounded).weight(.bold))
-                Text(subtitle)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer()
+    private var header: some View {
+        PageHeader("Dashboard", subtitle: subtitle) {
+            StatusPill(isActive: model.isWatching)
         }
-        .glassSurface(radius: Theme.Radius.panel, padding: Theme.Space.loose)
     }
 
+    /// The one line that answers "is anything happening right now".
     private var subtitle: String {
         if active.isEmpty {
             let waiting = model.store.blocks.filter { block in
@@ -264,5 +242,32 @@ struct BlockMiniRow: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .padding(.vertical, 2)
+    }
+}
+
+/// Compact live state, sized to sit beside a page title.
+struct StatusPill: View {
+    let isActive: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(isActive ? Color.green : Color.secondary.opacity(0.55))
+                .frame(width: 7, height: 7)
+            Text(isActive ? "Watching" : "Idle")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(isActive ? AnyShapeStyle(Color.green) : AnyShapeStyle(.secondary))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background {
+            Capsule(style: .continuous)
+                .fill(isActive ? Color.green.opacity(0.12) : Color.primary.opacity(0.06))
+        }
+        .overlay {
+            Capsule(style: .continuous)
+                .strokeBorder(isActive ? Color.green.opacity(0.28) : Color.primary.opacity(0.08), lineWidth: 1)
+        }
+        .accessibilityLabel(isActive ? "Shift is watching" : "Shift is idle")
     }
 }

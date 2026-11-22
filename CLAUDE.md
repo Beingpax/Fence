@@ -195,6 +195,12 @@ generous spacing. Three rules hold it together.
    before a stock control, so the app reads as one thing.
 3. **Structure comes from `Panel` and `PanelRow`**, not `Form`. Tint is carried by thin
    strokes and content, never by large filled rectangles.
+4. **Page titles are `PageHeader`, inside the content.** Never use a `.principal` toolbar
+   item: macOS 26 renders it as a capsule floating in the middle of the title bar. The
+   title bar is for window controls and the one primary action.
+5. **The sidebar is hand-built** from `SidebarRow`, not `List(selection:)`. The stock
+   sidebar style paints a solid accent capsule and renders SF Symbols in multicolour,
+   neither of which matches anything else here. Each section carries its own tint.
 
 Liquid Glass button styles are still right on the shield, which floats over other apps.
 The shield and the nudge HUD use `BehindWindowBlur` because they must sample the desktop.

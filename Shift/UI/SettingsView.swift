@@ -10,6 +10,7 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Space.base) {
+                PageHeader("Settings")
                 startup
                 nudges
                 lockedBlocks
@@ -22,11 +23,6 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .scrollBounceBehavior(.basedOnSize)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text("Settings").font(.headline)
-            }
-        }
         .onAppear { model.refreshSystemState() }
         .task {
             while !Task.isCancelled {
