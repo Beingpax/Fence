@@ -48,7 +48,7 @@ xcodebuild -project Shift.xcodeproj -scheme Shift -configuration Debug -destinat
 1. **Menu bar.** Icon appears; the count next to it matches the number of active blocks.
 2. **Main window.** Menu bar → Open Shift. Create a block, add sites and apps, save.
 3. **Blocking.** Switch the block on, visit a listed site in Safari and Chrome. The pause
-   should cover every display almost at once. Choices unlock after 5 s (15 s on the
+   should cover every display almost at once. Choices unlock after 10 s (20 s on the
    second reach). Every answer except "I need it" closes only the tab, then shows the
    reward. "I need it" appears only when the block allows breaks: type a reason, pick 1 or
    2 minutes, and only that site opens; the block stays on and still blocks everything
@@ -120,6 +120,12 @@ Rules that are easy to get wrong, and are covered by the tests:
   menu bar app never puts two windows on screen. `MainSection` drives the sidebar, the
   model owns the selection, and Cmd+, opens the window at Settings. Don't reintroduce
   `SettingsLink`; it needs a `Settings` scene and there isn't one.
+- **The menu bar popover is one fixed height.** Switching a block on must not resize it.
+  The "What Shift sees" live context panel (`LiveContextView`) and the tinted mark down the
+  left of an active row were both removed on 23 Nov 2026 at the user's request: the panel
+  made the popover grow the moment Shift started watching, and the mark read as a stray
+  blue bar beside the block's name. The switch and the status line say enough. Don't add
+  anything to the popover that appears only while a block is on.
 - **Blocks, not sessions.** A timer can't express "never Instagram" or "no games on
   weeknights". The old `FocusSession`, `BlockRules` and `Strictness` types are gone.
 - **Locking and friction are different things.** The lock decides whether the switch works.
@@ -148,7 +154,13 @@ Rules that are easy to get wrong, and are covered by the tests:
     one snaps somewhere and holds. Both the blink and the saccade intervals are jittered
     on purpose — fixed ones read as a metronome.
   - The HUD sits **top right, under the menu bar**, where macOS already puts things that
-    want attention without taking it.
+    want attention without taking it. **Flop stands to the left of the card, the card
+    against the screen edge**, and the pair **arrives and leaves exactly like a notification
+    banner**: in from beyond the right edge, and back out the same way when it is dismissed
+    or times out. The card never simply vanishes in place. The panel itself no longer
+    fades; the SwiftUI card owns both halves of the movement, and `NudgeHUDView.isLeaving`
+    is how the controller starts the exit (a new root view, so the slide-out animates
+    without a shared observable). Under Reduce Motion both ends become a cross-fade.
   - **Three sounds** (`Enforcement/NudgeSound.swift`, `Resources/Sounds/`): `pause` (a soft
     singing-bowl chime, an invitation, never an alarm), `reward` (a bright rising glass bell
     when you turn back) and `shield.m4a`, played by `playDeep()` (a calm deep chord in place
@@ -297,13 +309,19 @@ relitigate them without asking:
   breath empties. Warm and cool whites twinkle on their own clocks, the sky turns slowly,
   and a shooting star passes every 13 s or so. One `Canvas` at 30 fps, stars generated once
   from a fixed seed and stamped from pre-drawn glows. The breath is computed from the
-  clock: in over 3 s, out over 2 s, in step with the cue to the frame. Under it, the cue
-  and a small countdown (5 s, 15 s on the second reach, 30 s from the third). Rejected on
+  clock: in over 3 s, out over 2 s. Under it, **a bar that empties, not a countdown**:
+  10 s, 20 s on the second reach, 30 s from the third, drained by one linear animation
+  from the middle outwards (stepped once a second under Reduce Motion). Digits invited
+  counting; the bar is read at a glance and forgotten. The "Breathe in / and let it go"
+  cue is gone with them at the user's request — the constellation already opens and
+  gathers in time with the breath, and words only ask to be obeyed. Rejected on
   the way: rippling rings, a glass orb with orbiting motes, and several organic blobs
   (opaque, foggy, then a translucent drop the user hated). When it ends, the orb grows into the question panel
   (`matchedGeometryEffect`), the question reveals, and six feeling chips arrive one after
   another. Each chip is one short word and a white symbol; the longer description shows
-  only on hover, in a single helper line, and 1–6 on the keyboard pick them. Choosing one
+  only on hover, in a single helper line, and 1–6 on the keyboard pick them. Nothing sits
+  under the question but the chips: "Pick the closest one, there's no wrong answer" was
+  cut as unnecessary. Choosing one
   replaces the question with its answer, and **there is no way back**: the only thing left
   is the close button, which turns solid white as the obvious next step. The close button
   sits outside the panel, never waits, and answers to Return. Sources: GOV.UK's
@@ -317,7 +335,7 @@ relitigate them without asking:
   and the week panel (as looking AI-generated). Settings and Dashboard panels stay neutral.
 - **Words arrive, they don't switch on.** Every line on the pause reveals letter by letter,
   rising out of a soft blur (`RevealRenderer`, a `TextRenderer`, via `revealOnAppear`).
-  Text that changes in place (the breathing cue, the hover line) uses `SwapText`: the old
+  Text that changes in place (the hover line) uses `SwapText`: the old
   words fully dissolve before the new ones rise in. A crossfade that showed both at once
   was rejected.
   Naming the craving weakens it. `UrgeReason` lists them in the person's own words:
@@ -341,7 +359,7 @@ relitigate them without asking:
   builds the habit; before it, turning back got nothing.
 - **Repeats cost more.** Reaches are counted per block and target for an hour
   (`reaches`, keyed by `reachKey`, not the process), so switching tabs or relaunching the
-  browser can't reset anything. 5 s, then 15 s, then 30 s, with warmer copy each time.
+  browser can't reset anything. 10 s, then 20 s, then 30 s, with warmer copy each time.
 - **No shame, anywhere.** The voice is a friend's. The urge is "the pull", not the person.
 - **Plans in their own words.** The Dashboard's `WeekPanel` shows the week's reaches by
   craving and peak hour, and takes an if-then plan per craving. The pause shows the plan
@@ -362,7 +380,8 @@ The standalone semantic classifier and text readers are outside the active detec
 - The Xcode project uses **folder-synced groups** (`PBXFileSystemSynchronizedRootGroup`): new files in `Shift/` are picked up automatically, so don't hand-edit file references into `project.pbxproj`.
 - Keep the UI native and calm; the pause is the only full-screen surface.
 - Small, focused commits on `main`, pushed to `origin`.
-- Every verdict carries a human-readable reason, and "What Shift saw" should name which tier decided.
+- Every verdict carries a human-readable reason naming which tier decided. Nothing shows
+  it live any more: the popover's panel is gone, so reasons surface only in the log.
 
 ## Roadmap (PRD §16)
 

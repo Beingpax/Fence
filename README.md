@@ -8,13 +8,11 @@ Create a block from **Blocks → New block**, then add websites, paths or apps. 
 
 Save applies the edits in the block inspector. When breaks are enabled, the shield offers up to two two-minute pauses for that block each local day. The shield automatically escalates from Gentle to Firm to Severe for repeat hits on the same rule or target, with a fresh count each local day.
 
-Active website, path and app rules trigger the shield. Add an optional **Focus goal** to get gentle reminders during sustained distraction. Apple Intelligence classifies foreground text on this Mac. **What Shift sees** shows the latest context and decision.
+Active website, path and app rules trigger the full-screen pause. Optional drift hints use keywords in the foreground window title.
 
 ## Permissions
 
 Accessibility lets Shift read window titles and browser addresses and enforce the shield. When the permission is missing, the Dashboard shows how to grant it.
-
-Optional **Screen Recording** permission in Settings lets Shift read a snapshot of the frontmost window when Accessibility exposes too little text. Captured images and text stay in memory for the sample.
 
 ## Code-only verification
 
