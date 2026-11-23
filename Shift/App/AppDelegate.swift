@@ -1,11 +1,12 @@
 import AppKit
 
 /// Owns the bits of app lifecycle SwiftUI doesn't expose: refusing to quit during a
-/// Locked session, and running first-launch work once the app is really up.
+/// running or locked block, and running first-launch work once the app is really up.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        AppModel.shared.applicationDidFinishLaunching()
+        AppModel.shared.startDashboard(registerAgent: EnforcementService.registerIfNeeded)
+        AppModel.shared.openApp()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows _: Bool) -> Bool {
@@ -13,9 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
-    /// PRD §9: a Locked session can't be ended, and Shift can't be quit, until it runs out.
-    /// This catches every polite route out, including Cmd+Q, the Quit menu item, AppleScript
-    /// `quit`, Activity Monitor's "Quit", and a `SIGTERM` from `kill`.
+    /// AppKit asks before ordinary quits. Force Quit skips this callback.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         AppModel.shared.shouldAllowTermination() ? .terminateNow : .terminateCancel
     }

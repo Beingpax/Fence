@@ -13,22 +13,35 @@ enum TabCloser {
     /// window, and the pause panel held keyboard focus until a moment ago. Posting to the
     /// process, rather than to the system, means the keystroke can only ever reach the
     /// browser. Needs the Accessibility permission, which Shift already holds.
-    static func closeFrontTab(pid: pid_t) async {
+    static func closeFrontTab(for context: ScreenContext, monitor: ContextMonitor) async {
+        let pid = context.processID
         guard let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else { return }
         // Shift is the active app while the pause is up, so it has to hand
         // activation over explicitly; macOS ignores a bare activate() from elsewhere.
         NSApp.yieldActivation(to: app)
         app.activate()
         try? await Task.sleep(for: .milliseconds(180))
-        guard !app.isTerminated, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
+        // The person may have switched tabs or windows while the pause had focus.
+        if let originalURL = context.url {
+            guard let live = await monitor.confirm(context, readWebsite: true),
+                  live.windowID == context.windowID, live.url == originalURL else { return }
+        }
+        _ = closeIfFrontmost(pid: pid)
+    }
+
+    /// Used directly after confirming a URL. Never bring a background browser forward here.
+    static func closeIfFrontmost(pid: pid_t) -> Bool {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return false }
 
         let source = CGEventSource(stateID: .hidSystemState)
         let w: CGKeyCode = 0x0D
-        for keyDown in [true, false] {
-            guard let event = CGEvent(keyboardEventSource: source, virtualKey: w, keyDown: keyDown) else { continue }
+        guard let down = CGEvent(keyboardEventSource: source, virtualKey: w, keyDown: true),
+              let up = CGEvent(keyboardEventSource: source, virtualKey: w, keyDown: false) else { return false }
+        for event in [down, up] {
             event.flags = .maskCommand
             event.postToPid(pid)
         }
+        return true
     }
 
     static func quit(pid: pid_t) {

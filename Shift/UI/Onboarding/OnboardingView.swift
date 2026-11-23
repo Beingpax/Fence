@@ -12,6 +12,7 @@ struct OnboardingView: View {
 
     @State private var step: Step = .welcome
     @State private var selected: Set<String> = []
+    @State private var didSeedRules = false
     @State private var catalog = InstalledApps.shared
     @State private var excludedApps: Set<String> = []
     @State private var customEntry = ""
@@ -155,7 +156,7 @@ struct OnboardingView: View {
             Panel("Add another website", icon: "globe") {
                 HStack(spacing: Theme.Space.tight) {
                     ShiftTextField(
-                        prompt: "example.com, or example.com/feed",
+                        prompt: "Domain, word or URL pattern",
                         text: $customEntry,
                         symbol: "plus",
                         onSubmit: addCustom
@@ -170,8 +171,8 @@ struct OnboardingView: View {
                         customList.removeAll { $0 == tag }
                     }
                 }
-                Text(showsInvalidWebsite ? "Enter a website like example.com." :
-                    "Add a path like /feed to block only that part of a site.")
+                Text(showsInvalidWebsite ? "Enter a website, word or pattern such as *concerts*." :
+                    "example.com/feed pauses that section. *concerts* closes tabs with concerts in the URL.")
                     .font(.caption)
                     .foregroundStyle(showsInvalidWebsite ? Color.orange : Color.secondary)
             }
@@ -249,6 +250,12 @@ struct OnboardingView: View {
                 LockMethodPicker(selection: $lockChoice)
             }
 
+            Toggle("Open Shift at login", isOn: Binding(
+                get: { model.launchAtLoginEnabled },
+                set: { model.setLaunchAtLogin($0) }
+            ))
+            .toggleStyle(.checkbox)
+
             Label("It starts switched off. Turn it on from the menu bar when you want it.", systemImage: "power")
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -305,8 +312,11 @@ struct OnboardingView: View {
     // MARK: Actions
 
     private func seedFromExistingRules() {
-        guard selected.isEmpty, let first = model.store.blocks.first else { return }
-        selected = Set(first.list.matchingPresets.map(\.id))
+        guard !didSeedRules else { return }
+        didSeedRules = true
+        if let first = model.store.blocks.first {
+            selected.formUnion(first.list.matchingPresets.map(\.id))
+        }
     }
 
     private func toggle(_ preset: DistractionPreset) {
@@ -318,12 +328,13 @@ struct OnboardingView: View {
     }
 
     private func addCustom() {
-        guard let address = WebsiteAddress(entry: customEntry) else {
+        let entry = customEntry.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let rule = WebsiteRuleEntry(entry) else {
             showsInvalidWebsite = true
             return
         }
-        if !customList.contains(where: { WebsiteAddress(entry: $0) == address }) {
-            customList.append(address.entry)
+        if !customList.contains(where: { WebsiteRuleEntry($0) == rule }) {
+            customList.append(entry)
         }
         customEntry = ""
     }

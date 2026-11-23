@@ -5,88 +5,95 @@ import os.log
 /// Owns every block, their persistence, and the rules about what the user is allowed
 /// to change while a lock is engaged.
 ///
-/// Reads are cheap and synchronous because the collection is small and lives in memory.
-/// Writes are debounced and encoded off the main actor, so typing in the block editor
-/// never touches the disk on the main thread.
+/// Both processes cache the block list. Each committed edit reloads the latest version
+/// under a file lock so a dashboard edit cannot overwrite a break or trigger count.
 @MainActor
 @Observable
 final class BlockStore {
     nonisolated private static let log = Logger(subsystem: "com.beingpax.Shift", category: "BlockStore")
-    nonisolated private static let saveQueue = DispatchQueue(label: "com.beingpax.Shift.blockStore", qos: .utility)
-
     private(set) var blocks: [Block] = []
 
-    @ObservationIgnored private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private let fileURL: URL?
+    @ObservationIgnored private var revision: UInt64?
     @ObservationIgnored private var unlockChallenges: [Block.ID: String] = [:]
+    @ObservationIgnored var onCommit: (() -> Void)?
 
-    // MARK: Storage
-
-    /// Nonisolated: the writer runs off the main actor, so this must be reachable there.
-    nonisolated private static var fileURL: URL {
-        GuardState.supportDirectory.appending(path: "blocks.json", directoryHint: .notDirectory)
-    }
-
-    init(loadFromDisk: Bool = true) {
-        if loadFromDisk {
-            blocks = Self.loadFromDisk()
+    init(fileURL: URL? = ShiftInstallation.supportDirectory.appending(path: "blocks.json")) {
+        self.fileURL = fileURL
+        refreshFromDisk()
+        transaction(or: ()) {
             resolveRestartLocks()
             expireFinishedRuns()
         }
     }
 
-    nonisolated private static func loadFromDisk() -> [Block] {
-        guard let data = try? Data(contentsOf: fileURL) else { return [] }
-        do {
-            return try JSONDecoder().decode([Block].self, from: data)
-        } catch {
-            log.error("Could not decode blocks: \(error.localizedDescription, privacy: .public)")
-            return []
+    convenience init(loadFromDisk: Bool) {
+        self.init(fileURL: loadFromDisk ? ShiftInstallation.supportDirectory.appending(path: "blocks.json") : nil)
+    }
+
+    /// Atomic replacement gives each committed version a different inode.
+    private func reload(_ url: URL) throws {
+        var info = stat()
+        guard stat(url.path, &info) == 0 else {
+            if errno == ENOENT {
+                if !blocks.isEmpty { blocks = [] }
+                revision = nil
+                return
+            }
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        guard revision != info.st_ino else { return }
+        let latest = try JSONDecoder().decode([Block].self, from: Data(contentsOf: url))
+        if latest != blocks { blocks = latest }
+        revision = info.st_ino
+    }
+
+    func refreshFromDisk() {
+        guard let fileURL else { return }
+        do { try reload(fileURL) } catch {
+            Self.log.error("Could not read blocks: \(error.localizedDescription, privacy: .public)")
         }
     }
 
-    /// Coalesces rapid edits before enqueuing a snapshot.
-    private func scheduleSave() {
-        saveTask?.cancel()
-        saveTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(250))
-            guard !Task.isCancelled else { return }
-            self?.enqueueSave()
-        }
-    }
-
-    /// Enqueues an immediate save for changes such as starting a break or a locked run.
-    func saveNow() {
-        saveTask?.cancel()
-        enqueueSave()
-    }
-
-    /// Drains queued writes and any debounced edits before a normal quit.
-    func flushPendingSaves() {
-        saveNow()
-        Self.saveQueue.sync {}
-    }
-
-    private func enqueueSave() {
-        let snapshot = blocks
-        Self.saveQueue.async { Self.write(snapshot) }
-    }
-
-    nonisolated private static func write(_ blocks: [Block]) {
+    private func transaction<T>(or failure: T, _ edit: () -> T) -> T {
+        guard let fileURL else { return edit() }
         do {
-            try FileManager.default.createDirectory(
-                at: GuardState.supportDirectory,
-                withIntermediateDirectories: true
-            )
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(blocks)
-            try data.write(to: fileURL, options: .atomic)
+            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let lock = try ProcessLease(url: fileURL.appendingPathExtension("lock"), wait: true)
+            let previous: [Block]
+            let result: T
+            do {
+                defer { lock.release() }
+                try reload(fileURL)
+                previous = blocks
+                result = edit()
+                guard blocks != previous else { return result }
+                do {
+                    let encoder = JSONEncoder()
+                    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                    let data = try encoder.encode(blocks)
+                    try data.write(to: fileURL, options: .atomic)
+                } catch {
+                    blocks = previous
+                    throw error
+                }
+                revision = nil
+            }
+            onCommit?()
+            return result
         } catch {
-            log.error("Could not save blocks: \(error.localizedDescription, privacy: .public)")
+            Self.log.error("Could not commit block change: \(error.localizedDescription, privacy: .public)")
+            return failure
         }
     }
 
     // MARK: Queries
+
+    /// Quit and uninstall both recheck disk after any UI confirmation delay.
+    func permitsTermination(at date: Date = Date()) -> Bool {
+        refreshFromDisk()
+        return !blocks.contains { $0.protectsQuit(at: date) }
+    }
 
     var activeBlocks: [Block] { blocks.filter { $0.isActive() } }
 
@@ -112,39 +119,42 @@ final class BlockStore {
     // MARK: Mutation
 
     func add(_ block: Block) {
-        blocks.append(block)
-        saveNow()
+        transaction(or: ()) {
+            guard !blocks.contains(where: { $0.id == block.id }) else { return }
+            blocks.append(block)
+        }
     }
 
     /// Edits are refused while the block is locked, so a lock can't be edited away.
     @discardableResult
     func update(_ block: Block, now: Date = Date()) -> Bool {
-        guard let index = blocks.firstIndex(where: { $0.id == block.id }) else { return false }
-        let current = blocks[index]
-        if current.isLocked(at: now), !isSafeEditWhileLocked(from: current, to: block) {
-            return false
+        transaction(or: false) {
+            guard let index = blocks.firstIndex(where: { $0.id == block.id }) else { return false }
+            let current = blocks[index]
+            if current.isLocked(at: now), !isSafeEditWhileLocked(from: current, to: block) {
+                return false
+            }
+            var updated = block
+            updated.isEnabled = current.isEnabled
+            updated.manualRunEndsAt = updated.schedule.isManual ? current.manualRunEndsAt : nil
+            if updated.schedule.isManual && !current.schedule.isManual {
+                updated.isEnabled = false
+                updated.manualRunEndsAt = nil
+            }
+            updated.stats = current.stats
+            updated.lock.engagedUntil = current.lock.engagedUntil
+            updated.lock.engagedUntilRestart = current.lock.engagedUntilRestart
+            updated.lock.engagedAtBootTime = current.lock.engagedAtBootTime
+            updated.lock.engagedBootSessionID = current.lock.engagedBootSessionID
+            if updated.isEnabled && !updated.lock.hasSameSettings(as: current.lock) {
+                engageLock(on: &updated, now: now)
+            }
+            updated.breaks.currentBreakEndsAt = current.breaks.currentBreakEndsAt
+            updated.breaks.breaksTakenToday = current.breaks.breaksTakenToday
+            updated.breaks.lastResetDay = current.breaks.lastResetDay
+            blocks[index] = updated
+            return true
         }
-        var updated = block
-        updated.isEnabled = current.isEnabled
-        updated.manualRunEndsAt = updated.schedule.isManual ? current.manualRunEndsAt : nil
-        if updated.schedule.isManual && !current.schedule.isManual {
-            updated.isEnabled = false
-            updated.manualRunEndsAt = nil
-        }
-        updated.stats = current.stats
-        updated.lock.engagedUntil = current.lock.engagedUntil
-        updated.lock.engagedUntilRestart = current.lock.engagedUntilRestart
-        updated.lock.engagedAtBootTime = current.lock.engagedAtBootTime
-        updated.lock.engagedBootSessionID = current.lock.engagedBootSessionID
-        if updated.isEnabled && !updated.lock.hasSameSettings(as: current.lock) {
-            engageLock(on: &updated, now: now)
-        }
-        updated.breaks.currentBreakEndsAt = current.breaks.currentBreakEndsAt
-        updated.breaks.breaksTakenToday = current.breaks.breaksTakenToday
-        updated.breaks.lastResetDay = current.breaks.lastResetDay
-        blocks[index] = updated
-        saveNow()
-        return true
     }
 
     /// While locked, the only edits allowed are ones that make the block stricter or
@@ -158,18 +168,23 @@ final class BlockStore {
         let grew = { (old: [String], new: [String]) in Set(old).isSubset(of: Set(new)) }
         guard grew(existing.list.hosts, proposed.list.hosts),
               grew(existing.list.paths, proposed.list.paths),
-              grew(existing.list.apps, proposed.list.apps)
+              grew(existing.list.apps, proposed.list.apps),
+              Set(existing.list.textRules).isSubset(of: Set(proposed.list.textRules)),
+              existing.list.categoryNames.isSubset(of: proposed.list.categoryNames),
+              proposed.list.exceptionCategoryNames.isSubset(of: existing.list.exceptionCategoryNames),
+              grew(proposed.list.websiteExceptions.map(\.entry), existing.list.websiteExceptions.map(\.entry))
         else { return false }
         return true
     }
 
     @discardableResult
     func delete(id: UUID) -> Bool {
-        guard let index = blocks.firstIndex(where: { $0.id == id }) else { return false }
-        guard !blocks[index].isLocked() else { return false }
-        blocks.remove(at: index)
-        scheduleSave()
-        return true
+        transaction(or: false) {
+            guard let index = blocks.firstIndex(where: { $0.id == id }) else { return false }
+            guard !blocks[index].isLocked() else { return false }
+            blocks.remove(at: index)
+            return true
+        }
     }
 
     // MARK: Turning blocks on and off
@@ -185,30 +200,31 @@ final class BlockStore {
     /// choose the terms while you're thinking clearly, and they bind afterwards.
     @discardableResult
     func setEnabled(_ enabled: Bool, for id: UUID, now: Date = Date()) -> ToggleResult {
-        guard let index = blocks.firstIndex(where: { $0.id == id }) else { return .changed }
-        var block = blocks[index]
-        guard enabled != block.isEnabled else { return .changed }
+        transaction(or: .refusedLocked("Could not save the block.")) {
+            guard let index = blocks.firstIndex(where: { $0.id == id }) else { return .changed }
+            var block = blocks[index]
+            guard enabled != block.isEnabled else { return .changed }
 
-        if !enabled, block.lock.isLocked(at: now) {
-            return .refusedLocked(block.lock.statusText(at: now))
+            if !enabled, block.lock.isLocked(at: now) {
+                return .refusedLocked(block.lock.statusText(at: now))
+            }
+
+            if !enabled, block.requiresUnlockChallenge(at: now) {
+                return .needsRandomString
+            }
+
+            if enabled, block.schedule.isManual { return .needsTimedStart }
+            block.isEnabled = enabled
+
+            if enabled {
+                engageLock(on: &block, now: now)
+            } else {
+                endRun(&block)
+            }
+
+            blocks[index] = block
+            return .changed
         }
-
-        if !enabled, block.requiresUnlockChallenge(at: now) {
-            return .needsRandomString
-        }
-
-        if enabled, block.schedule.isManual { return .needsTimedStart }
-        block.isEnabled = enabled
-
-        if enabled {
-            engageLock(on: &block, now: now)
-        } else {
-            endRun(&block)
-        }
-
-        blocks[index] = block
-        saveNow()
-        return .changed
     }
 
     private func engageLock(on block: inout Block, now: Date) {
@@ -249,42 +265,45 @@ final class BlockStore {
 
     @discardableResult
     func unlockWithString(_ typed: String, for id: Block.ID) -> Bool {
-        guard let challenge = unlockChallenges[id], typed == challenge,
-              let index = blocks.firstIndex(where: { $0.id == id }),
-              blocks[index].requiresUnlockChallenge(), !blocks[index].lock.isLocked()
-        else { return false }
-        var block = blocks[index]
-        endRun(&block)
-        blocks[index] = block
-        saveNow()
-        return true
+        transaction(or: false) {
+            guard let challenge = unlockChallenges[id], typed == challenge,
+                  let index = blocks.firstIndex(where: { $0.id == id }),
+                  blocks[index].requiresUnlockChallenge(), !blocks[index].lock.isLocked()
+            else { return false }
+            var block = blocks[index]
+            endRun(&block)
+            blocks[index] = block
+            return true
+        }
     }
 
     @discardableResult
     func startManualRun(id: UUID, minutes: Int, now: Date = Date()) -> Bool {
-        guard minutes > 0, let index = blocks.firstIndex(where: { $0.id == id }) else { return false }
-        var block = blocks[index]
-        guard block.schedule.isManual, !block.isEnabled, !block.lock.isLocked(at: now) else { return false }
+        transaction(or: false) {
+            guard minutes > 0, let index = blocks.firstIndex(where: { $0.id == id }) else { return false }
+            var block = blocks[index]
+            guard block.schedule.isManual, !block.isEnabled, !block.lock.isLocked(at: now) else { return false }
 
-        block.isEnabled = true
-        block.manualRunEndsAt = now.addingTimeInterval(TimeInterval(minutes) * 60)
-        engageLock(on: &block, now: now)
-        blocks[index] = block
-        saveNow()
-        return true
+            block.isEnabled = true
+            block.manualRunEndsAt = now.addingTimeInterval(TimeInterval(minutes) * 60)
+            engageLock(on: &block, now: now)
+            blocks[index] = block
+            return true
+        }
     }
 
     // MARK: Breaks
 
     @discardableResult
     func spendBreak(id: UUID, now: Date = Date()) -> Bool {
-        guard let index = blocks.firstIndex(where: { $0.id == id }) else { return false }
-        var block = blocks[index]
-        guard block.isActive(at: now), block.breaks.spend(at: now) else { return false }
+        transaction(or: false) {
+            guard let index = blocks.firstIndex(where: { $0.id == id }) else { return false }
+            var block = blocks[index]
+            guard block.isActive(at: now), block.breaks.spend(at: now) else { return false }
 
-        blocks[index] = block
-        saveNow()
-        return true
+            blocks[index] = block
+            return true
+        }
     }
 
     // MARK: Housekeeping
@@ -294,7 +313,6 @@ final class BlockStore {
     private func resolveRestartLocks() {
         let currentBoot = Self.bootTime()
         let bootSessionID = Self.bootSessionID
-        var changed = false
         for index in blocks.indices where blocks[index].lock.engagedUntilRestart {
             var block = blocks[index]
             let restarted: Bool
@@ -313,45 +331,42 @@ final class BlockStore {
             }
             if block != blocks[index] {
                 blocks[index] = block
-                changed = true
             }
         }
-        if changed { saveNow() }
     }
 
     /// Clears manual runs that finished while the app wasn't running.
     private func expireFinishedRuns() {
         let now = Date()
-        var changed = false
         for index in blocks.indices {
             var block = blocks[index]
-            if retireTimedRun(&block, at: now) {
-                blocks[index] = block
-                changed = true
-            }
+            if retireTimedRun(&block, at: now) { blocks[index] = block }
         }
-        if changed { saveNow() }
     }
 
     /// Called on the engine's tick to retire finished runs, breaks and locks.
     func tick(now: Date = Date()) {
-        var changed = false
-        for index in blocks.indices {
-            var block = blocks[index]
+        guard blocks.contains(where: { block in
+            block.schedule.isManual && block.isEnabled && !block.lock.isLocked(at: now) && (block.manualRunEndsAt ?? .distantPast) <= now
+                || block.breaks.currentBreakEndsAt.map { $0 <= now } == true
+                || (!block.lock.engagedUntilRestart && block.lock.engagedUntil.map { $0 <= now } == true)
+        }) else { return }
+        transaction(or: ()) {
+            for index in blocks.indices {
+                var block = blocks[index]
 
-            _ = retireTimedRun(&block, at: now)
-            if let breakEnd = block.breaks.currentBreakEndsAt, breakEnd <= now {
-                block.breaks.currentBreakEndsAt = nil
-            }
-            if let lockEnd = block.lock.engagedUntil, lockEnd <= now, !block.lock.engagedUntilRestart {
-                block.lock.engagedUntil = nil
-            }
-            if block != blocks[index] {
-                blocks[index] = block
-                changed = true
+                _ = retireTimedRun(&block, at: now)
+                if let breakEnd = block.breaks.currentBreakEndsAt, breakEnd <= now {
+                    block.breaks.currentBreakEndsAt = nil
+                }
+                if let lockEnd = block.lock.engagedUntil, lockEnd <= now, !block.lock.engagedUntilRestart {
+                    block.lock.engagedUntil = nil
+                }
+                if block != blocks[index] {
+                    blocks[index] = block
+                }
             }
         }
-        if changed { scheduleSave() }
     }
 
     private func retireTimedRun(_ block: inout Block, at date: Date) -> Bool {
@@ -363,10 +378,11 @@ final class BlockStore {
     }
 
     func recordTrigger(id: UUID, now: Date = Date()) {
-        guard let index = blocks.firstIndex(where: { $0.id == id }) else { return }
-        blocks[index].stats.timesTriggered += 1
-        blocks[index].stats.lastTriggered = now
-        scheduleSave()
+        transaction(or: ()) {
+            guard let index = blocks.firstIndex(where: { $0.id == id }) else { return }
+            blocks[index].stats.timesTriggered += 1
+            blocks[index].stats.lastTriggered = now
+        }
     }
 
     private static let bootSessionID: String? = {

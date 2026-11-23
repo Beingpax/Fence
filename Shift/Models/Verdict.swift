@@ -37,6 +37,7 @@ struct Verdict: Equatable, Sendable {
     /// The matching rule, when a website, path, or app explicitly triggered this verdict.
     var ruleTarget: RuleTarget?
     var source: Source = .rules
+    var closesTab = false
 
     static func allow(_ reason: String = "On task") -> Verdict {
         Verdict(kind: .allow, reason: reason)

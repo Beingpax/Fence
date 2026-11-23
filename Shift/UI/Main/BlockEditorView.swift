@@ -8,6 +8,8 @@ struct BlockInspector: View {
     @State private var draft: Block
     @State private var original: Block
     @State private var isShowingAppPicker = false
+    @State private var editingExceptions = false
+    @State private var showsPreMadeLists = false
     @State private var isShowingSaveError = false
     @State private var isShowingDiscardConfirmation = false
 
@@ -40,7 +42,8 @@ struct BlockInspector: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Space.snug) {
                     identity
-                    blockedItems
+                    websites
+                    Panel { apps }
                     schedule
                     breaks
                     lock
@@ -147,6 +150,12 @@ struct BlockInspector: View {
         allowed.list.hosts = adding(draft.list.hosts, to: saved.list.hosts)
         allowed.list.paths = adding(draft.list.paths, to: saved.list.paths)
         allowed.list.apps = adding(draft.list.apps, to: saved.list.apps)
+        allowed.list.textRules += draft.list.textRules.filter { !saved.list.textRules.contains($0) }
+        allowed.list.categoryNames.formUnion(draft.list.categoryNames)
+        // Preserve concurrent edits. Only removals from the original exceptions tighten a lock.
+        let removedExceptions = Set(original.list.websiteExceptions.map(\.entry)).subtracting(draft.list.websiteExceptions.map(\.entry))
+        allowed.list.websiteExceptions.removeAll { removedExceptions.contains($0.entry) }
+        allowed.list.exceptionCategoryNames.subtract(original.list.exceptionCategoryNames.subtracting(draft.list.exceptionCategoryNames))
         allowed.name = draft.name
         allowed.tint = draft.tint
         allowed.symbol = draft.symbol
@@ -222,30 +231,126 @@ struct BlockInspector: View {
         .glassSurface(padding: Theme.Space.base, tint: tint)
     }
 
-    private var blockedItems: some View {
-        Panel {
-            sites
-            Hairline()
-                .padding(.vertical, Theme.Space.hair)
-            apps
-        }
-    }
+    private var websites: some View {
+        Panel("Websites", icon: "globe", help: Self.websiteHelp) {
+            SegmentedSelector(selection: $editingExceptions, options: [
+                .init(false, "Websites"), .init(true, "Website exceptions"),
+            ], tint: tint)
+            if editingExceptions {
+                Text("Allow matching pages through this block’s website rules. Other blocks still apply.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            RuleEntryField(label: editingExceptions ? "Website exception" : "Website rule",
+                           prompt: "Domain, word or URL pattern",
+                           onAdd: editingExceptions ? addException : addSite)
+                .id(editingExceptions)
+                .disabled(editingExceptions && isLocked)
+            Button {
+                showsPreMadeLists = true
+            } label: {
+                Label("Pre-made lists", systemImage: "list.bullet")
+            }
+            .buttonStyle(.shiftSoft)
+            .disabled(editingExceptions && isLocked)
+            .popover(isPresented: $showsPreMadeLists) { preMadeLists }
 
-    private var sites: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.tight) {
-            PanelHeading(
-                title: "Websites",
-                icon: "globe",
-                help: "Enter a domain to block the whole site, or include a path such as youtube.com/shorts to block just that part."
-            )
-            SiteEntryField(label: "Website to block", prompt: "example.com", onAdd: addSite)
-
-            BlockEntryList(items: draft.list.hosts + draft.list.paths, symbol: "globe", canRemove: !isLocked) { entry in
-                draft.list.hosts.removeAll { $0 == entry }
-                draft.list.paths.removeAll { $0 == entry }
+            if editingExceptions {
+                BlockEntryList(items: draft.list.websiteExceptions.map(\.entry), symbol: "checkmark.shield") { entry in
+                    draft.list.websiteExceptions.removeAll { $0.entry == entry }
+                }
+                BlockEntryList(items: draft.list.exceptionCategoryNames.sorted(), symbol: "list.bullet") { name in
+                    draft.list.exceptionCategoryNames.remove(name)
+                }
+            } else {
+                blockedWebsites
+                BlockEntryList(items: draft.list.categoryNames.sorted(), symbol: "list.bullet", canRemove: !isLocked) { name in
+                    draft.list.categoryNames.remove(name)
+                }
             }
         }
     }
+
+    @ViewBuilder private var blockedWebsites: some View {
+        if draft.list.siteCount > 0 || !draft.list.textRules.isEmpty {
+            BlockEntryLayout {
+                ForEach(draft.list.hosts + draft.list.paths, id: \.self) { entry in
+                    Chip(text: entry, symbol: "globe", onRemove: isLocked ? nil : {
+                        draft.list.hosts.removeAll { $0 == entry }
+                        draft.list.paths.removeAll { $0 == entry }
+                    })
+                }
+                ForEach(draft.list.textRules, id: \.self) { rule in
+                    Chip(text: rule.displayText, symbol: "link", onRemove: isLocked ? nil : {
+                        draft.list.textRules.removeAll { $0 == rule }
+                    })
+                }
+            }
+        }
+    }
+
+    private var preMadeLists: some View {
+        let catalog = WebsiteCategoryCatalog.shared
+        let names = catalog.domains.keys.sorted()
+        return ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Space.tight) {
+                Text(editingExceptions ? "Allow a pre-made list" : "Block a pre-made list")
+                    .font(.headline)
+                ForEach(names, id: \.self) { name in
+                    let selected = editingExceptions ? draft.list.exceptionCategoryNames.contains(name)
+                        : draft.list.categoryNames.contains(name)
+                    let count = catalog.domains[name]?.count ?? 0
+                    Button {
+                        if editingExceptions {
+                            draft.list.exceptionCategoryNames.insert(name)
+                        } else {
+                            draft.list.categoryNames.insert(name)
+                        }
+                        showsPreMadeLists = false
+                    } label: {
+                        HStack {
+                            Text(name)
+                            Spacer()
+                            Text("\(count.formatted()) sites").font(.caption).foregroundStyle(.secondary)
+                            Image(systemName: selected ? "checkmark.circle.fill" : "plus.circle")
+                                .foregroundStyle(selected ? tint : Color.secondary)
+                        }
+                        .padding(.vertical, Theme.Space.hair)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(selected || (editingExceptions && isLocked))
+                    .help(name == BlockList.adultSitesCategory ? "Known adult sites and exact explicit searches"
+                          : catalog.domains[name]?.prefix(5).joined(separator: ", ") ?? "")
+                }
+            }
+            .padding(Theme.Space.base)
+        }
+        .frame(width: 280, height: 350)
+    }
+
+    private func addException(_ entry: String) -> String? {
+        guard !isLocked else { return "Unlock this block to add exceptions." }
+        guard let exception = WebsiteException(entry) else { return "Enter a domain, path or URL pattern." }
+        if !draft.list.websiteExceptions.contains(where: { $0.rule == exception.rule }) {
+            draft.list.websiteExceptions.append(exception)
+        }
+        return nil
+    }
+
+    private static let websiteHelp = """
+        Add a rule or choose a pre-made list, then save the block. Lists match the listed hosts and their www aliases. Website exceptions take priority within this block.
+
+        example.com pauses on the site and its subdomains. example.com/feed pauses on that path and its pages. Use https:// for a single-word hostname.
+
+        *concerts* closes the active tab when “concerts” appears anywhere in its URL. A plain word or phrase works the same way.
+
+        /shorts/* matches any URL containing /shorts/. ?q=*concerts matches ?q= followed later by concerts.
+
+        Each * stands for zero or more characters. / and ? are literal. URL text ignores letter case and includes decoded search queries.
+
+        The Adult sites list closes a matching tab automatically. Closing the last tab can close its browser window.
+        """
 
     private var apps: some View {
         VStack(alignment: .leading, spacing: Theme.Space.tight) {
@@ -451,8 +556,12 @@ struct BlockInspector: View {
         draft.schedule = .scheduled(all)
     }
 
-    private func addSite(_ address: WebsiteAddress) {
-        draft.list.addWebsite(address)
+    private func addSite(_ entry: String) -> String? {
+        guard let rule = WebsiteRuleEntry(entry) else {
+            return "Enter a website, word or pattern such as *concerts*."
+        }
+        draft.list.addWebsiteRule(rule)
+        return nil
     }
 
     static let symbols = [
@@ -464,13 +573,13 @@ struct BlockInspector: View {
 
 // MARK: - Block entries
 
-private struct SiteEntryField: View {
+private struct RuleEntryField: View {
     let label: String
     let prompt: String
-    let onAdd: (WebsiteAddress) -> Void
+    let onAdd: (String) -> String?
 
     @State private var text = ""
-    @State private var showsInvalidEntry = false
+    @State private var error: String?
     @FocusState private var isFocused: Bool
 
     private var trimmedEntry: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -491,13 +600,13 @@ private struct SiteEntryField: View {
                     .disabled(trimmedEntry.isEmpty)
             }
 
-            if showsInvalidEntry {
-                Text("Enter a website like example.com.")
+            if let error {
+                Text(error)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
-        .onChange(of: text) { _, _ in showsInvalidEntry = false }
+        .onChange(of: text) { _, _ in error = nil }
     }
 
     private func submit() {
@@ -505,12 +614,8 @@ private struct SiteEntryField: View {
         guard !entry.isEmpty else { return }
         isFocused = true
 
-        guard let address = WebsiteAddress(entry: entry) else {
-            showsInvalidEntry = true
-            return
-        }
-        onAdd(address)
-        text = ""
+        error = onAdd(entry)
+        if error == nil { text = "" }
     }
 }
 

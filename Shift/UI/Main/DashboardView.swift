@@ -130,6 +130,10 @@ struct DashboardView: View {
                 action: { model.requestAccessibilityPermission() }
             ))
         }
+        if let notice = model.backgroundServiceNotice {
+            issues.append(PermissionIssue(title: "Background blocking needs attention", detail: notice,
+                symbol: "exclamationmark.triangle.fill", tint: .orange, action: { LaunchAtLogin.openLoginItemsSettings() }))
+        }
         return issues
     }
 }

@@ -1,6 +1,7 @@
 import Foundation
 
 var failures = 0
+@MainActor
 func check(_ label: String, _ condition: Bool) {
     if condition { print("  ok   \(label)") } else { print("  FAIL \(label)"); failures += 1 }
 }
@@ -15,6 +16,39 @@ func date(_ weekday: Int, _ hour: Int, _ minute: Int) -> Date {
     components.hour = hour
     components.minute = minute
     return Calendar.current.date(from: components)!
+}
+
+if CommandLine.arguments.count == 4, CommandLine.arguments[1] == "--record-triggers" {
+    let store = BlockStore(fileURL: URL(fileURLWithPath: CommandLine.arguments[2]))
+    guard let id = UUID(uuidString: CommandLine.arguments[3]) else { exit(2) }
+    for _ in 0..<12 { store.recordTrigger(id: id) }
+    exit(0)
+}
+
+if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--fixture-agent" {
+    let directory = URL(fileURLWithPath: CommandLine.arguments[2])
+    let lease = try ProcessLease(url: directory.appending(path: "monitor.lock"))
+    let store = BlockStore(fileURL: directory.appending(path: "blocks.json"))
+    let rules = BlockEvaluator(blocks: store.activeBlocks, driftKeywords: [])
+    let game = ScreenContext(bundleID: "org.example.game", appName: "Game", processID: 1)
+    let page = ScreenContext(bundleID: "com.apple.Safari", appName: "Safari", processID: 2, url: URL(string: "https://example.com/feed"))
+    guard rules.ruleVerdict(for: game)?.kind == .block, rules.ruleVerdict(for: page)?.kind == .block else { exit(2) }
+    FileHandle.standardOutput.write(Data([1]))
+    withExtendedLifetime(lease) { while true { pause() } }
+}
+
+// A disposable dashboard process commits its block and then waits for termination.
+if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--fixture-dashboard" {
+    let directory = URL(fileURLWithPath: CommandLine.arguments[2])
+    let dashboard = BlockStore(fileURL: directory.appending(path: "blocks.json"))
+    var fixture = Block(name: "No lock")
+    fixture.isEnabled = true
+    fixture.list.apps = ["org.example.game"]
+    fixture.list.paths = ["example.com/feed"]
+    dashboard.add(fixture)
+    let lease = try ProcessLease(url: directory.appending(path: "dashboard.lock"))
+    FileHandle.standardOutput.write(Data([1]))
+    withExtendedLifetime(lease) { while true { pause() } }
 }
 
 print("ScheduleWindow: weekday 9 to 17")
@@ -81,6 +115,113 @@ block.schedule = .manual(minutes: 25)
 block.manualRunEndsAt = morning.addingTimeInterval(600)
 check("manual run active before it ends", block.isActive(at: morning))
 check("manual run inactive after it ends", !block.isActive(at: morning.addingTimeInterval(700)))
+
+print("Quit protection")
+var policy = Block(name: "Focus")
+policy.isEnabled = true
+check("Always blocks protect Quit without a lock", policy.protectsQuit(at: morning))
+policy.schedule = .scheduled([work])
+check("scheduled block protects inside its window", policy.protectsQuit(at: morning))
+check("waiting schedule permits Quit", !policy.protectsQuit(at: evening))
+policy.lock.engagedUntil = evening.addingTimeInterval(60)
+check("an existing lock still protects outside its window", policy.protectsQuit(at: evening))
+policy.lock.engagedUntil = nil
+policy.schedule = .manual(minutes: 20)
+policy.manualRunEndsAt = morning.addingTimeInterval(60)
+check("manual run protects until its exact deadline", policy.protectsQuit(at: morning) && !policy.protectsQuit(at: morning.addingTimeInterval(60)))
+policy.isEnabled = false
+check("disabled blocks permit Quit", !policy.protectsQuit(at: morning))
+
+print("Force Quit and independent rule evaluation")
+@MainActor
+func checkEnforcement() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let removalRules = directory.appending(path: "removal-rules.json")
+    let removalWindow = BlockStore(fileURL: removalRules)
+    let otherWindow = BlockStore(fileURL: removalRules)
+    check("idle app permits uninstall preparation", removalWindow.permitsTermination(at: morning))
+    var timedBlock = Block(name: "Unlocked timer")
+    timedBlock.schedule = .manual(minutes: 25)
+    timedBlock.isEnabled = true
+    timedBlock.manualRunEndsAt = morning.addingTimeInterval(60)
+    otherWindow.add(timedBlock)
+    check("uninstall confirmation sees a newly started unlocked block", !removalWindow.permitsTermination(at: morning))
+    check("uninstall preparation becomes available at expiry", removalWindow.permitsTermination(at: morning.addingTimeInterval(60)))
+
+    func startFixture(_ mode: String) throws -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+        process.arguments = [mode, directory.path]
+        let ready = Pipe()
+        process.standardOutput = ready
+        try process.run()
+        var fd = pollfd(fd: ready.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
+        guard poll(&fd, 1, 5000) > 0, ready.fileHandleForReading.readData(ofLength: 1) == Data([1]) else {
+            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            process.waitUntilExit()
+            throw POSIXError(.EIO)
+        }
+        return process
+    }
+
+    let dashboard = try startFixture("--fixture-dashboard")
+    defer {
+        if dashboard.isRunning { kill(dashboard.processIdentifier, SIGKILL); dashboard.waitUntilExit() }
+    }
+    let file = directory.appending(path: "blocks.json")
+    let worker = BlockStore(fileURL: file)
+    let settings = BlockStore(fileURL: file)
+    guard var draft = settings.blocks.first else { check("fixture saved", false); return }
+    let game = ScreenContext(bundleID: "org.example.game", appName: "Game", processID: 1)
+    let page = ScreenContext(bundleID: "com.apple.Safari", appName: "Safari", processID: 2, url: URL(string: "https://example.com/feed"))
+    func blocks(_ context: ScreenContext) -> Bool {
+        BlockEvaluator(blocks: worker.activeBlocks, driftKeywords: []).ruleVerdict(for: context)?.kind == .block
+    }
+    check("agent sees app and browser-path rules", blocks(game) && blocks(page))
+    let presence = directory.appending(path: "dashboard.lock")
+    let competingLease = try? ProcessLease(url: presence)
+    check("a live owner excludes a second claimant", competingLease == nil)
+
+    kill(dashboard.processIdentifier, SIGKILL)
+    dashboard.waitUntilExit()
+    check("macOS killed the fixture dashboard", dashboard.terminationReason == .uncaughtSignal && dashboard.terminationStatus == SIGKILL)
+    check("agent still evaluates both rules after Force Quit", blocks(game) && blocks(page))
+    let replacement = try ProcessLease(url: presence)
+    replacement.release()
+    check("the terminated process released its lease", true)
+
+    // Simulate the two launches in isolation; launchd itself is outside this test.
+    let firstAgent = try startFixture("--fixture-agent")
+    kill(firstAgent.processIdentifier, SIGKILL)
+    firstAgent.waitUntilExit()
+    check("fixture agent received Force Quit", firstAgent.terminationReason == .uncaughtSignal && firstAgent.terminationStatus == SIGKILL)
+    let restartedAgent = try startFixture("--fixture-agent")
+    check("replacement agent acquired the monitor and loaded both rules with the dashboard closed", restartedAgent.isRunning)
+    kill(restartedAgent.processIdentifier, SIGKILL)
+    restartedAgent.waitUntilExit()
+
+    worker.recordTrigger(id: draft.id)
+    draft.name = "Renamed in dashboard"
+    check("dashboard saves an edit based on a stale snapshot", settings.update(draft))
+    worker.refreshFromDisk()
+    check("both processes' edits survive", worker.blocks.first?.stats.timesTriggered == 1 && worker.blocks.first?.name == draft.name)
+    let writer = Process()
+    writer.executableURL = dashboard.executableURL
+    writer.arguments = ["--record-triggers", file.path, draft.id.uuidString]
+    try writer.run()
+    for _ in 0..<12 { worker.recordTrigger(id: draft.id) }
+    writer.waitUntilExit()
+    worker.refreshFromDisk()
+    check("simultaneous commits from both processes preserve every trigger",
+          writer.terminationStatus == 0 && worker.blocks.first?.stats.timesTriggered == 25)
+    _ = settings.setEnabled(false, for: draft.id)
+    worker.refreshFromDisk()
+    check("explicitly stopping the unlocked block releases both targets", !blocks(game) && !blocks(page))
+}
+do { try checkEnforcement() } catch { check("isolated process checks: \(error)", false) }
 
 print("")
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILURE(S)")

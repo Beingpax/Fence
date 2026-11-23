@@ -32,7 +32,7 @@ struct SettingsView: View {
         return Panel("Startup", icon: "power") {
             PanelRow(
                 title: "Open Shift at login",
-                detail: "Start Shift when you sign in to your Mac."
+                detail: "Show the Shift menu bar at sign-in. Enabled blocks also start the background service at login."
             ) {
                 ShiftSwitch(
                     isOn: .constant(model.launchAtLoginEnabled),
@@ -101,7 +101,7 @@ struct SettingsView: View {
 
     private var detection: some View {
         Panel("How blocking works", icon: "scope") {
-            Text("When a site, page, or app matches an active block, Shift shows what was blocked. The pause gives you time to breathe before asking what brought you there. You can close the tab or quit the app at any time. If breaks are enabled, choose “I need it,” enter a reason, and pick 2 or 5 minutes of access. Your access time starts after a \(BreakPlan.waitMinutes)-minute wait. The rest of the block stays on. For the same rule within an hour, choices appear after 10 seconds the first time, 20 the second time, and 30 thereafter.")
+            Text("When a site, page, or app matches an active block, Shift shows what was blocked. The pause gives you time to breathe before asking what brought you there. You can close the blocked tab or quit the blocked app at any time. If breaks are enabled, choose “I need it,” enter a reason, and pick 2 or 5 minutes of access. Your access time starts after a \(BreakPlan.waitMinutes)-minute wait. The rest of the block stays on. For the same rule within an hour, choices appear after 10 seconds the first time, 20 the second time, and 30 thereafter.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -113,6 +113,14 @@ struct SettingsView: View {
             PanelRow(title: "Run first-time setup again") {
                 Button("Open setup") { model.presentOnboarding() }
                     .buttonStyle(.shiftSoft)
+            }
+            PanelRow(
+                title: "Uninstall Shift",
+                detail: model.canQuitApp ? "Quit Shift and select it in Finder for removal." : "During a running block or lock, Shift tries to put the app back if moved to the Trash."
+            ) {
+                Button("Prepare to uninstall…") { model.requestUninstall() }
+                    .buttonStyle(.shiftSoft)
+                    .disabled(!model.canQuitApp)
             }
         }
     }

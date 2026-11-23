@@ -1,11 +1,13 @@
 #!/bin/bash
-# Checks the schedule and lock maths in Shift/Models/Block.swift.
-#
-# There is no test target in the project yet, and the trickiest logic in the app is pure
-# and self-contained, so it compiles standalone against the model file. Run from the repo
-# root: ./Tools/run-block-tests.sh
+# Runs model and separate-process enforcement checks against a temporary store.
+# The application and its login services are never launched.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT="$(mktemp -d)"
-swiftc -o "$OUT/blocktest" Shift/Models/Block.swift Shift/Models/WebsiteAddress.swift Tools/BlockLogicTests/main.swift
+trap 'rm -rf "$OUT"' EXIT
+swiftc -swift-version 5 -strict-concurrency=complete -o "$OUT/blocktest" \
+  Shift/Models/{Block,BlockStore,WebsiteAddress,ScreenContext,Verdict}.swift \
+  Shift/Enforcement/{ShiftInstallation,GuardState,ProcessLease}.swift \
+  Shift/Intelligence/{BlockEvaluator,WebsiteCategoryCatalog,WebRuleInput}.swift \
+  Tools/BlockLogicTests/main.swift
 "$OUT/blocktest"

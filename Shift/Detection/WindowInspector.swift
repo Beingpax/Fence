@@ -240,21 +240,30 @@ enum WindowInspector {
     private static func verifiedPageURL(in window: AXUIElement, browser: Browser) -> URL? {
         guard let root = browserRoot(in: window, browser: browser) else { return nil }
         let areas = webAreas(in: root, vivaldi: browser == .vivaldi, limit: 3)
+        // A close command targets a single tab. A split view is ambiguous.
+        guard areas.count <= 1 else { return nil }
         let areaURLs = areas.compactMap(pageAddress)
-        // Multiple documents may represent a split view. An unreadable document cannot corroborate the others.
-        guard areas.count < 3, areas.count <= 1 || areas.count == areaURLs.count else { return nil }
         let primary = (browser == .vivaldi ? [] : windowURLs(window)) + areaURLs
         let addressBar = addressBarReading(in: root)
         guard let first = primary.first else { return addressBar?.url }
         guard let address = WebsiteAddress(url: first),
-              primary.dropFirst().allSatisfy({ WebsiteAddress(url: $0) == address }) else { return nil }
+              primary.dropFirst().allSatisfy({ $0.scheme == first.scheme && samePage($0, first) }) else { return nil }
 
         if let addressBar {
             guard let displayed = WebsiteAddress(url: addressBar.url),
-                  displayed == address || (browser == .webKit && addressBar.isHostOnly && displayed.host == address.host)
+                  samePage(addressBar.url, first) || (browser == .webKit && addressBar.isHostOnly && displayed.host == address.host)
             else { return nil }
         }
         return first
+    }
+
+    private static func samePage(_ lhs: URL, _ rhs: URL) -> Bool {
+        // A browser may omit the scheme or a trailing slash in its address field.
+        let leftPath = lhs.path(percentEncoded: true)
+        let rightPath = rhs.path(percentEncoded: true)
+        return lhs.host()?.lowercased() == rhs.host()?.lowercased() && lhs.port == rhs.port
+            && (leftPath.isEmpty ? "/" : leftPath) == (rightPath.isEmpty ? "/" : rightPath)
+            && lhs.query() == rhs.query() && lhs.fragment() == rhs.fragment()
     }
 
     private static func windowURLs(_ window: AXUIElement) -> [URL] {

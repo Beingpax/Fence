@@ -17,7 +17,13 @@ struct DistractionPreset: Identifiable, Hashable, Codable {
     /// One line explaining what picking this actually does.
     var effect: String
 
+    static let adultContent = DistractionPreset(
+        id: "adult-content", title: BlockList.adultSitesCategory, symbol: "eye.slash",
+        effect: "Closes known adult sites and exact explicit searches while this block is active."
+    )
+
     static let all: [DistractionPreset] = [
+        adultContent,
         DistractionPreset(
             id: "instagram",
             title: "Instagram",
@@ -150,9 +156,10 @@ extension BlockList {
         var list = BlockList(
             hosts: unique(presets.flatMap(\.hosts)),
             paths: unique(presets.flatMap(\.paths)),
-            apps: unique(apps)
+            apps: unique(apps),
+            categoryNames: presets.contains { $0.id == DistractionPreset.adultContent.id } ? [BlockList.adultSitesCategory] : []
         )
-        for address in custom.compactMap(WebsiteAddress.init(entry:)) { list.addWebsite(address) }
+        for rule in custom.compactMap(WebsiteRuleEntry.init) { list.addWebsiteRule(rule) }
         return list
     }
 
@@ -160,6 +167,7 @@ extension BlockList {
     /// previous answers selected.
     var matchingPresets: [DistractionPreset] {
         DistractionPreset.all.filter { preset in
+            if preset.id == DistractionPreset.adultContent.id { return categoryNames.contains(Self.adultSitesCategory) }
             let hostsCovered = !preset.hosts.isEmpty && preset.hosts.allSatisfy(hosts.contains)
             let pathsCovered = !preset.paths.isEmpty && preset.paths.allSatisfy(paths.contains)
             let appsCovered = preset.apps.contains(where: apps.contains)

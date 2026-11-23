@@ -14,7 +14,7 @@ struct Block: Identifiable, Codable, Equatable {
     /// The switch on the block's row. Honoured only when the block isn't locked on.
     var isEnabled: Bool = false
 
-    var list: BlockList = BlockList()
+    var list = BlockList()
     var schedule: BlockSchedule = .always
     var lock: BlockLock = BlockLock()
     var breaks: BreakPlan = BreakPlan()
@@ -43,6 +43,10 @@ struct Block: Identifiable, Codable, Equatable {
             guard let manualRunEndsAt else { return false }
             return date < manualRunEndsAt
         }
+    }
+
+    func protectsQuit(at date: Date = Date()) -> Bool {
+        isActive(at: date) || isLocked(at: date)
     }
 
     var canStartTimedRun: Bool { schedule.isManual && !isEnabled && !isLocked() }
@@ -83,6 +87,12 @@ struct Block: Identifiable, Codable, Equatable {
         var parts: [String] = []
         if list.siteCount > 0 { parts.append("\(list.siteCount) site\(list.siteCount == 1 ? "" : "s")") }
         if !list.apps.isEmpty { parts.append("\(list.apps.count) app\(list.apps.count == 1 ? "" : "s")") }
+        if !list.textRules.isEmpty {
+            parts.append("\(list.textRules.count) keyword\(list.textRules.count == 1 ? "" : "s")")
+        }
+        if !list.categoryNames.isEmpty {
+            parts.append("\(list.categoryNames.count) pre-made list\(list.categoryNames.count == 1 ? "" : "s")")
+        }
         if parts.isEmpty { return "Nothing blocked yet" }
         return parts.joined(separator: " · ")
     }
@@ -98,11 +108,28 @@ struct BlockList: Codable, Equatable {
     /// Native apps by bundle identifier.
     var apps: [String] = []
 
-    var isEmpty: Bool { hosts.isEmpty && paths.isEmpty && apps.isEmpty }
+    var textRules: [WebTextRule] = []
+    static let adultSitesCategory = "Adult sites"
+    var categoryNames: Set<String> = []
+    var websiteExceptions: [WebsiteException] = []
+    var exceptionCategoryNames: Set<String> = []
+
+    var isEmpty: Bool { hosts.isEmpty && paths.isEmpty && apps.isEmpty && textRules.isEmpty && categoryNames.isEmpty }
 
     var siteCount: Int { hosts.count + paths.count }
 
-    mutating func addWebsite(_ address: WebsiteAddress) {
+    mutating func addWebsiteRule(_ rule: WebsiteRuleEntry) {
+        switch rule {
+        case .address(let address):
+            addWebsite(address)
+        case .text(let rule):
+            if !textRules.contains(where: { $0.scope == rule.scope && $0.text.caseInsensitiveCompare(rule.text) == .orderedSame }) {
+                textRules.append(rule)
+            }
+        }
+    }
+
+    private mutating func addWebsite(_ address: WebsiteAddress) {
         guard !(hosts + paths).contains(where: { WebsiteAddress(entry: $0) == address }) else { return }
         if address.isDomainOnly {
             hosts.append(address.entry)
@@ -110,6 +137,120 @@ struct BlockList: Codable, Equatable {
             paths.append(address.entry)
         }
     }
+}
+
+// Keep the memberwise initializer and supply defaults for blocks saved before text filtering.
+extension BlockList {
+    private enum LegacyKey: String, CodingKey { case blocksAdultSites, adultSiteBlocking, blocksAdultContent }
+
+    init(from decoder: Decoder) throws {
+        let data = try decoder.container(keyedBy: CodingKeys.self)
+        hosts = try data.decode([String].self, forKey: .hosts)
+        paths = try data.decode([String].self, forKey: .paths)
+        apps = try data.decode([String].self, forKey: .apps)
+        textRules = try data.decodeIfPresent([WebTextRule].self, forKey: .textRules) ?? []
+        categoryNames = try data.decodeIfPresent(Set<String>.self, forKey: .categoryNames) ?? []
+        websiteExceptions = try data.decodeIfPresent([WebsiteException].self, forKey: .websiteExceptions) ?? []
+        exceptionCategoryNames = try data.decodeIfPresent(Set<String>.self, forKey: .exceptionCategoryNames) ?? []
+        let legacy = try decoder.container(keyedBy: LegacyKey.self)
+        let wasEnabled: Bool
+        if let enabled = try legacy.decodeIfPresent(Bool.self, forKey: .blocksAdultSites) {
+            wasEnabled = enabled
+        } else if let mode = try legacy.decodeIfPresent(Int.self, forKey: .adultSiteBlocking) {
+            wasEnabled = mode == 1 || mode == 2
+        } else {
+            wasEnabled = try legacy.decodeIfPresent(Bool.self, forKey: .blocksAdultContent) ?? false
+        }
+        if wasEnabled { categoryNames.insert(Self.adultSitesCategory) }
+    }
+}
+
+/// Classifies input once at entry time. Saved site and text rules keep their original semantics.
+enum WebsiteRuleEntry: Equatable {
+    case address(WebsiteAddress)
+    case text(WebTextRule)
+
+    init?(_ raw: String) {
+        let entry = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !entry.isEmpty else { return nil }
+
+        let authority = entry.prefix { !"/?#".contains($0) }
+        let hasScheme = authority.hasSuffix(":") && entry[authority.endIndex...].hasPrefix("//")
+        if hasScheme {
+            guard entry.lowercased().hasPrefix("https://") || entry.lowercased().hasPrefix("http://"),
+                  let url = URL(string: entry), WebsiteAddress(url: url) != nil,
+                  url.user() == nil, url.password() == nil else { return nil }
+        }
+
+        let isURLText = entry.contains(where: { "*?#".contains($0) }) || entry.hasPrefix("/")
+        let looksLikeSite = hasScheme || authority.contains(".") || entry.contains("/")
+            || authority.contains(":") || authority.lowercased() == "localhost"
+        if !isURLText && looksLikeSite && (hasScheme || !entry.contains(where: \.isWhitespace)) {
+            guard let address = WebsiteAddress(entry: entry) else { return nil }
+            self = .address(address)
+        } else {
+            guard let rule = WebTextRule(urlEntry: entry) else { return nil }
+            self = .text(rule)
+        }
+    }
+}
+
+/// Persist the entered spelling, and parse it once for subsequent foreground samples.
+struct WebsiteException: Codable, Equatable {
+    let entry: String
+    let rule: WebsiteRuleEntry
+
+    init?(_ raw: String) {
+        entry = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let parsed = WebsiteRuleEntry(entry) else { return nil }
+        rule = parsed
+    }
+
+    init(from decoder: Decoder) throws {
+        let data = try decoder.singleValueContainer()
+        let entry = try data.decode(String.self)
+        guard let parsed = Self(entry) else {
+            throw DecodingError.dataCorruptedError(in: data, debugDescription: "Invalid website exception")
+        }
+        self = parsed
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var data = encoder.singleValueContainer()
+        try data.encode(entry)
+    }
+}
+
+struct WebTextRule: Codable, Hashable {
+    enum Scope: String, Codable {
+        case url, urlPattern
+        /// Saved search-only rules retain their original scope.
+        case search
+
+        var title: String {
+            switch self {
+            case .url: "URL contains"
+            case .urlPattern: "URL matches"
+            case .search: "Search contains"
+            }
+        }
+    }
+
+    init?(urlEntry: String) {
+        let entry = urlEntry.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard entry.contains(where: { $0 != "*" && !$0.isWhitespace }) else { return nil }
+        text = entry
+        scope = entry.contains("*") ? .urlPattern : .url
+    }
+
+    var displayText: String {
+        if scope == .search { return "Saved search · " + text }
+        if scope == .url && text.contains("*") { return "Literal URL · " + text }
+        return text
+    }
+
+    let scope: Scope
+    let text: String
 }
 
 // MARK: - When a block applies

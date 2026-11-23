@@ -125,7 +125,7 @@ struct MenuBarView: View {
 
             IconButton(
                 symbol: "power",
-                help: model.canQuitApp ? "Quit Shift" : "A locked block is running: Shift can't be quit",
+                help: model.canQuitApp ? "Quit Shift" : "Turn off running blocks and release active locks before quitting Shift",
                 tint: model.canQuitApp ? nil : .orange,
                 isDisabled: !model.canQuitApp
             ) {

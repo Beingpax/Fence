@@ -6,8 +6,27 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		5A2F00000000000000000016 /* Services/com.beingpax.Shift.enforcement.plist in Embed LaunchAgent */ = {isa = PBXBuildFile; fileRef = 5A2F00000000000000000017 /* Services/com.beingpax.Shift.enforcement.plist */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		5A2F00000000000000000018 /* Embed LaunchAgent */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Library/LaunchAgents;
+			dstSubfolderSpec = 1;
+			files = (
+				5A2F00000000000000000016 /* Services/com.beingpax.Shift.enforcement.plist in Embed LaunchAgent */,
+			);
+			name = "Embed LaunchAgent";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		5A1F00000000000000000001 /* Shift.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Shift.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5A2F00000000000000000017 /* Services/com.beingpax.Shift.enforcement.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Services/com.beingpax.Shift.enforcement.plist; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -33,6 +52,7 @@
 			isa = PBXGroup;
 			children = (
 				5A1F00000000000000000002 /* Shift */,
+				5A2F00000000000000000017 /* Services/com.beingpax.Shift.enforcement.plist */,
 				5A1F00000000000000000005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -55,6 +75,7 @@
 				5A1F00000000000000000008 /* Sources */,
 				5A1F00000000000000000003 /* Frameworks */,
 				5A1F00000000000000000009 /* Resources */,
+				5A2F00000000000000000018 /* Embed LaunchAgent */,
 			);
 			buildRules = (
 			);

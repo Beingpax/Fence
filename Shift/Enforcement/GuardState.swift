@@ -20,14 +20,8 @@ struct GuardState: Codable, Equatable {
 
     // MARK: Storage
 
-    static var supportDirectory: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appending(path: "Library/Application Support")
-        return base.appending(path: "Shift", directoryHint: .isDirectory)
-    }
-
     static var fileURL: URL {
-        supportDirectory.appending(path: "guard.json", directoryHint: .notDirectory)
+        ShiftInstallation.supportDirectory.appending(path: "guard.json", directoryHint: .notDirectory)
     }
 
     static func load() -> GuardState? {
@@ -36,7 +30,7 @@ struct GuardState: Codable, Equatable {
     }
 
     func save() {
-        let directory = Self.supportDirectory
+        let directory = ShiftInstallation.supportDirectory
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         guard let data = try? JSONEncoder().encode(self) else { return }
         try? data.write(to: Self.fileURL, options: .atomic)

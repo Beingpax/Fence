@@ -24,7 +24,7 @@ enum LaunchAtLogin {
                 guard !isEnabled else { return true }
                 try SMAppService.mainApp.register()
             } else {
-                guard isEnabled else { return true }
+                guard isEnabled || requiresApproval else { return true }
                 try SMAppService.mainApp.unregister()
             }
             return true

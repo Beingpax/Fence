@@ -9,7 +9,7 @@ import os.log
 @MainActor
 @Observable
 final class AppModel {
-    /// One instance, because the app delegate and the watchdog handshake both need it.
+    /// Each process has its own model; only the monitor owner presents real block pauses.
     static let shared = AppModel()
 
     private static let log = Logger(subsystem: "com.beingpax.Shift", category: "AppModel")
@@ -24,6 +24,15 @@ final class AppModel {
     private(set) var accessibilityGranted = PermissionsManager.isAccessibilityTrusted
     private(set) var launchAtLoginEnabled = LaunchAtLogin.isEnabled
 
+    private(set) var canQuitApp = true
+    private(set) var backgroundServiceNotice: String?
+    @ObservationIgnored private var registerAgent: @MainActor (Bool) throws -> Bool = EnforcementService.registerIfNeeded
+    @ObservationIgnored private var quittingForRemoval = false
+    @ObservationIgnored private var serviceWanted: Bool?
+    @ObservationIgnored private var nextServiceCheck = Date.distantPast
+    @ObservationIgnored private var monitorLease: ProcessLease?
+    @ObservationIgnored private var serviceObservers: [NSObjectProtocol] = []
+
     /// Mirrors the engine so the UI can show whether Shift is actually watching.
     private(set) var isWatching = false
 
@@ -35,7 +44,7 @@ final class AppModel {
 
     var showNudges: Bool {
         didSet {
-            Preferences.showNudges = showNudges
+            if !EnforcementService.isAgent { Preferences.showNudges = showNudges }
             nudgeHysteresis.reset()
             if !showNudges { nudgeHUD.hideHint() }
         }
@@ -43,7 +52,7 @@ final class AppModel {
 
     /// Whether the pause and the reward make their sounds.
     var playNudgeSounds: Bool {
-        didSet { Preferences.playNudgeSounds = playNudgeSounds }
+        didSet { if !EnforcementService.isAgent { Preferences.playNudgeSounds = playNudgeSounds } }
     }
 
     var showInDock: Bool {
@@ -54,13 +63,14 @@ final class AppModel {
     }
 
     var driftKeywords: [String] {
-        didSet { Preferences.driftKeywords = driftKeywords }
+        didSet { if !EnforcementService.isAgent { Preferences.driftKeywords = driftKeywords } }
     }
 
     private(set) var hasCompletedOnboarding: Bool
 
     // MARK: Engine
 
+    @ObservationIgnored private let bundleRecovery = RunningBundleRecovery()
     @ObservationIgnored private let monitor = ContextMonitor()
     @ObservationIgnored private let nudgeHUD = NudgeHUDController()
     @ObservationIgnored private let pause = PauseController()
@@ -71,6 +81,9 @@ final class AppModel {
     /// "I need it": one site, let through until this time. The block itself stays on.
     @ObservationIgnored private var allowances: [String: Date] = [:]
     @ObservationIgnored private var allowanceTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var confirmingTabClose = false
+    @ObservationIgnored private var lastFilteredTab: ScreenContext?
+    @ObservationIgnored private var lastFilteredAt = Date.distantPast
     @ObservationIgnored private var closingPID: pid_t?
     @ObservationIgnored private var closingUntil = Date.distantPast
     @ObservationIgnored private let onboarding = OnboardingController()
@@ -103,38 +116,89 @@ final class AppModel {
 
     // MARK: App lifecycle
 
-    func applicationDidFinishLaunching() {
+    func startDashboard(registerAgent: @escaping @MainActor (Bool) throws -> Bool) {
+        self.registerAgent = registerAgent
         PermissionsManager.logDiagnostics()
         applyActivationPolicy()
         observeActivation()
         refreshSystemState()
+        observeRuleChanges()
         startEngine()
+    }
 
-        if !CommandLine.arguments.contains(WatchdogService.backgroundLaunchFlag) { openApp() }
+    func startAgent() {
+        observeRuleChanges()
+        startEngine()
+    }
+
+    private func observeRuleChanges() {
+        let center = DistributedNotificationCenter.default()
+        for name in [EnforcementService.rulesChanged, EnforcementService.agentReady] {
+            serviceObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.reconcileMonitoring() }
+            })
+        }
+        if !EnforcementService.isAgent {
+            serviceObservers.append(center.addObserver(forName: EnforcementService.openDashboard, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.openApp() }
+            })
+        }
+        store.onCommit = { [weak self] in
+            EnforcementService.notify(EnforcementService.rulesChanged)
+            self?.reconcileMonitoring()
+        }
     }
 
     func applicationWillTerminate() {
-        // Only reached when termination was allowed, so no lock is standing.
-        GuardState.clear()
-        if WatchdogService.hasConfiguration { WatchdogService.remove() }
+        if canQuitApp {
+            GuardState.clear()
+            if WatchdogService.hasConfiguration { WatchdogService.remove() }
+        }
+        for observer in serviceObservers { DistributedNotificationCenter.default().removeObserver(observer) }
+        serviceObservers.removeAll()
         monitor.stop()
         engineTimer?.invalidate()
         if let activationObserver {
             NotificationCenter.default.removeObserver(activationObserver)
             self.activationObserver = nil
         }
-        store.flushPendingSaves()
+        monitorLease = nil
     }
 
     /// The app delegate asks before every polite quit.
     func shouldAllowTermination() -> Bool {
-        guard !canQuitApp else { return true }
-        warnCannotQuit()
-        return false
+        guard store.permitsTermination() else {
+            warnCannotQuit()
+            return false
+        }
+        guard quittingForRemoval else { return true }
+        let stoppedAgent = (try? registerAgent(false)) == false
+        guard stoppedAgent && LaunchAtLogin.setEnabled(false) else {
+            serviceWanted = nil
+            reconcileMonitoring()
+            let alert = NSAlert()
+            alert.messageText = "Shift couldn’t turn off its login items."
+            alert.informativeText = "Check Shift in System Settings → General → Login Items & Extensions, then try again."
+            alert.runModal()
+            return false
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
+        return true
     }
 
-    /// Quitting is refused while any block is locked. That is what a lock means.
-    var canQuitApp: Bool { !store.hasLockedBlock }
+    func requestUninstall() {
+        let alert = NSAlert()
+        alert.messageText = "Prepare to uninstall Shift?"
+        alert.informativeText = "Shift will turn off its login items, quit, and show the app in Finder. Move it to the Trash to finish. Your saved blocks stay on this Mac."
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Quit and Show in Finder")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+
+        // AppKit rechecks the rules after confirmation, including schedules that just started.
+        quittingForRemoval = true
+        defer { quittingForRemoval = false }
+        NSApp.terminate(nil)
+    }
 
     // MARK: The engine
 
@@ -153,6 +217,7 @@ final class AppModel {
 
     private func engineTick() {
         tickCount += 1
+        store.refreshFromDisk()
         store.tick()
         if tickCount % 60 == 0, !reaches.isEmpty {
             let cutoff = Date().addingTimeInterval(-Self.reachWindow)
@@ -162,28 +227,58 @@ final class AppModel {
             }
         }
 
+        reconcileMonitoring()
+        if tickCount % 5 == 0, isWatching || NSApp.isActive { refreshPermissions() }
+    }
+
+    private func reconcileMonitoring() {
+        store.refreshFromDisk()
         let active = store.activeBlocks
-        let shouldWatch = !active.isEmpty
+        let mayQuit = !store.blocks.contains { $0.protectsQuit() }
+        if mayQuit != canQuitApp { canQuitApp = mayQuit }
+        let agent = EnforcementService.isAgent
+        let agentReady = agent || EnforcementService.hasOwner("agent.lock")
+        if agent {
+            // Read dashboard preference changes while the engine is in the other process.
+            if showNudges != Preferences.showNudges { showNudges = Preferences.showNudges }
+            if playNudgeSounds != Preferences.playNudgeSounds { playNudgeSounds = Preferences.playNudgeSounds }
+            if driftKeywords != Preferences.driftKeywords { driftKeywords = Preferences.driftKeywords }
+        } else {
+            syncBackgroundService(agentReady: agentReady)
+        }
+
+        let shouldOwnMonitor = !active.isEmpty && (agent || !agentReady)
+        if shouldOwnMonitor, monitorLease == nil {
+            monitorLease = try? EnforcementService.lease("monitor.lock")
+        }
+        let shouldWatch = shouldOwnMonitor && monitorLease != nil
 
         if shouldWatch != isWatching {
             isWatching = shouldWatch
             if shouldWatch {
                 monitor.start()
                 refreshPermissions()
-                if !accessibilityGranted { PermissionsManager.requestAccessibility() }
-                log("Watching · \(active.count) block\(active.count == 1 ? "" : "s") active", symbol: "eye")
+                if !agent, !accessibilityGranted, hasCompletedOnboarding { PermissionsManager.requestAccessibility() }
+                log("Watching · \(active.count) active block\(active.count == 1 ? "" : "s")", symbol: "eye")
             } else {
                 monitor.stop()
                 lastContext = nil
                 lastVerdict = nil
                 pause.dismiss()
-                allowanceTasks.values.forEach { $0.cancel() }
-                allowanceTasks.removeAll()
-                allowances.removeAll()
                 nudgeHUD.hideHint()
                 hysteresis.reset()
                 log("Nothing active", symbol: "eye.slash")
             }
+        }
+
+        if !shouldOwnMonitor, monitorLease != nil {
+            monitorLease = nil
+            EnforcementService.notify(EnforcementService.agentReady)
+        }
+        if active.isEmpty, !allowances.isEmpty {
+            allowanceTasks.values.forEach { $0.cancel() }
+            allowanceTasks.removeAll()
+            allowances.removeAll()
         }
 
         if let blockID = pause.blockID, !active.contains(where: { $0.id == blockID }) {
@@ -192,15 +287,37 @@ final class AppModel {
             monitor.resampleSoon()
         }
 
-        syncLockProtections()
+        bundleRecovery?.update(protected: !mayQuit)
+        if !agent { syncLockProtections(agentReady: agentReady) }
+    }
 
-        // Permissions can change in System Settings even when no block is active.
-        if tickCount % 5 == 0, isWatching || NSApp.isActive {
-            refreshPermissions()
+    private func syncBackgroundService(agentReady: Bool) {
+        let wanted = store.blocks.contains { $0.isEnabled || $0.isLocked() }
+        guard serviceWanted != wanted || Date() >= nextServiceCheck else { return }
+        let firstAttempt = serviceWanted != wanted
+        serviceWanted = wanted
+        nextServiceCheck = Date().addingTimeInterval(15)
+        do {
+            let enabled = try registerAgent(wanted)
+            if wanted && !enabled {
+                backgroundServiceNotice = "Allow Shift in Login Items & Extensions to keep blocks active after Force Quit."
+            } else if wanted && !agentReady && !firstAttempt {
+                backgroundServiceNotice = "The background service is offline. Shift is enforcing blocks in the dashboard."
+            } else {
+                backgroundServiceNotice = nil
+            }
+        } catch {
+            backgroundServiceNotice = wanted ? "Background blocking could not start. Open Login Items & Extensions to check Shift." : nil
+            Self.log.error("Background registration: \(error.localizedDescription, privacy: .public)")
         }
     }
 
     // MARK: Detection → enforcement
+
+    private var currentEvaluator: BlockEvaluator {
+        let blocks = store.activeBlocks
+        return BlockEvaluator(blocks: blocks, driftKeywords: blocks.isEmpty ? [] : driftKeywords)
+    }
 
     private func handle(_ context: ScreenContext) {
         let locationChanged = lastContext?.signature != context.signature
@@ -211,7 +328,7 @@ final class AppModel {
         }
         guard !pause.isShowing else { return }
 
-        let evaluator = BlockEvaluator(blocks: store.activeBlocks, driftKeywords: driftKeywords)
+        let evaluator = currentEvaluator
         if let verdict = evaluator.ruleVerdict(for: context) {
             apply(verdict, to: context)
             return
@@ -232,12 +349,17 @@ final class AppModel {
             considerNudge(verdict, on: context)
         case .block:
             nudgeHysteresis.reset()
+            if context.processID == closingPID, Date() < closingUntil { return }
+            if verdict.closesTab {
+                hysteresis.reset()
+                closeMatchingTab(verdict, context: context)
+                return
+            }
             guard let key = encounterKey(for: verdict, context: context),
                   let reachKey = reachKey(for: verdict) else { return }
             // Already pausing, closing the page this came from, or temporarily allowed.
             if pause.isShowing { return }
             if let until = allowances[reachKey], until > Date() { return }
-            if context.processID == closingPID, Date() < closingUntil { return }
             // A new encounter has to read the same twice, so a stray frame can't trigger
             // anything. The second reading is requested straight away instead of waiting
             // for the next poll, which keeps the pause ahead of the page load.
@@ -246,6 +368,29 @@ final class AppModel {
                 return
             }
             beginReach(reachKey: reachKey, verdict: verdict, context: context)
+        }
+    }
+
+    private func closeMatchingTab(_ verdict: Verdict, context: ScreenContext) {
+        guard !confirmingTabClose, let observedURL = context.url else { return }
+        if let lastFilteredTab, lastFilteredTab.processID == context.processID,
+           lastFilteredTab.windowID == context.windowID, lastFilteredTab.url == observedURL,
+           Date().timeIntervalSince(lastFilteredAt) < 0.5 { return }
+
+        confirmingTabClose = true
+        Task {
+            defer { confirmingTabClose = false }
+            guard let live = await monitor.confirm(context, readWebsite: true),
+                  live.url == observedURL, live.windowID == context.windowID, !pause.isShowing,
+                  lastContext?.processID == live.processID, lastContext?.url == observedURL,
+                  lastContext?.windowID == live.windowID,
+                  let current = currentEvaluator.ruleVerdict(for: live),
+                  current.closesTab, let blockID = current.blockID, blockID == verdict.blockID,
+                  TabCloser.closeIfFrontmost(pid: live.processID) else { return }
+            lastFilteredTab = live
+            lastFilteredAt = Date()
+            store.recordTrigger(id: blockID)
+            log("Closed matching tab · \(current.blockName ?? "Block")", symbol: "xmark.circle")
         }
     }
 
@@ -349,7 +494,7 @@ final class AppModel {
         closingPID = context.processID
         closingUntil = Date().addingTimeInterval(1.5)
         if Browser(bundleID: context.bundleID) != nil {
-            Task { await TabCloser.closeFrontTab(pid: context.processID) }
+            Task { await TabCloser.closeFrontTab(for: context, monitor: monitor) }
         } else {
             TabCloser.quit(pid: context.processID)
         }
@@ -404,8 +549,8 @@ final class AppModel {
 
     /// Keeps SIGTERM handling, the watchdog and the handshake file in step with whether
     /// any block is currently locked.
-    private func syncLockProtections() {
-        signal(SIGTERM, store.hasLockedBlock ? SIG_IGN : SIG_DFL)
+    private func syncLockProtections(agentReady: Bool) {
+        signal(SIGTERM, canQuitApp ? SIG_DFL : SIG_IGN)
 
         let guardState = GuardState.load()
         guard let deadline = store.lockedUntil else {
@@ -423,20 +568,17 @@ final class AppModel {
                 heartbeat: Date()
             ).save()
         }
-        if !WatchdogService.isInstalled { WatchdogService.install() }
+        if agentReady, WatchdogService.hasConfiguration { WatchdogService.remove() }
     }
 
     private func warnCannotQuit() {
-        let locked = store.lockedBlocks
+        let protected = store.blocks.filter { $0.protectsQuit() }
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = locked.count == 1
-            ? "“\(locked[0].name)” is locked."
-            : "\(locked.count) blocks are locked."
-        alert.informativeText = locked
-            .map { "\($0.name): \($0.lockStatus())" }
-            .joined(separator: "\n")
-            + "\n\nRelease the active locks before quitting Shift."
+        alert.messageText = "Shift is protecting your blocks."
+        alert.informativeText = protected.map { block in
+            block.isLocked() ? "\(block.name) · \(block.lockStatus())" : "\(block.name) · Running"
+        }.joined(separator: "\n") + "\n\nTurn off running blocks and release active locks before quitting."
         alert.addButton(withTitle: "OK")
         NSApp.activate()
         alert.runModal()
