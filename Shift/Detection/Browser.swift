@@ -6,6 +6,7 @@ enum Browser: Equatable, Sendable {
     private static let byBundleID: [String: Browser] = [
         "com.apple.safari": .webKit,
         "com.apple.safaritechnologypreview": .webKit,
+        "com.duckduckgo.macos.browser": .webKit,
         "com.kagi.kagimacos": .webKit,
         "com.kagi.kagimacos.rc": .webKit,
 
