@@ -325,17 +325,14 @@ relitigate them without asking:
   another. **The question must be answerable by the chips.** It is "What's pulling you
   here?": the chips name a state ("I'm bored", "This is hard"), so the earlier "What were
   you hoping it would give you?" asked for a reward and left every answer reading like a
-  non-sequitur. It asks what is behind the reach, and keeps the pull as the subject rather
-  than the person — "why were you distracted" would put the blame back on them. Each chip is one short word and a white symbol; the longer description shows
-  only on hover, in a single helper line, and 1–6 on the keyboard pick them. Nothing sits
-  under the question but the chips: "Pick the closest one, there's no wrong answer" was
-  cut as unnecessary. Choosing one
-  replaces the question with its answer. The solid white close button stays outside the
-  panel throughout the pause. Return activates it outside the reason form. Sources: GOV.UK's
+  non-sequitur. The question asks what prompted the reach. Each chip has a short label and
+  a symbol, with a longer description on hover. Choosing a chip replaces the question with its
+  answer. The solid white close button stays outside the panel throughout the pause. Return
+  activates it outside the reason form. Sources: GOV.UK's
   one-thing-per-page, Hick's law, one sec's breath-then-choice.
-- **Neutral glass and white buttons.** The frosted panel has a dark wash for readability.
-  The feeling choices, access choices and close action use white capsules with dark text. The feeling icons
-  carry colour, as solid system-colour tiles drawn exactly like the sidebar's
+- **Neutral glass and white action buttons.** The frosted panel has a dark wash for readability.
+  The access choices and close action use white capsules with dark text. The feeling choices
+  use translucent cards with white labels. Their icons use the same solid system-colour tiles as the sidebar's
   (`SidebarIconTile`, which now takes a `size`): yellow, indigo, orange, teal, pink, green.
   Tinted, semi-transparent circles were rejected. The user rejected fully
   colour-coded chips, white-only symbols, and the teal/orange/purple tints in Settings.

@@ -14,8 +14,8 @@ import SwiftUI
 ///    the question. “I need it” can lead to a separate wait for temporary access.
 /// 2. **The orb becomes the panel.** The breath and the question are one object changing
 ///    shape, so the moment it opens is felt rather than merely noticed.
-/// 3. **Frosted panel, solid buttons.** The panel uses neutral glass and every button uses
-///    a white fill with dark text. The feeling icons use the same coloured tiles as the sidebar.
+/// 3. **Frosted panel and feeling choices.** The feeling choices use translucent cards with
+///    coloured tiles. The access and close buttons use a white fill with dark text.
 /// 4. **Words arrive, they don't switch on.** Each line fades in at its own pace
 ///    (`revealOnAppear`). Text that changes in place (`SwapText`) fully leaves
 ///    before the next line arrives, never overlapping.
@@ -274,10 +274,7 @@ struct PauseView: View {
 
     private var helperText: String {
         guard let hovered else {
-            if request.breaksLeft == 0 {
-                return "No breaks left today. Press 1 to \(choices.count - 1) to choose."
-            }
-            return "Or press 1 to \(choices.count)."
+            return request.breaksLeft == 0 ? "No breaks left today." : ""
         }
         if hovered == .needed, let left = request.breaksLeft {
             return left == 0 ? "No breaks left today." : "\(hovered.feeling). \(left) break\(left == 1 ? "" : "s") left today."
@@ -294,11 +291,11 @@ struct PauseView: View {
                 phase = .answering(reason)
             }
         } label: {
-            FeelingChip(reason: reason, number: index + 1, highlighted: hovered == reason)
+            FeelingChip(reason: reason, highlighted: hovered == reason)
         }
-        .buttonStyle(PauseButtonStyle())
+        .buttonStyle(PressScaleStyle())
         .disabled(disabled)
-        .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: [])
+        .opacity(disabled ? 0.4 : 1)
         .onHover { inside in
             if inside { hovered = reason } else if hovered == reason { hovered = nil }
         }
@@ -477,28 +474,50 @@ struct PauseView: View {
 
 // MARK: - Pieces
 
-/// A feeling's label, colour tile, and keyboard shortcut.
+/// A translucent choice with a coloured tile and a feeling label.
 private struct FeelingChip: View {
     let reason: UrgeReason
-    let number: Int
     let highlighted: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: Theme.Space.snug) {
             SidebarIconTile(systemName: reason.symbol, background: Color.tint(for: reason), size: 32)
-                .symbolEffect(.bounce, value: highlighted)
+                .symbolEffect(.bounce, value: highlighted && !reduceMotion)
             Text(reason.title)
+                .font(.system(.body, design: .rounded).weight(.semibold))
+                .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
-            Spacer(minLength: 0)
-            Text("\(number)")
-                .font(.caption2.monospacedDigit().weight(.semibold))
-                .opacity(highlighted ? 1 : 0.7)
         }
         .padding(.leading, Theme.Space.snug)
         .padding(.trailing, Theme.Space.base)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: 56)
+        .background {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.white.opacity(highlighted ? 0.18 : 0.07))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(.white.opacity(highlighted ? 0.4 : 0.12), lineWidth: 1)
+        }
+        .scaleEffect(highlighted && !reduceMotion ? 1.03 : 1)
+        .offset(y: highlighted && !reduceMotion ? -2 : 0)
+        .shadow(color: .black.opacity(highlighted ? 0.25 : 0), radius: 12, y: 6)
+        .animation(reduceMotion ? .easeOut(duration: 0.2) : .spring(response: 0.32, dampingFraction: 0.7), value: highlighted)
+        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .accessibilityLabel("\(reason.title). \(reason.feeling)")
+    }
+}
+
+private struct PressScaleStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: configuration.isPressed)
     }
 }
 
