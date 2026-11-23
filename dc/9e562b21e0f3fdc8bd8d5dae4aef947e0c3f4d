@@ -1,0 +1,21 @@
+Shift/Enforcement/PauseView.swift
+  s_b65ac54b17b40a::t_23d47d4ba64a5f 159-162,169,436-439,441
+CLAUDE.md
+  ai_agent 317-319,335-339
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "dc9e562b21e0f3fdc8bd8d5dae4aef947e0c3f4d",
+  "prompts": {},
+  "sessions": {
+    "s_b65ac54b17b40a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6ccf5cce-dfe2-4fcf-8151-e1a544419150",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Prakash Joshi Pax <101010368+Beingpax@users.noreply.github.com>"
+    }
+  }
+}
