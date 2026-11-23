@@ -20,11 +20,6 @@ struct MenuBarView: View {
                 blockList
             }
 
-            if model.isWatching, model.lastContext != nil {
-                Hairline()
-                LiveContextView()
-            }
-
             if !model.accessibilityGranted {
                 permissionWarning
             }
@@ -183,15 +178,6 @@ private struct MenuBlockRow: View {
             RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
                 .fill(isHovering ? Color.primary.opacity(0.05) : .clear)
         }
-        .overlay(alignment: .leading) {
-            // A quiet mark that this block is the reason Shift is watching.
-            if isActive {
-                Capsule()
-                    .fill(block.tint.color)
-                    .frame(width: 2.5, height: 18)
-                    .offset(x: -5)
-            }
-        }
         .onHover { isHovering = $0 }
         .contentShape(Rectangle())
         .onTapGesture { model.presentMainWindow(section: .blocks) }
@@ -232,49 +218,6 @@ private struct TimedBlockActions: View {
                     }
                 }
             }
-        }
-    }
-}
-
-// MARK: - What Shift sees
-
-private struct LiveContextView: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.tight) {
-            Text("What Shift sees")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.tertiary)
-                .textCase(.uppercase)
-
-            if let context = model.lastContext {
-                HStack(spacing: Theme.Space.tight) {
-                    if let verdict = model.lastVerdict {
-                        VerdictPill(kind: verdict.kind)
-                    }
-                    Text(context.host == nil && Browser(bundleID: context.bundleID) != nil
-                         ? "\(context.appName) · Website address unavailable" : context.displayLocation)
-                        .font(.caption)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer(minLength: 0)
-                }
-
-                if let verdict = model.lastVerdict {
-                    Text("\(verdict.source.rawValue) · \(verdict.reason)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-        .padding(Theme.Space.tight)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                .fill(Color.primary.opacity(0.04))
         }
     }
 }

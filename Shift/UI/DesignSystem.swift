@@ -78,7 +78,7 @@ private struct CalmTransition: ViewModifier {
 
 // MARK: - Small shared parts
 
-/// A label above a value, used in "What Shift sees" and the settings rows.
+/// A label above a value, used in the settings rows.
 struct FieldRow: View {
     let label: String
     let value: String
