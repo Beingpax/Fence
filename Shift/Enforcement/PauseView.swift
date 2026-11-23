@@ -156,15 +156,17 @@ struct PauseView: View {
     }
 
     /// The wait, as a bar that empties rather than a number that ticks down. Digits invite
-    /// you to watch them and count; a bar draining from the middle is read in one glance
-    /// and then forgotten, which is what a breath needs. "Breathe in" and "and let it go"
+    /// you to watch them and count; a bar is read in one glance and then forgotten, which
+    /// is what a breath needs. It empties from the right, like every other progress bar on
+    /// the platform: anchored at the leading edge, it shrinks one way instead of pulling
+    /// away from the middle in both directions at once. "Breathe in" and "and let it go"
     /// went with it: the constellation already opens and gathers in time with the breath,
     /// and words only ask to be obeyed.
     private var breathBar: some View {
         Capsule()
             .fill(.white.opacity(0.16))
             .frame(width: 260, height: 5)
-            .overlay {
+            .overlay(alignment: .leading) {
                 Capsule()
                     .fill(.white.opacity(0.9))
                     .frame(width: 260 * drain)
@@ -431,10 +433,12 @@ struct PauseView: View {
     }
 
     /// Outside the panel, never disabled, and Return presses it. Turning back has to be the
-    /// easiest thing on the screen. Once a feeling is chosen it becomes the one solid,
-    /// white button on the screen: the obvious next step.
+    /// easiest thing on the screen, so it is the one solid white button on it from the
+    /// moment the question opens — not only after a feeling is picked. The exception is
+    /// "I need it", where the break buttons are the thing being offered and a white button
+    /// beside them would fight for the same job.
     private var closeButton: some View {
-        let solid = chosen != nil && chosen != .needed
+        let solid = chosen != .needed
         let title = chosen == nil ? "I don’t need it. \(request.closeTitle)" : request.closeTitle
         return Button {
             onEvent(.close(chosen == .needed ? nil : chosen))

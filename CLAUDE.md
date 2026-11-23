@@ -314,7 +314,9 @@ relitigate them without asking:
   from a fixed seed and stamped from pre-drawn glows. The breath is computed from the
   clock: in over 3 s, out over 2 s. Under it, **a bar that empties, not a countdown**:
   10 s, 20 s on the second reach, 30 s from the third, drained by one linear animation
-  from the middle outwards (stepped once a second under Reduce Motion). Digits invited
+  **from the right, anchored at its leading edge** (stepped once a second under Reduce
+  Motion). It empties one way, like every other progress bar on the platform; pulling away
+  from the middle in both directions at once was wrong and the user caught it. Digits invited
   counting; the bar is read at a glance and forgotten. The "Breathe in / and let it go"
   cue is gone with them at the user's request — the constellation already opens and
   gathers in time with the breath, and words only ask to be obeyed. Rejected on
@@ -330,8 +332,11 @@ relitigate them without asking:
   under the question but the chips: "Pick the closest one, there's no wrong answer" was
   cut as unnecessary. Choosing one
   replaces the question with its answer, and **there is no way back**: the only thing left
-  is the close button, which turns solid white as the obvious next step. The close button
-  sits outside the panel, never waits, and answers to Return. Sources: GOV.UK's
+  is the close button. **It is the one solid white button, with near-black text, from the
+  moment the question opens** — not only after a feeling is picked: turning back has to be
+  the easiest thing on the screen. The one exception is "I need it", where the break
+  buttons are what's being offered and a white button beside them would fight for the same
+  job. The close button sits outside the panel, never waits, and answers to Return. Sources: GOV.UK's
   one-thing-per-page, Hick's law, one sec's breath-then-choice.
 - **Neutral glass, sidebar-style icon tiles.** Cards, panel and buttons are white glass
   with a dark wash under the frost so they read on every backdrop. Only the feeling icons
