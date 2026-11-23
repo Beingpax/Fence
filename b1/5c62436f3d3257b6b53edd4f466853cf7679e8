@@ -1,0 +1,45 @@
+Shift/App/AppModel.swift
+  s_50e4768796818f::t_8e10ed3d52e7e1 208
+  s_50e4768796818f::t_2ae9438567041b 524
+  s_50e4768796818f::t_20b8634eb64f41 364-365
+  s_50e4768796818f::t_5bf080eddc31a3 261,271-273,295,362-363,447,451-452,455,462
+  s_50e4768796818f::t_1a61fe38863b70 73-75,174-176,225,227,265,305-307,315-334,338-341,449
+Shift/UI/SettingsView.swift
+  s_50e4768796818f::t_8e10ed3d52e7e1 63
+  s_50e4768796818f::t_5bf080eddc31a3 106
+Shift/Models/BlockStore.swift
+  s_50e4768796818f::t_1a61fe38863b70 280,283
+Shift/Enforcement/PauseView.swift
+  s_50e4768796818f::t_048117199ec807 5-7,9-21,28-32,35-36,39,41,44,67,72-73,75-82,84-116,119,126,131,137,139-140,142-160,162-179,181-185,187-195,197-199,201-205,208-231,234,241-247,249,251-259,261,265-273,277-313,333-334,340,342-360,367,375,382-389,392-393,395-398,406,408-414,423-424,426,428,432-436,438,441,443-444,449-455,457-458,460-462,466-468,470-471,474,476-480,482-486,488-490,492-507,511,513-515,517,519-529
+Shift/Models/PauseCopy.swift
+  s_50e4768796818f::t_e4ea1b126d22fd 1-278
+Shift/Intelligence/BlockEvaluator.swift
+  s_50e4768796818f::t_8e10ed3d52e7e1 5,36
+Shift/UI/NudgeHUD.swift
+  s_50e4768796818f::t_8e10ed3d52e7e1 7
+Shift/Enforcement/PauseController.swift
+  s_50e4768796818f::t_1a61fe38863b70 8-9,44
+  s_50e4768796818f::t_5bf080eddc31a3 20-22
+Shift/Models/Block.swift
+  s_50e4768796818f::t_1a61fe38863b70 245-250,252
+CLAUDE.md
+  s_50e4768796818f::t_769ef6354bc953 10-15,54-55,106-107,225-226,229,291-301,308-319,350-351
+Shift/UI/Main/BlockEditorView.swift
+  s_50e4768796818f::t_5bf080eddc31a3 346
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b15c62436f3d3257b6b53edd4f466853cf7679e8",
+  "prompts": {},
+  "sessions": {
+    "s_50e4768796818f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b8c0a791-6f45-4510-84f2-8286d4c70394",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Prakash Joshi Pax <101010368+Beingpax@users.noreply.github.com>"
+    }
+  }
+}
