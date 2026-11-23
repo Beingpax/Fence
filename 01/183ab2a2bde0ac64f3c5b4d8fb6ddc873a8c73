@@ -1,0 +1,23 @@
+Shift/Enforcement/PauseController.swift
+  s_d2b39ba708f407::t_1e7b348658b2c8 25,30-31
+Shift/UI/SettingsView.swift
+  s_d2b39ba708f407::t_1e7b348658b2c8 81,104
+Shift/Enforcement/PauseView.swift
+  s_d2b39ba708f407::t_600b68abbecd53 6,11-12,20-23,29,41-42,49,51,58,69,75,97,108,131,142,152,155-173,181-186,190-191,208-209,238-243,246-247,257,259,332,347
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "01183ab2a2bde0ac64f3c5b4d8fb6ddc873a8c73",
+  "prompts": {},
+  "sessions": {
+    "s_d2b39ba708f407": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ce28df69-3a03-44b9-affa-60b2011febaa",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Prakash Joshi Pax <101010368+Beingpax@users.noreply.github.com>"
+    }
+  }
+}
