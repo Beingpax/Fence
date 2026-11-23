@@ -12,7 +12,7 @@ struct WeekPanel: View {
 
     var body: some View {
         let week = model.urges.week()
-        Panel("Your week", subtitle: subtitle(week), icon: "chart.bar.fill", tint: .teal) {
+        Panel("Your week", subtitle: subtitle(week), icon: "chart.bar") {
             if week.total == 0 {
                 Text("Nothing yet. Each time you reach for a blocked site, Shift notes what you were after, so you can see your pattern here and plan for it.")
                     .font(.callout)
@@ -55,7 +55,7 @@ struct WeekPanel: View {
                         ZStack(alignment: .leading) {
                             Capsule().fill(.quaternary.opacity(0.6))
                             Capsule()
-                                .fill(Color.teal.opacity(0.75))
+                                .fill(.primary.opacity(0.55))
                                 .frame(width: max(6, geometry.size.width * CGFloat(count) / CGFloat(most)))
                         }
                     }

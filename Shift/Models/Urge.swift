@@ -41,12 +41,12 @@ enum UrgeReason: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var symbol: String {
         switch self {
-        case .bored: "sparkles"
-        case .tired: "battery.25percent"
-        case .stuck: "square.stack.3d.up.slash"
-        case .anxious: "cloud.drizzle"
-        case .lonely: "person.2"
-        case .needed: "checkmark.circle"
+        case .bored: "hourglass"
+        case .tired: "moon.zzz"
+        case .stuck: "puzzlepiece"
+        case .anxious: "cloud.rain"
+        case .lonely: "person"
+        case .needed: "arrow.up.forward"
         }
     }
 

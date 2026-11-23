@@ -6,19 +6,19 @@ import SwiftUI
 /// the question opens: 5, then 15, then 30 seconds. Every line on it comes from
 /// `PauseCopy`, dealt so it doesn't repeat.
 ///
-/// The question section follows a few design rules, worth keeping if it's changed:
+/// Design rules for this screen, worth keeping if it's changed:
 ///
-/// 1. **One thing at a time.** During the breath there is no panel, only a breathing orb.
-///    The question appears only once the breath is done, and the answer replaces the
-///    question rather than stacking under it.
+/// 1. **One thing at a time.** During the breath there is no panel, only the breathing orb.
+///    The question appears only once the breath is done, and choosing an answer replaces
+///    the question. There's no way back from an answer: it ends in closing the tab.
 /// 2. **The orb becomes the panel.** The breath and the question are one object changing
 ///    shape, so the moment it opens is felt rather than merely noticed.
-/// 3. **Feelings, not form fields.** Six short words, each with its own colour and symbol,
-///    so the right one is recognised at a glance (Hick's law: fewer, clearer choices decide
-///    faster). The longer description only appears on hover.
-/// 4. **Turning back is always the easiest thing.** The close button sits outside the
+/// 3. **Neutral, so the photo carries the colour.** White type, white glass, white symbols.
+///    Colour-coded chips looked generated; the landscape behind is the only colour here.
+/// 4. **Words arrive, they don't switch on.** Every line reveals letter by letter out of a
+///    soft blur (`revealOnAppear`), and the breathing cue dissolves into the next.
+/// 5. **Turning back is always the easiest thing.** The close button sits outside the
 ///    panel, is never disabled, and answers to Return.
-/// 5. **No shame.** The voice is a friend's. The urge is "the pull", not the person.
 struct PauseView: View {
     let request: PauseRequest
     let onEvent: (PauseEvent) -> Void
@@ -39,10 +39,6 @@ struct PauseView: View {
     @State private var questionShown = false
     @FocusState private var noteFocused: Bool
     @Namespace private var surface
-
-    private enum Palette {
-        static let action = Color(red: 0.92, green: 0.47, blue: 0.32)
-    }
 
     init(request: PauseRequest, onEvent: @escaping (PauseEvent) -> Void) {
         self.request = request
@@ -81,14 +77,11 @@ struct PauseView: View {
                     panel { answer(for: reason) }
                 }
             }
-            .frame(minHeight: 260)
-            .entrance(appeared, delay: 0.34, distance: 30, reduceMotion: reduceMotion)
+            .frame(minHeight: 280)
+            .entrance(appeared, delay: 0.5, distance: 24, reduceMotion: reduceMotion)
 
-            closeButton(title: phase == .breathing || phase == .asking
-                        ? "I don’t need it. \(request.closeTitle)"
-                        : request.closeTitle,
-                        reason: currentReason)
-                .entrance(appeared, delay: 0.46, reduceMotion: reduceMotion)
+            closeButton
+                .entrance(appeared, delay: 0.7, reduceMotion: reduceMotion)
 
             if request.isPreview {
                 Text("Pause preview")
@@ -99,11 +92,6 @@ struct PauseView: View {
         .padding(Theme.Space.vast)
         .frame(maxWidth: 820)
         .multilineTextAlignment(.center)
-    }
-
-    private var currentReason: UrgeReason? {
-        if case .answering(let reason) = phase, reason != .needed { return reason }
-        return nil
     }
 
     // MARK: Header (the same through every phase)
@@ -119,77 +107,94 @@ struct PauseView: View {
                 Text(request.title)
                     .font(.system(size: 48, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.25), radius: 12, y: 2)
+                    .shadow(color: .black.opacity(0.3), radius: 12, y: 2)
                     .accessibilityAddTraits(.isHeader)
-                    .entrance(appeared, delay: 0.14, reduceMotion: reduceMotion)
+                    .revealOnAppear(delay: 0.12, duration: 0.8)
 
                 Text(request.subtitle)
                     .font(.title3)
-                    .foregroundStyle(.white.opacity(0.88))
-                    .shadow(color: .black.opacity(0.25), radius: 8, y: 1)
+                    .foregroundStyle(.white.opacity(0.9))
+                    .shadow(color: .black.opacity(0.3), radius: 8, y: 1)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: 640)
-                    .entrance(appeared, delay: 0.22, reduceMotion: reduceMotion)
+                    .revealOnAppear(delay: 0.4, duration: 1.1)
             }
 
             Label(request.blockName, systemImage: "square.stack")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(.white.opacity(0.8))
-                .entrance(appeared, delay: 0.28, reduceMotion: reduceMotion)
+                .entrance(appeared, delay: 0.55, reduceMotion: reduceMotion)
         }
     }
 
     // MARK: 1. The breath
 
-    /// A frosted orb that swells and settles with the breath, with a thin ring that empties
-    /// as the wait runs out. When the breath ends, it grows into the question panel.
+    /// A frosted orb with three soft rings around it. Breathing in, the orb swells and the
+    /// rings ripple outward one after another; breathing out, they gather back in. The
+    /// whole thing floats a little, so it never sits dead still. When the breath ends, the
+    /// orb grows into the question panel.
     private var orb: some View {
-        let progress = 1 - Double(secondsLeft) / Double(max(request.waitSeconds, 1))
-        return ZStack {
-            Circle()
-                .fill(.white.opacity(0.10))
-                .frame(width: 236, height: 236)
-                .scaleEffect(reduceMotion ? 1 : (inhaling ? 1.12 : 0.86))
-                .blur(radius: 18)
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { timeline in
+            let t = timeline.date.timeIntervalSinceReferenceDate
+            let float = reduceMotion ? 0 : sin(t * 0.9) * 4
 
-            Circle()
-                .fill(.ultraThinMaterial)
-                .matchedGeometryEffect(id: "surface", in: surface)
-                .frame(width: 176, height: 176)
-                .overlay {
-                    Circle().strokeBorder(.white.opacity(0.18), lineWidth: 1)
+            ZStack {
+                ForEach(0..<3, id: \.self) { ring in
+                    Circle()
+                        .strokeBorder(.white.opacity(0.26 - Double(ring) * 0.07), lineWidth: 1)
+                        .frame(width: 180, height: 180)
+                        .scaleEffect(reduceMotion ? 1 + Double(ring) * 0.16
+                                     : (inhaling ? 1.18 + Double(ring) * 0.2 : 0.96 + Double(ring) * 0.03))
+                        .animation(
+                            .easeInOut(duration: inhaling ? 3 : 2).delay(Double(ring) * 0.14),
+                            value: inhaling
+                        )
                 }
-                .scaleEffect(reduceMotion ? 1 : (inhaling ? 1.06 : 0.94))
 
-            Circle()
-                .trim(from: 0, to: 1 - progress)
-                .stroke(.white.opacity(0.55), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .frame(width: 198, height: 198)
-                .animation(.linear(duration: 1), value: secondsLeft)
+                Circle()
+                    .fill(.white.opacity(0.12))
+                    .frame(width: 210, height: 210)
+                    .blur(radius: 30)
+                    .scaleEffect(reduceMotion ? 1 : (inhaling ? 1.15 : 0.8))
+                    .animation(.easeInOut(duration: inhaling ? 3 : 2), value: inhaling)
 
-            VStack(spacing: 4) {
-                Text(cue)
-                    .font(.system(.title3, design: .rounded).weight(.semibold))
-                    .foregroundStyle(.white)
-                    .contentTransition(.opacity)
-                Text("\(secondsLeft)")
-                    .font(.system(.callout, design: .rounded).monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.6))
-                    .contentTransition(.numericText(countsDown: true))
+                Circle()
+                    .fill(.ultraThinMaterial)
+                    .overlay { Circle().fill(.black.opacity(0.12)) }
+                    .matchedGeometryEffect(id: "surface", in: surface)
+                    .frame(width: 168, height: 168)
+                    .overlay { Circle().strokeBorder(.white.opacity(0.22), lineWidth: 1) }
+                    .scaleEffect(reduceMotion ? 1 : (inhaling ? 1.08 : 0.92))
+                    .animation(.easeInOut(duration: inhaling ? 3 : 2), value: inhaling)
+
+                VStack(spacing: 6) {
+                    ZStack {
+                        Text(cue)
+                            .font(.system(.title3, design: .rounded).weight(.semibold))
+                            .foregroundStyle(.white)
+                            .id(cue)
+                            .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(TextRevealTransition()))
+                    }
+                    Text("\(secondsLeft)")
+                        .font(.system(.callout, design: .rounded).monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.55))
+                        .contentTransition(.numericText(countsDown: true))
+                }
             }
+            .offset(y: float)
         }
-        .frame(height: 260)
+        .frame(height: 280)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(cue). \(secondsLeft) seconds")
     }
 
     private func breathe() async {
+        // Let the header land before the first breath starts.
+        try? await Task.sleep(for: .milliseconds(reduceMotion ? 0 : 600))
         while secondsLeft > 0 {
-            let elapsed = request.waitSeconds - secondsLeft
-            let step = elapsed % 5
+            let step = (request.waitSeconds - secondsLeft) % 5
             if step == 0 || step == 3 {
-                withAnimation(.easeInOut(duration: step == 0 ? 3 : 2)) {
+                withAnimation(.linear(duration: 0.7)) {
                     inhaling = step == 0
                     cue = step == 0 ? "Breathe in" : "And let it go"
                 }
@@ -201,34 +206,38 @@ struct PauseView: View {
         withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .spring(response: 0.62, dampingFraction: 0.84)) {
             phase = .asking
         }
-        try? await Task.sleep(for: .milliseconds(reduceMotion ? 0 : 220))
+        try? await Task.sleep(for: .milliseconds(reduceMotion ? 0 : 350))
         withAnimation(.easeOut(duration: 0.5)) { questionShown = true }
     }
 
     // MARK: The panel
 
-    /// The frosted surface the orb grows into. It resizes smoothly between the question
-    /// and an answer.
+    /// The frosted surface the orb grows into. A dark wash under the frost keeps white type
+    /// readable on every backdrop, from the pale midday sky to the night one.
     private func panel<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         content()
             .padding(.horizontal, Theme.Space.wide)
             .padding(.vertical, Theme.Space.wide)
-            .frame(maxWidth: 640)
+            .frame(maxWidth: 620)
             .background {
-                RoundedRectangle(cornerRadius: 30, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .matchedGeometryEffect(id: "surface", in: surface)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 30, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                    RoundedRectangle(cornerRadius: 30, style: .continuous)
+                        .fill(.black.opacity(0.24))
+                }
+                .matchedGeometryEffect(id: "surface", in: surface)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: 30, style: .continuous)
                     .strokeBorder(
-                        LinearGradient(colors: [.white.opacity(0.32), .white.opacity(0.06)],
+                        LinearGradient(colors: [.white.opacity(0.28), .white.opacity(0.06)],
                                        startPoint: .top, endPoint: .bottom),
                         lineWidth: 1
                     )
                     .allowsHitTesting(false)
             }
-            .shadow(color: .black.opacity(0.28), radius: 30, y: 14)
+            .shadow(color: .black.opacity(0.3), radius: 30, y: 14)
     }
 
     // MARK: 2. The question
@@ -244,14 +253,12 @@ struct PauseView: View {
                     .font(.system(size: 26, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .fixedSize(horizontal: false, vertical: true)
+                    .revealOnAppear(delay: 0.3, duration: 0.85)
                 Text("Pick the closest one. There’s no wrong answer.")
                     .font(.callout)
                     .foregroundStyle(.white.opacity(0.7))
+                    .revealOnAppear(delay: 0.6, duration: 0.8)
             }
-            // Comes into focus rather than just appearing.
-            .blur(radius: questionShown || reduceMotion ? 0 : 10)
-            .opacity(questionShown ? 1 : 0)
-            .offset(y: questionShown || reduceMotion ? 0 : 8)
 
             LazyVGrid(
                 columns: Array(repeating: GridItem(.flexible(), spacing: Theme.Space.snug), count: 3),
@@ -264,18 +271,22 @@ struct PauseView: View {
 
             // One helper line, filled by whatever is under the pointer, instead of six
             // descriptions competing for attention at once.
-            Text(helperText)
-                .font(.callout)
-                .foregroundStyle(hovered.map { Color.tint(for: $0) } ?? .white.opacity(0.6))
-                .contentTransition(.opacity)
-                .animation(.easeOut(duration: 0.15), value: hovered)
-                .frame(height: 20)
-                .opacity(questionShown ? 1 : 0)
+            ZStack {
+                Text(helperText)
+                    .font(.callout)
+                    .foregroundStyle(.white.opacity(hovered == nil ? 0.5 : 0.85))
+                    .id(helperText)
+                    .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(TextRevealTransition()))
+            }
+            .animation(.linear(duration: 0.35), value: helperText)
+            .frame(height: 20)
+            .opacity(questionShown ? 1 : 0)
+            .animation(.easeOut(duration: 0.4).delay(0.7), value: questionShown)
         }
     }
 
     private var helperText: String {
-        guard let hovered else { return "You can also press 1 to \(choices.count)." }
+        guard let hovered else { return "Or press 1 to \(choices.count)." }
         if hovered == .needed, let left = request.breaksLeft {
             return left == 0 ? "No breaks left today." : "\(hovered.feeling). \(left) break\(left == 1 ? "" : "s") left today."
         }
@@ -286,6 +297,7 @@ struct PauseView: View {
         let disabled = reason == .needed && request.breaksLeft == 0
         return Button {
             note = ""
+            hovered = nil
             withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .spring(response: 0.5, dampingFraction: 0.86)) {
                 phase = .answering(reason)
             }
@@ -299,13 +311,14 @@ struct PauseView: View {
         .onHover { inside in
             if inside { hovered = reason } else if hovered == reason { hovered = nil }
         }
-        // Each chip arrives a beat after the one before, once the question is in focus.
+        // Each chip arrives a beat after the one before, once the question has settled.
         .opacity(questionShown ? 1 : 0)
-        .scaleEffect(questionShown || reduceMotion ? 1 : 0.86)
-        .offset(y: questionShown || reduceMotion ? 0 : 12)
+        .scaleEffect(questionShown || reduceMotion ? 1 : 0.9)
+        .offset(y: questionShown || reduceMotion ? 0 : 14)
+        .blur(radius: questionShown || reduceMotion ? 0 : 6)
         .animation(
             reduceMotion ? .easeOut(duration: 0.2)
-                : .spring(response: 0.5, dampingFraction: 0.74).delay(0.18 + Double(index) * 0.06),
+                : .spring(response: 0.55, dampingFraction: 0.78).delay(0.35 + Double(index) * 0.07),
             value: questionShown
         )
     }
@@ -335,15 +348,20 @@ struct PauseView: View {
         }
     }
 
+    /// The suggestion for one answer. No way back to the question from here: having named
+    /// it, the only thing left to do is close it (or, for "I need it", open it briefly).
     private func answer(for reason: UrgeReason) -> some View {
         let text = suggestion(for: reason)
-        let tint = Color.tint(for: reason)
         return VStack(spacing: Theme.Space.base) {
             ZStack {
-                Circle().fill(tint.opacity(0.22)).frame(width: 64, height: 64)
+                Circle()
+                    .fill(.white.opacity(0.12))
+                    .frame(width: 60, height: 60)
+                    .overlay { Circle().strokeBorder(.white.opacity(0.18)) }
                 Image(systemName: reason.symbol)
-                    .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(tint)
+                    .font(.system(size: 24, weight: .regular))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.white)
             }
             .accessibilityHidden(true)
 
@@ -351,12 +369,14 @@ struct PauseView: View {
                 .font(.system(size: 26, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
                 .fixedSize(horizontal: false, vertical: true)
+                .revealOnAppear(delay: 0.15, duration: 0.75)
 
             Text(text.body)
                 .font(.body)
-                .foregroundStyle(.white.opacity(0.8))
+                .foregroundStyle(.white.opacity(0.82))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 480)
+                .revealOnAppear(delay: 0.4, duration: 1.2)
 
             if let plan = request.plans[reason], !plan.isEmpty {
                 // Their own words, from the weekly review. A promise you made yourself
@@ -364,7 +384,7 @@ struct PauseView: View {
                 VStack(spacing: 2) {
                     Text("Your plan")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(tint)
+                        .foregroundStyle(.white.opacity(0.6))
                     Text("\(reason.planLead) \(plan).")
                         .font(.callout.weight(.medium))
                         .foregroundStyle(.white)
@@ -372,30 +392,15 @@ struct PauseView: View {
                 .padding(.horizontal, Theme.Space.base)
                 .padding(.vertical, Theme.Space.snug)
                 .frame(maxWidth: .infinity)
-                .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.12)) }
             }
 
             if reason == .needed {
                 needed
             }
-
-            Button {
-                withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .spring(response: 0.5, dampingFraction: 0.86)) {
-                    note = ""
-                    phase = .asking
-                }
-            } label: {
-                Label("Something else", systemImage: "chevron.left")
-                    .font(.callout)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white.opacity(0.65))
-            .padding(.top, Theme.Space.tight)
         }
-        .transition(.asymmetric(
-            insertion: .opacity.combined(with: .offset(y: 14)),
-            removal: .opacity
-        ))
+        .transition(.asymmetric(insertion: .opacity, removal: .opacity))
     }
 
     private var needed: some View {
@@ -410,7 +415,7 @@ struct PauseView: View {
                 .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(noteFocused ? Color.tint(for: .needed).opacity(0.7) : .white.opacity(0.12))
+                        .strokeBorder(.white.opacity(noteFocused ? 0.45 : 0.14))
                 }
                 .focused($noteFocused)
                 .onAppear { noteFocused = true }
@@ -421,9 +426,15 @@ struct PauseView: View {
                         onEvent(.takeBreak(minutes: minutes, note: trimmed))
                     } label: {
                         Text("Open for \(minutes) min")
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(.white)
                             .frame(minWidth: 130)
+                            .padding(.vertical, Theme.Space.snug)
+                            .background(.white.opacity(0.14), in: Capsule())
+                            .overlay { Capsule().strokeBorder(.white.opacity(0.22)) }
+                            .contentShape(Capsule())
                     }
-                    .buttonStyle(.shiftProminent(Color.tint(for: .needed).opacity(0.85)))
+                    .buttonStyle(PressScaleStyle())
                     .disabled(trimmed.isEmpty)
                     .opacity(trimmed.isEmpty ? 0.45 : 1)
                 }
@@ -440,44 +451,57 @@ struct PauseView: View {
 
     // MARK: The way out
 
+    private var chosen: UrgeReason? {
+        if case .answering(let reason) = phase { return reason }
+        return nil
+    }
+
     /// Outside the panel, never disabled, and Return presses it. Turning back has to be the
-    /// easiest thing on the screen.
-    private func closeButton(title: String, reason: UrgeReason?) -> some View {
-        Button {
-            onEvent(.close(reason))
+    /// easiest thing on the screen. Once a feeling is chosen it becomes the one solid,
+    /// white button on the screen: the obvious next step.
+    private var closeButton: some View {
+        let solid = chosen != nil && chosen != .needed
+        let title = chosen == nil ? "I don’t need it. \(request.closeTitle)" : request.closeTitle
+        return Button {
+            onEvent(.close(chosen == .needed ? nil : chosen))
         } label: {
             Label(title, systemImage: request.isBrowser ? "xmark" : "power")
                 .font(.body.weight(.semibold))
-                .padding(.horizontal, Theme.Space.loose)
-                .padding(.vertical, Theme.Space.snug + 2)
-                .foregroundStyle(.white)
+                .padding(.horizontal, Theme.Space.loose + 4)
+                .padding(.vertical, Theme.Space.snug + 3)
+                .foregroundStyle(solid ? Color.black.opacity(0.85) : .white)
                 .background {
-                    Capsule().fill(currentReason == nil ? Color.white.opacity(0.14) : Palette.action)
+                    Capsule().fill(solid ? Color.white : Color.white.opacity(0.14))
                 }
-                .overlay { Capsule().strokeBorder(.white.opacity(0.22)) }
+                .overlay { Capsule().strokeBorder(.white.opacity(solid ? 0 : 0.24)) }
                 .contentShape(Capsule())
         }
         .buttonStyle(PressScaleStyle())
-        .keyboardShortcut(phase == .answering(.needed) ? nil : .defaultAction)
-        .animation(.easeOut(duration: 0.2), value: currentReason)
+        .keyboardShortcut(chosen == .needed ? nil : .defaultAction)
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: solid)
     }
 }
 
 // MARK: - Pieces
 
+/// One feeling: a white symbol in a glass circle, one word, and its number key. Neutral on
+/// purpose; it brightens and lifts under the pointer instead of changing colour.
 private struct FeelingChip: View {
     let reason: UrgeReason
     let number: Int
     let highlighted: Bool
 
     var body: some View {
-        let tint = Color.tint(for: reason)
         HStack(spacing: Theme.Space.snug) {
             ZStack {
-                Circle().fill(tint.opacity(highlighted ? 0.34 : 0.2)).frame(width: 34, height: 34)
+                Circle()
+                    .fill(.white.opacity(highlighted ? 0.22 : 0.1))
+                    .frame(width: 34, height: 34)
                 Image(systemName: reason.symbol)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(tint)
+                    .font(.system(size: 14, weight: .medium))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.white)
+                    .symbolEffect(.bounce, value: highlighted)
             }
             Text(reason.title)
                 .font(.system(.body, design: .rounded).weight(.semibold))
@@ -487,22 +511,23 @@ private struct FeelingChip: View {
             Spacer(minLength: 0)
             Text("\(number)")
                 .font(.caption2.monospacedDigit().weight(.semibold))
-                .foregroundStyle(.white.opacity(highlighted ? 0.7 : 0.35))
+                .foregroundStyle(.white.opacity(highlighted ? 0.7 : 0.3))
         }
         .padding(.leading, Theme.Space.snug)
         .padding(.trailing, Theme.Space.base)
         .frame(height: 56)
         .background {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(highlighted ? tint.opacity(0.22) : .white.opacity(0.07))
+                .fill(.white.opacity(highlighted ? 0.18 : 0.07))
         }
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(highlighted ? tint.opacity(0.75) : .white.opacity(0.12), lineWidth: highlighted ? 1.5 : 1)
+                .strokeBorder(.white.opacity(highlighted ? 0.4 : 0.12), lineWidth: 1)
         }
-        .scaleEffect(highlighted ? 1.035 : 1)
-        .shadow(color: highlighted ? tint.opacity(0.35) : .clear, radius: 14, y: 4)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: highlighted)
+        .scaleEffect(highlighted ? 1.03 : 1)
+        .offset(y: highlighted ? -2 : 0)
+        .shadow(color: .black.opacity(highlighted ? 0.25 : 0), radius: 12, y: 6)
+        .animation(.spring(response: 0.32, dampingFraction: 0.7), value: highlighted)
         .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .accessibilityLabel("\(reason.title). \(reason.feeling)")
     }
@@ -513,21 +538,6 @@ private struct PressScaleStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
             .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
-    }
-}
-
-private extension Color {
-    /// Each feeling has its own colour, so it can be recognised before it's read. Warm for
-    /// restless states, cool for low-energy ones.
-    static func tint(for reason: UrgeReason) -> Color {
-        switch reason {
-        case .bored: Color(red: 1.0, green: 0.80, blue: 0.32)
-        case .tired: Color(red: 0.62, green: 0.66, blue: 1.0)
-        case .stuck: Color(red: 1.0, green: 0.58, blue: 0.38)
-        case .anxious: Color(red: 0.42, green: 0.86, blue: 0.80)
-        case .lonely: Color(red: 1.0, green: 0.58, blue: 0.72)
-        case .needed: Color(red: 0.56, green: 0.86, blue: 0.48)
-        }
     }
 }
 

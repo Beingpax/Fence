@@ -42,15 +42,16 @@ enum DayPeriod: CaseIterable {
         }
     }
 
-    /// How much to darken the photo so white type stays readable. Daylight photos are
-    /// bright all over and need far more than the night sky, which is dark already.
+    /// How much to darken the photo so white type stays readable. Tuned by measuring each
+    /// photo's brightness where the title sits: after this, none is above about 0.42 of
+    /// full white there, which white type with its soft shadow clears comfortably.
     var scrim: Double {
         switch self {
-        case .sunrise: 0.34
+        case .sunrise: 0.46
         case .morning: 0.46
-        case .afternoon: 0.42
+        case .afternoon: 0.50
         case .sunset: 0.30
-        case .night: 0.12
+        case .night: 0.22
         }
     }
 

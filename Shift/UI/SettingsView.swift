@@ -29,7 +29,7 @@ struct SettingsView: View {
 
     private var startup: some View {
         @Bindable var model = model
-        return Panel("Startup", icon: "power", tint: .indigo) {
+        return Panel("Startup", icon: "power") {
             PanelRow(
                 title: "Open Shift at login",
                 detail: "Start Shift when you sign in to your Mac."
@@ -61,8 +61,7 @@ struct SettingsView: View {
         return Panel(
             "Nudges",
             subtitle: "A quiet card when a window title looks like a feed, such as Shorts or Reels.",
-            icon: "arrow.turn.up.left",
-            tint: .teal
+            icon: "arrow.turn.up.left"
         ) {
             PanelRow(title: "Show nudges") {
                 ShiftSwitch(isOn: $model.showNudges)
@@ -77,8 +76,7 @@ struct SettingsView: View {
         Panel(
             "Previews",
             subtitle: "See each moment as it happens, without visiting a blocked site.",
-            icon: "eye",
-            tint: .orange
+            icon: "eye"
         ) {
             PanelRow(title: "The pause", detail: "Reaches within an hour: 5, then 15, then 30 seconds before the choices open.") {
                 HStack(spacing: Theme.Space.tight) {
@@ -102,7 +100,7 @@ struct SettingsView: View {
     }
 
     private var detection: some View {
-        Panel("How blocking works", icon: "scope", tint: .purple) {
+        Panel("How blocking works", icon: "scope") {
             Text("Shift checks the current app and browser address against your enabled blocks. A rule can match a whole website, a path like YouTube Shorts, or an app. The moment a match appears, usually before the page has loaded, Shift covers the screen with a pause: a breath, then a question about what you were really after, and what would meet that need better than the feed. Closing it closes just the tab. If the block allows breaks, “I need it” opens just that site for one or two minutes, for a reason you name; the block stays on. Each reach within the hour waits longer before the choices open: 5, then 15, then 30 seconds.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -111,7 +109,7 @@ struct SettingsView: View {
     }
 
     private var about: some View {
-        Panel("Setup", icon: "sparkle", tint: .blue) {
+        Panel("Setup", icon: "sparkle") {
             PanelRow(title: "Run first-time setup again") {
                 Button("Open setup") { model.presentOnboarding() }
                     .buttonStyle(.shiftSoft)

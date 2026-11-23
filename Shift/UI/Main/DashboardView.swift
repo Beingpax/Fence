@@ -66,13 +66,13 @@ struct DashboardView: View {
                 value: "\(active.count)",
                 label: "Active now",
                 symbol: "bolt.fill",
-                tint: .green
+                tint: Color(nsColor: .secondaryLabelColor)
             )
             StatTile(
                 value: "\(model.store.blocks.reduce(0) { $0 + $1.stats.timesTriggered })",
                 label: "Times paused",
-                symbol: "hand.raised.fill",
-                tint: .orange
+                symbol: "wind",
+                tint: Color(nsColor: .secondaryLabelColor)
             )
         }
     }

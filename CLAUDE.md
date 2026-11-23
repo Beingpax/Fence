@@ -174,7 +174,8 @@ Rules that are easy to get wrong, and are covered by the tests:
     `CREDITS.md`. Green land, not desert: the user rejected dunes. A hand-rolled gradient
     always looks hand-rolled at this size, and matching the light outside makes the pause
     feel like a window, not a wall. Each period has its own scrim, heavier for bright
-    daylight, so white type always reads; the panel is `.ultraThinMaterial`.
+    daylight, so white type always reads (tuned by measuring each photo where the title
+    sits; none ends up above about 0.42 of full white). The panel is frost plus a dark wash.
   - **It moves like a place, not a poster.** The photo pulls back from a slight zoom and
     then drifts for 40 s; the badge, title, subtitle and panel rise in one after another;
     the choices light up in sequence when the breath ends; answers slide in. Reduce Motion
@@ -289,16 +290,23 @@ relitigate them without asking:
   browser window with Flop on a frosted panel; the user rejected it because the page
   stayed visible around it. Flop appears only afterwards, in the reward card.
 - **One breath, then one honest question, one thing at a time.** During the breath there
-  is no panel: only a frosted orb that swells with the breath and a thin ring that empties
-  over 5 s (15 s on the second reach, 30 s from the third). When it ends, the orb grows
-  into the question panel (`matchedGeometryEffect`), the question comes into focus, and
-  six colour-coded feeling chips arrive one after another. Each chip is one short word
-  with its own colour and symbol; the longer description shows only on hover, in a single
-  helper line, and 1–6 on the keyboard pick them. Choosing one replaces the question with
-  its answer in the same panel. The close button sits outside the panel, never waits, and
-  answers to Return. These came from GOV.UK's one-thing-per-page, Hick's law, How We Feel's
-  colour-coded check-ins and one sec's breath-then-choice; the user asked for this section
-  specifically to be redesigned, so treat it as settled.
+  is no panel: only a floating frosted orb with three rings that ripple outward on the
+  in-breath and gather on the out-breath, and a small countdown (5 s, 15 s on the second
+  reach, 30 s from the third). When it ends, the orb grows into the question panel
+  (`matchedGeometryEffect`), the question reveals, and six feeling chips arrive one after
+  another. Each chip is one short word and a white symbol; the longer description shows
+  only on hover, in a single helper line, and 1–6 on the keyboard pick them. Choosing one
+  replaces the question with its answer, and **there is no way back**: the only thing left
+  is the close button, which turns solid white as the obvious next step. The close button
+  sits outside the panel, never waits, and answers to Return. Sources: GOV.UK's
+  one-thing-per-page, Hick's law, one sec's breath-then-choice.
+- **Neutral, so the photo carries the colour.** White type, white glass, white symbols,
+  and a dark wash under the panel's frost so it reads on every backdrop. The user rejected
+  colour-coded chips (and the teal/orange/purple tints in Settings and the week panel) as
+  looking AI-generated. Don't reintroduce decorative colour on this screen or on panels.
+- **Words arrive, they don't switch on.** Every line on the pause reveals letter by letter,
+  rising out of a soft blur (`RevealRenderer`, a `TextRenderer`, via `revealOnAppear`), and
+  the breathing cue and hover line dissolve into the next (`TextRevealTransition`).
   Naming the craving weakens it. `UrgeReason` lists them in the person's own words:
   bored, drained, this is hard, anxious, alone, I need it.
 - **Every answer closes it, except one.** Each craving gets a line on what would meet it
