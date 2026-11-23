@@ -1,26 +1,21 @@
+import AppKit
+import Observation
 import SwiftUI
 
-/// The part of the day a pause lands in, and the landscape that goes with it.
-///
-/// The pause is the one surface in Shift that fills a display, so it gets real photographs
-/// rather than a gradient: green land under the sky as it actually looks outside right now.
-/// Matching the light outside makes the pause feel like a window rather than a wall, and
-/// a calm landscape is the opposite of the feed it's standing in front of.
-///
-/// All five are under the Unsplash License. See `CREDITS.md`.
-enum DayPeriod: CaseIterable {
-    /// 05:00–09:00. Mist and low gold light over a meadow.
+/// Clock bands shared by the lighting variants of every landscape.
+enum DayPeriod: String, CaseIterable {
+    /// 05:00–09:00.
     case sunrise
-    /// 09:00–13:00. Bright green hills under a clear blue sky.
+    /// 09:00–13:00.
     case morning
-    /// 13:00–17:00. Savanna grass and acacias in full afternoon light.
+    /// 13:00–17:00.
     case afternoon
-    /// 17:00–20:30. A green field under a burning sky.
+    /// 17:00–20:30.
     case sunset
-    /// 20:30–05:00. The Milky Way over green hills.
+    /// 20:30–05:00.
     case night
 
-    init(date: Date = Date(), calendar: Calendar = .current) {
+    init(date: Date, calendar: Calendar) {
         let parts = calendar.dateComponents([.hour, .minute], from: date)
         let minutes = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
         switch minutes {
@@ -31,52 +26,82 @@ enum DayPeriod: CaseIterable {
         default: self = .night
         }
     }
+}
 
-    var imageName: String {
-        switch self {
-        case .sunrise: "BackdropSunrise"
-        case .morning: "BackdropMorning"
-        case .afternoon: "BackdropAfternoon"
-        case .sunset: "BackdropSunset"
-        case .night: "BackdropNight"
-        }
+struct PauseWallpaperSelection: Equatable {
+    enum Landscape: String, CaseIterable {
+        case acaciaPlain = "acacia-plain"
+        case redDune = "red-dune"
+        case snowyRidge = "snowy-ridge"
+        case greenHills = "green-hills"
     }
 
-    /// How much to darken the photo so white type stays readable. Tuned by measuring each
-    /// photo's brightness where the title sits: after this, none is above about 0.42 of
-    /// full white there, which white type with its soft shadow clears comfortably.
+    let landscape: Landscape
+    let period: DayPeriod
+
+    init(date: Date, timeZone: TimeZone = .autoupdatingCurrent) {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        period = DayPeriod(date: date, calendar: calendar)
+
+        // Count between local midnights so the rotation steps once on short and long days.
+        let today = calendar.startOfDay(for: date)
+        let referenceDay = calendar.date(from: DateComponents(year: 2001, month: 1, day: 1)) ?? today
+        let days = calendar.dateComponents([.day], from: referenceDay, to: today).day ?? 0
+        let landscapes = Landscape.allCases
+        let index = (days % landscapes.count + landscapes.count) % landscapes.count
+        landscape = landscapes[index]
+    }
+
+    var resourceName: String { "PauseWallpaper-\(landscape.rawValue)-\(period.rawValue)" }
+
+    /// Keep the white type readable while preserving detail in the darkest frames.
     var scrim: Double {
-        switch self {
-        case .sunrise: 0.46
-        case .morning: 0.46
-        case .afternoon: 0.50
-        case .sunset: 0.30
-        case .night: 0.22
+        switch (landscape, period) {
+        case (_, .sunrise): 0.54
+        case (_, .morning), (_, .afternoon): 0.56
+        case (_, .sunset), (.snowyRidge, .night): 0.42
+        case (_, .night): 0.16
+        }
+    }
+}
+
+/// One active image shared by all pause windows. The bundled JPEG stays out of AppKit's named image cache.
+@MainActor
+@Observable
+final class PauseWallpaper {
+    private(set) var selection: PauseWallpaperSelection
+    private(set) var image: NSImage?
+
+    init() {
+        let selection = PauseWallpaperSelection(date: .now)
+        self.selection = selection
+        image = Self.load(selection)
+    }
+
+    func followClock() async {
+        while !Task.isCancelled {
+            let now = Date.now
+            let next = PauseWallpaperSelection(date: now)
+            if next != selection {
+                selection = next
+                image = Self.load(next)
+            }
+
+            // Wake on the clock minute while the pause is open, including across midnight.
+            let nextMinute = Calendar.autoupdatingCurrent.dateInterval(of: .minute, for: now)?.end
+            let delay = max(0.1, nextMinute?.timeIntervalSinceNow ?? 60)
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
         }
     }
 
-    /// The light inside the breathing orb, taken from the photo's own sky so the orb looks
-    /// lit by the same sun rather than pasted on top: gold and rose at dawn, sky and leaf at
-    /// midday, amber at the savanna, ember at sunset, indigo under the stars.
-    var glow: [Color] {
-        switch self {
-        case .sunrise: [Color(red: 1.0, green: 0.78, blue: 0.52), Color(red: 0.98, green: 0.60, blue: 0.58), Color(red: 1.0, green: 0.90, blue: 0.62)]
-        case .morning: [Color(red: 0.58, green: 0.82, blue: 1.0), Color(red: 0.60, green: 0.92, blue: 0.76), Color(red: 0.86, green: 0.94, blue: 1.0)]
-        case .afternoon: [Color(red: 1.0, green: 0.80, blue: 0.48), Color(red: 0.76, green: 0.86, blue: 0.56), Color(red: 1.0, green: 0.92, blue: 0.72)]
-        case .sunset: [Color(red: 1.0, green: 0.56, blue: 0.44), Color(red: 0.92, green: 0.48, blue: 0.70), Color(red: 1.0, green: 0.78, blue: 0.44)]
-        case .night: [Color(red: 0.48, green: 0.54, blue: 1.0), Color(red: 0.72, green: 0.56, blue: 1.0), Color(red: 0.44, green: 0.82, blue: 0.92)]
-        }
-    }
-
-    /// The fallback colour behind the photo while it decodes.
-    var ground: Color {
-        switch self {
-        case .sunrise: Color(red: 0.42, green: 0.38, blue: 0.24)
-        case .morning: Color(red: 0.24, green: 0.42, blue: 0.30)
-        case .afternoon: Color(red: 0.45, green: 0.40, blue: 0.24)
-        case .sunset: Color(red: 0.30, green: 0.18, blue: 0.20)
-        case .night: Color(red: 0.05, green: 0.07, blue: 0.15)
-        }
+    private static func load(_ selection: PauseWallpaperSelection) -> NSImage? {
+        Bundle.main.url(forResource: selection.resourceName, withExtension: "jpg")
+            .flatMap { NSImage(contentsOf: $0) }
     }
 }
 
@@ -86,7 +111,7 @@ enum DayPeriod: CaseIterable {
 /// slowly, for as long as the pause is up. A still photo at this size reads as a poster;
 /// one that breathes reads as a place. Under Reduce Motion it simply holds still.
 struct PauseBackdrop: View {
-    var period = DayPeriod()
+    let wallpaper: PauseWallpaper
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var arrived = false
@@ -95,26 +120,27 @@ struct PauseBackdrop: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                period.ground
+                Color(red: 0.06, green: 0.07, blue: 0.09)
 
-                Image(period.imageName)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-                    .scaleEffect(reduceMotion ? 1 : (arrived ? (drifting ? 1.06 : 1.0) : 1.14))
-                    .offset(x: reduceMotion ? 0 : (drifting ? -geometry.size.width * 0.012 : 0))
-                    .clipped()
+                if let image = wallpaper.image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .scaleEffect(reduceMotion ? 1 : (arrived ? (drifting ? 1.06 : 1.0) : 1.14))
+                        .offset(x: reduceMotion ? 0 : (drifting ? -geometry.size.width * 0.012 : 0))
+                        .clipped()
+                }
 
-                // Even dimming first, so bright daylight can carry white type at all.
-                Color.black.opacity(period.scrim)
+                Color.black.opacity(wallpaper.selection.scrim)
 
-                // Then a little extra at the top and bottom, where the eye rests least.
+                // Give the text a consistent base as it moves between pause phases.
                 LinearGradient(
                     stops: [
-                        .init(color: .black.opacity(0.22), location: 0.0),
-                        .init(color: .clear, location: 0.35),
-                        .init(color: .clear, location: 0.70),
-                        .init(color: .black.opacity(0.25), location: 1.0),
+                        .init(color: .black.opacity(0.18), location: 0),
+                        .init(color: .black.opacity(0.12), location: 0.32),
+                        .init(color: .black.opacity(0.12), location: 0.72),
+                        .init(color: .black.opacity(0.24), location: 1),
                     ],
                     startPoint: .top, endPoint: .bottom
                 )
