@@ -1,0 +1,26 @@
+CLAUDE.md
+  ai_agent 293-297,299-301,309-313
+Shift/UI/Design/Materials.swift
+  s_50e4768796818f::t_5cfceda458e072 368-370,374,377,379,382,384,388-389,391,394,397,399
+Shift/Enforcement/PauseView.swift
+  s_50e4768796818f::t_dd7f2718bd50a7 520,526-527,536-537,539-543,596,599,601-602,607,611-612
+  s_50e4768796818f::t_5cfceda458e072 16-19,326-327,449-450,458-459,650-651,654-659
+  s_50e4768796818f::t_6f7271b5ca4f30 38,137-139,142,169-170,490-500,502,505-511,514,516-519,521,523-525,528-532,534-535,538,544,578,585-588,591-595,597-598,600,606,608,610,617-637
+  s_50e4768796818f::t_055ca408faaeee 522,547-576,579-583,589-590,603,609
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "abde6a684b2ed3e4ec47aaa9951feeb426e0a4a9",
+  "prompts": {},
+  "sessions": {
+    "s_50e4768796818f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b8c0a791-6f45-4510-84f2-8286d4c70394",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Prakash Joshi Pax <101010368+Beingpax@users.noreply.github.com>"
+    }
+  }
+}
