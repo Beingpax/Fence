@@ -29,7 +29,7 @@ struct Verdict: Equatable, Sendable {
     }
 
     var kind: Kind
-    /// One human-readable line. Shown on the shield and in "What Shift sees".
+    /// One human-readable line. Shown in "What Shift sees" and the activity log.
     var reason: String
     /// The block responsible, when there is one.
     var blockID: UUID?

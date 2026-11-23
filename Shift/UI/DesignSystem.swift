@@ -4,7 +4,7 @@ import SwiftUI
 /// Shared visual language. One place to change spacing, radii and glass behaviour.
 ///
 /// Design notes (Apple HIG + macOS 26):
-/// - Liquid Glass is used for surfaces that float above content: cards, HUDs, shield controls.
+/// - Liquid Glass is used for surfaces that float above content: cards and HUDs.
 ///   Glass never stacks on glass, so grouped glass lives inside a `GlassEffectContainer`.
 /// - Every glass surface degrades to an opaque material when the user turns on
 ///   Reduce Transparency, and every animation degrades when Reduce Motion is on.
@@ -48,7 +48,7 @@ enum Theme {
         }
     })
 
-    /// Verdict colours. Deliberately desaturated so the UI stays calm; the shield is the loud surface.
+    /// Verdict colours. Deliberately desaturated so the UI stays calm; the pause is the one full-screen surface.
     static func tint(for kind: Verdict.Kind) -> Color {
         switch kind {
         case .allow: .green
@@ -130,7 +130,7 @@ struct SectionLabel: View {
 }
 
 /// Behind-window blur. Used where a view must sample the desktop rather than app content,
-/// which is the one case Liquid Glass can't cover: the shield sits over other apps.
+/// which is the one case Liquid Glass can't cover: the pause sits over other apps.
 struct BehindWindowBlur: NSViewRepresentable {
     var material: NSVisualEffectView.Material = .fullScreenUI
 

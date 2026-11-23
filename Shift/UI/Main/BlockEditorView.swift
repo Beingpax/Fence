@@ -354,6 +354,12 @@ struct BlockInspector: View {
                     .accessibilityLabel("Allow breaks")
                     .disabled(isLocked)
             }
+            Text(draft.breaks.isEnabled
+                 ? "Up to \(BreakPlan.dailyAllowance) short breaks a day. When you tell the pause you need a site for something specific, this block steps aside for one or two minutes."
+                 : "Off: every reach is closed. Turn on to allow \(BreakPlan.dailyAllowance) short breaks a day, for when you really need a site.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

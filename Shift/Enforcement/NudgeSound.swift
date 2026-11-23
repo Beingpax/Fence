@@ -8,8 +8,8 @@ import AppKit
 /// - **reward**: a bright rising glass bell the moment someone turns back on their own.
 ///   This is the most important of the three: behaviour that's rewarded straight away is
 ///   behaviour that repeats, and turning back is the habit Shift is trying to build.
-/// - **shield**: a calm, deep chord as the full-screen block lands on the third reach in
-///   an hour. A reset, not a fourth, louder warning.
+/// - **deep** (`shield.m4a`): a calm, deep chord in place of the chime from the third
+///   reach in an hour. Firmer, but a reset, not a louder warning.
 ///
 /// Generated with ElevenLabs' sound effects model, then trimmed, faded and loudness-matched
 /// with ffmpeg. They live in `Resources/Sounds`. Settings → Nudges → Sounds turns them off.
@@ -19,7 +19,7 @@ enum NudgeSound {
 
     static func playPause() { play("pause") }
     static func playReward() { play("reward") }
-    static func playShield() { play("shield") }
+    static func playDeep() { play("shield") }
 
     private static func play(_ name: String) {
         guard let sound = sound(named: name) else { return }

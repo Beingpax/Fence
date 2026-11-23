@@ -210,7 +210,7 @@ struct OnboardingView: View {
                 Label("Reach for a blocked site and Shift pauses you, before the page loads.", systemImage: "wind")
                 Label("One breath, one honest question, and something better to do instead.", systemImage: "heart")
                 Label("Walk away and Flop cheers. That’s the new habit forming.", systemImage: "hand.thumbsup")
-                Label("Keep coming back, and the third time in an hour covers the screen.", systemImage: "rectangle.on.rectangle")
+                Label("Keep coming back, and each pause gets longer.", systemImage: "hourglass")
             }
             .font(.callout)
             .labelStyle(.titleAndIcon)

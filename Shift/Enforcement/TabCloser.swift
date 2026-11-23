@@ -15,6 +15,9 @@ enum TabCloser {
     /// browser. Needs the Accessibility permission, which Shift already holds.
     static func closeFrontTab(pid: pid_t) async {
         guard let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else { return }
+        // Shift is the active app while the pause is up, so it has to hand
+        // activation over explicitly; macOS ignores a bare activate() from elsewhere.
+        NSApp.yieldActivation(to: app)
         app.activate()
         try? await Task.sleep(for: .milliseconds(180))
         guard !app.isTerminated, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }

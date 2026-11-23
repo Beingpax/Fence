@@ -14,7 +14,7 @@ enum PermissionsManager {
 
     // MARK: Accessibility
 
-    /// Window titles, the frontmost app, and shortcut suppression during the shield.
+    /// Window titles, the frontmost app, and shortcut suppression during the pause.
     static var isAccessibilityTrusted: Bool { AXIsProcessTrusted() }
 
     /// Shows the system prompt that deep-links to Privacy & Security → Accessibility.

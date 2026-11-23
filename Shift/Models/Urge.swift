@@ -98,7 +98,8 @@ enum UrgeOutcome: String, Codable, Sendable {
     case reachedOut
     /// Took two minutes for a stated reason.
     case allowed
-    /// Third reach within the hour; the full-screen block took over.
+    /// The old full-screen block took over. Kept so logs written before the pause
+    /// replaced it still decode.
     case shielded
 
     /// Everything except `allowed` and `shielded` is the person turning back on their own.

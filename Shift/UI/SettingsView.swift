@@ -67,7 +67,7 @@ struct SettingsView: View {
             PanelRow(title: "Show nudges") {
                 ShiftSwitch(isOn: $model.showNudges)
             }
-            PanelRow(title: "Sounds", detail: "A soft chime when Shift pauses you, a bright one when you turn back, and a calm tone if the screen is covered.") {
+            PanelRow(title: "Sounds", detail: "A soft chime when Shift pauses you, a deeper one from the third time in an hour, and a bright one when you turn back.") {
                 ShiftSwitch(isOn: $model.playNudgeSounds)
             }
         }
@@ -80,20 +80,18 @@ struct SettingsView: View {
             icon: "eye",
             tint: .orange
         ) {
-            PanelRow(title: "The pause", detail: "First reach: one breath. Second in an hour: three.") {
+            PanelRow(title: "The pause", detail: "Reaches within an hour: 5, then 15, then 30 seconds before the choices open.") {
                 HStack(spacing: Theme.Space.tight) {
                     Button("First") { model.previewPause(visit: 1) }
                         .buttonStyle(.shiftSoft)
                     Button("Second") { model.previewPause(visit: 2) }
                         .buttonStyle(.shiftSoft)
+                    Button("Third") { model.previewPause(visit: 3) }
+                        .buttonStyle(.shiftSoft)
                 }
             }
             PanelRow(title: "Turning back", detail: "What Flop does when you walk away.") {
                 Button("Show") { model.previewReward() }
-                    .buttonStyle(.shiftSoft)
-            }
-            PanelRow(title: "Full-screen block", detail: "The third reach in an hour.") {
-                Button("Show") { model.previewShield() }
                     .buttonStyle(.shiftSoft)
             }
             PanelRow(title: "Drift hint", detail: "The quiet card, for mild drift. Never escalates.") {
@@ -105,7 +103,7 @@ struct SettingsView: View {
 
     private var detection: some View {
         Panel("How blocking works", icon: "scope", tint: .purple) {
-            Text("Shift checks the current app and browser address against your enabled blocks. A rule can match a whole website, a path like YouTube Shorts, or an app. The moment a match appears, usually before the page has loaded, Shift covers that window with a pause: one breath, then a question about what you were really after, and something better to do instead. A second reach within the hour gets a longer pause. The third covers the screen.")
+            Text("Shift checks the current app and browser address against your enabled blocks. A rule can match a whole website, a path like YouTube Shorts, or an app. The moment a match appears, usually before the page has loaded, Shift covers the screen with a pause: a breath, then a question about what you were really after, and what would meet that need better than the feed. Closing it closes just the tab. If the block allows breaks, “I need it” gives you one or two minutes for a stated reason. Each reach within the hour waits longer before the choices open: 5, then 15, then 30 seconds.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

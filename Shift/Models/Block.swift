@@ -244,12 +244,14 @@ struct BreakPlan: Codable, Equatable {
         return max(0, Self.dailyAllowance - usedToday)
     }
 
-    mutating func start(at date: Date) -> Bool {
+    /// Uses one of today's breaks. `minutes` is capped at `Self.minutes`: the pause offers
+    /// a shorter one-minute break, never a longer one.
+    mutating func start(at date: Date, minutes: Int = Self.minutes) -> Bool {
         let available = remaining(at: date)
         guard available > 0, !isOnBreak(at: date) else { return false }
         breaksTakenToday = Self.dailyAllowance - available + 1
         lastResetDay = date
-        currentBreakEndsAt = date.addingTimeInterval(TimeInterval(Self.minutes) * 60)
+        currentBreakEndsAt = date.addingTimeInterval(TimeInterval(min(max(minutes, 1), Self.minutes)) * 60)
         return true
     }
 }

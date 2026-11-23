@@ -1,400 +1,347 @@
 import SwiftUI
 
-/// The pause: one breath, one honest question, and something better than the feed.
+/// The pause: one breath, one honest question, and a reason to close it.
 ///
-/// Every screen here follows the same few rules from habit research, so check new copy
-/// against them:
+/// The only full-screen surface in Shift. It used to be followed by a separate shield; now
+/// it simply gets longer each time (5, 15, then 30 seconds before the choices open).
+/// Every screen follows a few rules from habit research, so check new copy against them:
 ///
 /// 1. **Catch the cue, before the reward.** The pause lands while the page is still
 ///    loading. A feed that never pays out stops being worth reaching for.
-/// 2. **No shame.** Shame makes people hide from the tool, not change. The voice is a
-///    friend's: warm, on your side, a little wry. The urge is "the pull", not you.
-/// 3. **Name the craving.** Putting a feeling into words weakens it, and turns autopilot
+/// 2. **No shame.** Shame makes people fight the tool, not change. The voice is a
+///    friend's: warm, on your side. The urge is "the pull", not you.
+/// 3. **Name the craving.** Putting a feeling into words weakens it and turns autopilot
 ///    into a decision.
-/// 4. **Replace, don't remove.** Every answer leads to a routine that meets the same need
-///    better: real rest, a smaller step, a real person.
-/// 5. **Effort over willpower.** Each option asks for a small, concrete action, because
-///    doing something is easier than resisting something.
+/// 4. **Point at something better, then close it.** Each answer says what would actually
+///    meet that need, and the only button closes the page. The person does the better
+///    thing themselves.
+/// 5. **Real needs are allowed, honestly.** "I need it" asks what for, then spends one of
+///    the block's breaks. It only exists when the block allows breaks.
 struct PauseView: View {
     let request: PauseRequest
     let onEvent: (PauseEvent) -> Void
 
-    private enum Phase: Equatable {
-        case breathing
-        case asking
-        case answering(UrgeReason)
-        case resting(UrgeReason, endsAt: Date)
-    }
-
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @State private var phase: Phase = .breathing
+
+    @State private var reason: UrgeReason?
+    @State private var secondsLeft: Int
     @State private var inhaling = false
     @State private var cue = "Breathe in…"
     @State private var note = ""
+    @State private var appeared = false
     @FocusState private var noteFocused: Bool
 
-    private static let accent = NudgeMood.calm.tint
-    private static let breakLength: TimeInterval = 120
+    private enum Palette {
+        static let accent = Color(red: 1.0, green: 0.84, blue: 0.66)
+        static let action = Color(red: 0.90, green: 0.45, blue: 0.30)
+    }
+
+    init(request: PauseRequest, onEvent: @escaping (PauseEvent) -> Void) {
+        self.request = request
+        self.onEvent = onEvent
+        _secondsLeft = State(initialValue: request.waitSeconds)
+    }
 
     var body: some View {
         ZStack {
-            background
-            ScrollView {
-                VStack(spacing: Theme.Space.base) {
-                    switch phase {
-                    case .breathing: breathing
-                    case .asking: asking
-                    case .answering(let reason): answering(reason)
-                    case .resting(let reason, let endsAt): resting(reason, endsAt: endsAt)
-                    }
+            PauseBackdrop()
+            GeometryReader { geometry in
+                ScrollView {
+                    content
+                        .frame(minHeight: geometry.size.height)
+                        .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: 500)
-                .padding(.horizontal, Theme.Space.wide)
-                .padding(.vertical, Theme.Space.vast)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 560)
+                .scrollBounceBehavior(.basedOnSize)
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .scrollIndicators(.never)
-
-            if request.isPreview {
-                VStack {
-                    Spacer()
-                    Text("Preview")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.bottom, Theme.Space.base)
-                }
-            }
+            .task { await breathe() }
         }
-        .multilineTextAlignment(.center)
-        .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.42, dampingFraction: 0.86), value: phase)
-        .task { await breathe() }
+        .onAppear { appeared = true }
+        .environment(\.colorScheme, .dark)
+        .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.4, dampingFraction: 0.88), value: reason)
     }
 
-    // MARK: Surface
-
-    private var background: some View {
-        ZStack {
-            if reduceTransparency {
-                Color(nsColor: .windowBackgroundColor)
-            } else {
-                // Heavy blur plus a wash, so whatever has loaded underneath is a blur of
-                // colour, never something you could read or get pulled into.
-                BehindWindowBlur(material: .fullScreenUI, cornerRadius: 16)
-                Color(nsColor: .windowBackgroundColor).opacity(0.62)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(.primary.opacity(0.08), lineWidth: 1)
-        }
-    }
-
-    // MARK: 1. Breathe
-
-    private var breathing: some View {
-        VStack(spacing: Theme.Space.base) {
+    private var content: some View {
+        VStack(spacing: Theme.Space.loose) {
             ZStack {
                 Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [Self.accent.opacity(0.32), Self.accent.opacity(0.08), .clear],
-                            center: .center, startRadius: 10, endRadius: 130
-                        )
-                    )
-                    .frame(width: 260, height: 260)
-                    .scaleEffect(reduceMotion ? 1 : (inhaling ? 1.08 : 0.74))
-                    .opacity(reduceMotion ? (inhaling ? 1 : 0.55) : 1)
-                NudgeCharacterView(mood: .calm, animates: !reduceMotion, height: 160)
+                    .fill(Palette.accent.opacity(0.18))
+                    .frame(width: 112, height: 112)
+                    .scaleEffect(reduceMotion ? 1 : (inhaling ? 1.15 : 0.8))
+                    .opacity(secondsLeft > 0 ? 1 : 0)
+                BlockBadge(symbol: "wind", tint: .orange, size: 62)
             }
+            .scaleEffect(appeared || reduceMotion ? 1 : 0.4)
+            .entrance(appeared, delay: 0.05, reduceMotion: reduceMotion)
             .accessibilityHidden(true)
 
-            Text(request.visit <= 1 ? "Hey. One breath first." : "Back again. That’s the pull, not you.")
-                .font(.system(size: 28, weight: .bold, design: .rounded))
+            VStack(spacing: Theme.Space.snug) {
+                Text(headline.title)
+                    .font(.system(size: 48, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.25), radius: 12, y: 2)
+                    .accessibilityAddTraits(.isHeader)
+                    .entrance(appeared, delay: 0.14, reduceMotion: reduceMotion)
 
-            Text(request.visit <= 1
-                 ? "You reached for \(request.target). Before it pulls you in, check in with yourself."
-                 : "Urges rise, peak and fade, usually within a minute. Ride this one out with me.")
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                Text(headline.subtitle)
+                    .font(.title3)
+                    .foregroundStyle(.white.opacity(0.88))
+                    .shadow(color: .black.opacity(0.25), radius: 8, y: 1)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .entrance(appeared, delay: 0.22, reduceMotion: reduceMotion)
+            }
 
-            Text(cue)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(Self.accent)
-                .contentTransition(.opacity)
-                .padding(.top, Theme.Space.tight)
-                .accessibilityAddTraits(.updatesFrequently)
+            Label(request.blockName, systemImage: "square.stack")
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.85))
+                .entrance(appeared, delay: 0.28, reduceMotion: reduceMotion)
 
-            closeLink
-                .padding(.top, Theme.Space.snug)
+            VStack(spacing: Theme.Space.base) {
+                if let reason {
+                    answer(for: reason)
+                        .transition(reduceMotion ? .opacity : .asymmetric(
+                            insertion: .move(edge: .trailing).combined(with: .opacity),
+                            removal: .opacity
+                        ))
+                } else {
+                    question
+                        .transition(reduceMotion ? .opacity : .asymmetric(
+                            insertion: .move(edge: .leading).combined(with: .opacity),
+                            removal: .opacity
+                        ))
+                }
+            }
+            .padding(Theme.Space.loose)
+            .frame(maxWidth: 520)
+            // Frosted, so it reads on a bright midday sky as well as on the night one.
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Theme.Radius.panel))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.panel))
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.Radius.panel)
+                    .strokeBorder(.white.opacity(0.16))
+                    .allowsHitTesting(false)
+            }
+            .entrance(appeared, delay: 0.36, distance: 40, reduceMotion: reduceMotion)
+
+            if request.isPreview {
+                Text("Pause preview")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.65))
+            }
+        }
+        .padding(Theme.Space.vast)
+        .frame(maxWidth: 760)
+        .multilineTextAlignment(.center)
+    }
+
+    /// Gentle the first time, warmer and more patient after that. Never a scolding: by the
+    /// third reach the person already knows, and shame only makes them fight the tool.
+    private var headline: (title: String, subtitle: String) {
+        switch request.visit {
+        case ...1:
+            ("Take a breath.",
+             "You reached for \(request.target). Before it pulls you in, check in with yourself.")
+        case 2:
+            ("Back again.",
+             "That’s the pull, not you. Urges rise, peak and fade, usually within a minute. Ride this one out.")
+        default:
+            ("Third time this hour.",
+             "The pull is strong today, and that’s okay. Sit with it for thirty seconds, then choose.")
         }
     }
 
-    private func breathe() async {
-        for _ in 0..<request.breathCycles {
-            withAnimation(.easeInOut(duration: 2.5)) {
-                inhaling = true
-                cue = "Breathe in…"
-            }
-            try? await Task.sleep(for: .seconds(2.5))
-            guard !Task.isCancelled, phase == .breathing else { return }
-            withAnimation(.easeInOut(duration: 2.5)) {
-                inhaling = false
-                cue = "And let it go…"
-            }
-            try? await Task.sleep(for: .seconds(2.5))
-            guard !Task.isCancelled, phase == .breathing else { return }
-        }
-        phase = .asking
+    // MARK: The question
+
+    private var choices: [UrgeReason] {
+        UrgeReason.allCases.filter { $0 != .needed || request.breaksLeft != nil }
     }
 
-    // MARK: 2. Ask
-
-    private var reasons: [UrgeReason] {
-        UrgeReason.allCases.filter { $0 != .needed || request.allowsNeeded }
-    }
-
-    private var asking: some View {
+    private var question: some View {
         VStack(spacing: Theme.Space.base) {
-            NudgeCharacterView(mood: .calm, animates: !reduceMotion, height: 96)
-                .accessibilityHidden(true)
-
             Text("What were you hoping it would give you?")
-                .font(.system(size: 24, weight: .bold, design: .rounded))
-                .fixedSize(horizontal: false, vertical: true)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.white)
 
-            Text("Whatever it is, it’s a real need. Let’s meet it properly.")
-                .font(.body)
-                .foregroundStyle(.secondary)
+            if secondsLeft > 0 {
+                Text("\(cue)  ·  choices in \(secondsLeft)s")
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(Palette.accent)
+                    .contentTransition(.opacity)
+            } else {
+                Text("Whatever it is, it’s a real need. Let’s meet it properly.")
+                    .font(.callout)
+                    .foregroundStyle(.white.opacity(0.75))
+            }
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: Theme.Space.snug),
                                 GridItem(.flexible(), spacing: Theme.Space.snug)],
                       spacing: Theme.Space.snug) {
-                ForEach(reasons) { reason in
+                ForEach(Array(choices.enumerated()), id: \.element) { index, choice in
+                    let outOfBreaks = choice == .needed && request.breaksLeft == 0
                     Button {
                         note = ""
-                        phase = .answering(reason)
+                        reason = choice
                     } label: {
-                        ReasonLabel(reason: reason)
+                        ChoiceLabel(
+                            reason: choice,
+                            detail: outOfBreaks ? "No breaks left today" : choice.feeling
+                        )
                     }
-                    .buttonStyle(ReasonButtonStyle(tint: Self.accent))
+                    .buttonStyle(ChoiceButtonStyle())
+                    .disabled(secondsLeft > 0 || outOfBreaks)
+                    .opacity(secondsLeft > 0 || outOfBreaks ? 0.45 : 1)
+                    // The choices light up one after another as the breath ends, so the
+                    // moment they open is felt rather than merely noticed.
+                    .animation(.easeOut(duration: 0.35).delay(Double(index) * 0.06), value: secondsLeft > 0)
                 }
             }
-            .padding(.top, Theme.Space.tight)
 
-            closeLink
+            closeButton(title: "I don’t need it. \(request.closeTitle)", reason: nil)
                 .padding(.top, Theme.Space.tight)
         }
     }
 
-    // MARK: 3. Answer
+    // MARK: The answer
 
-    private struct Answer {
-        var title: String
-        var body: String
-        var prompt: String?
-        var action: String
-    }
-
-    private func answer(for reason: UrgeReason) -> Answer {
+    private func suggestion(for reason: UrgeReason) -> (title: String, body: String) {
         switch reason {
         case .bored:
-            Answer(
-                title: "Give your mind something real.",
-                body: "The feed promises something new and serves more of the same. Two minutes away from the screen will do more: stand up, stretch, look at something far away.",
-                action: "Start a 2-minute break"
-            )
+            ("Give your mind something real.",
+             "The feed promises something new and serves more of the same. Close it, stand up, stretch, and look at something far away for a minute.")
         case .tired:
-            Answer(
-                title: "You need rest, not more input.",
-                body: "Scrolling feels like rest, but it keeps your brain working. Close your eyes, drop your shoulders, and just breathe for two minutes.",
-                action: "Rest for 2 minutes"
-            )
+            ("You need rest, not more input.",
+             "Scrolling feels like rest, but it keeps your brain working. Close it, shut your eyes, and let your shoulders drop for two minutes.")
         case .stuck:
-            Answer(
-                title: "Make it smaller.",
-                body: "Hard work feels like a wall. A tiny next step is a door. What could you do in the next two minutes?",
-                prompt: "One small thing, like “write one rough sentence”",
-                action: "That’s my next step"
-            )
+            ("Make it smaller.",
+             "Hard work feels like a wall. A tiny next step is a door. Close this and write down one thing you could do in the next two minutes.")
         case .anxious:
-            Answer(
-                title: "Put it on paper, not in a feed.",
-                body: "A feed only adds noise to whatever you’re carrying. Write down what’s on your mind. Out of your head, it gets lighter.",
-                prompt: "What’s on your mind?",
-                action: "Set it down"
-            )
+            ("Put it on paper, not in a feed.",
+             "A feed only adds noise to whatever you’re carrying. Close it and write down what’s on your mind. Out of your head, it gets lighter.")
         case .lonely:
-            Answer(
-                title: "Reach a real person.",
-                body: "A feed shows you people without giving you any of them. Send one message to someone you actually like.",
-                action: "Open Messages"
-            )
+            ("Reach a real person.",
+             "A feed shows you people without giving you any of them. Close it and send one message to someone you actually like.")
         case .needed:
-            Answer(
-                title: "Name it, and it’s yours for two minutes.",
-                body: "Say exactly what you need it for. When the two minutes are up, Shift will close it for you.",
-                prompt: "Like “reply to Sam about Friday”",
-                action: "Open for 2 minutes"
-            )
+            ("Name it, then take a short break.",
+             "Say exactly what you need it for. “\(request.blockName)” pauses while you do it and comes back on its own.")
         }
     }
 
-    private func answering(_ reason: UrgeReason) -> some View {
-        let answer = answer(for: reason)
-        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        let canContinue = answer.prompt == nil || !trimmed.isEmpty
-
+    private func answer(for reason: UrgeReason) -> some View {
+        let text = suggestion(for: reason)
         return VStack(spacing: Theme.Space.base) {
-            NudgeCharacterView(mood: .calm, animates: !reduceMotion, height: 96)
-                .accessibilityHidden(true)
-
             if let plan = request.plans[reason], !plan.isEmpty {
                 // Their own words, from the weekly review. A promise you made yourself
                 // carries far more weight than any line an app could write.
                 VStack(spacing: 2) {
                     Text("Your plan")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(Self.accent)
+                        .foregroundStyle(Palette.accent)
                     Text("\(reason.planLead) \(plan).")
                         .font(.callout.weight(.medium))
+                        .foregroundStyle(.white)
                 }
                 .padding(.horizontal, Theme.Space.base)
                 .padding(.vertical, Theme.Space.snug)
                 .frame(maxWidth: .infinity)
-                .background(Self.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(Palette.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
 
-            Text(answer.title)
-                .font(.system(size: 26, weight: .bold, design: .rounded))
+            Text(text.title)
+                .font(.title2.weight(.bold))
+                .foregroundStyle(.white)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text(answer.body)
-                .font(.body)
-                .foregroundStyle(.secondary)
+            Text(text.body)
+                .font(.callout)
+                .foregroundStyle(.white.opacity(0.8))
                 .fixedSize(horizontal: false, vertical: true)
 
-            if let prompt = answer.prompt {
-                TextField(prompt, text: $note, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(.body)
-                    .lineLimit(1...4)
-                    .multilineTextAlignment(.leading)
-                    .padding(Theme.Space.snug + 2)
-                    .background(.background.opacity(0.7), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(noteFocused ? Self.accent.opacity(0.6) : .primary.opacity(0.12), lineWidth: 1)
-                    }
-                    .focused($noteFocused)
-                    .onAppear { noteFocused = true }
-                    .onSubmit { if canContinue { act(on: reason) } }
+            if reason == .needed {
+                needed
+            } else {
+                closeButton(title: request.closeTitle, reason: reason)
+                    .padding(.top, Theme.Space.tight)
             }
 
-            Button {
-                act(on: reason)
-            } label: {
-                Text(answer.action)
-                    .frame(minWidth: 220)
+            Button("Something else") {
+                note = ""
+                self.reason = nil
             }
-            .buttonStyle(.shiftProminent(Self.accent))
-            .disabled(!canContinue)
-            .opacity(canContinue ? 1 : 0.5)
-            .keyboardShortcut(.defaultAction)
-            .padding(.top, Theme.Space.tight)
-
-            if reason == .lonely {
-                Button("I’ll text from my phone") {
-                    onEvent(.finished(.lonely, .reachedOut, note: nil))
-                }
-                .buttonStyle(.shiftSoft)
-            }
-
-            HStack(spacing: Theme.Space.base) {
-                Button("Something else") {
-                    note = ""
-                    phase = .asking
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                closeLink
-            }
+            .buttonStyle(.plain)
             .font(.callout)
-            .padding(.top, Theme.Space.tight)
+            .foregroundStyle(.white.opacity(0.7))
         }
     }
 
-    private func act(on reason: UrgeReason) {
-        let text = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        switch reason {
-        case .bored, .tired:
-            onEvent(.beganBreak(reason))
-            phase = .resting(reason, endsAt: Date().addingTimeInterval(Self.breakLength))
-        case .stuck:
-            onEvent(.finished(.stuck, .wroteStep, note: text))
-        case .anxious:
-            onEvent(.finished(.anxious, .wroteItDown, note: text))
-        case .lonely:
-            onEvent(.openMessages)
-        case .needed:
-            onEvent(.allow(note: text))
-        }
-    }
+    private var needed: some View {
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let left = request.breaksLeft ?? 0
+        return VStack(spacing: Theme.Space.snug) {
+            TextField("Like “reply to Sam about Friday”", text: $note)
+                .textFieldStyle(.plain)
+                .font(.callout)
+                .multilineTextAlignment(.leading)
+                .padding(Theme.Space.snug)
+                .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: Theme.Radius.control))
+                .focused($noteFocused)
+                .onAppear { noteFocused = true }
 
-    // MARK: 4. Rest
-
-    private func resting(_ reason: UrgeReason, endsAt: Date) -> some View {
-        VStack(spacing: Theme.Space.base) {
-            NudgeCharacterView(mood: .calm, animates: !reduceMotion, height: 130)
-                .accessibilityHidden(true)
-
-            Text(reason == .tired ? "Rest. Nothing to do." : "Away from the screen.")
-                .font(.system(size: 26, weight: .bold, design: .rounded))
-
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let left = max(0, Int(endsAt.timeIntervalSince(context.date).rounded(.up)))
-                Text(String(format: "%d:%02d", left / 60, left % 60))
-                    .font(.system(size: 56, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .contentTransition(.numericText(countsDown: true))
-                    .onChange(of: left) { _, value in
-                        if value == 0 { onEvent(.finished(reason, .tookBreak, note: nil)) }
+            HStack(spacing: Theme.Space.snug) {
+                ForEach([1, 2], id: \.self) { minutes in
+                    Button {
+                        onEvent(.takeBreak(minutes: minutes, note: trimmed))
+                    } label: {
+                        Text("\(minutes) minute\(minutes == 1 ? "" : "s")")
+                            .frame(minWidth: 110)
                     }
+                    .buttonStyle(.shiftSoft)
+                    .disabled(trimmed.isEmpty)
+                    .opacity(trimmed.isEmpty ? 0.48 : 1)
+                }
             }
 
-            Text(reason == .tired
-                 ? "Eyes closed, shoulders down. Shift will be right here."
-                 : "Stand up, stretch, look out of a window. Shift will be right here.")
-                .font(.body)
-                .foregroundStyle(.secondary)
+            Text("Uses one of today’s breaks. \(left) left.")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.6))
 
-            Button("I’m back") {
-                onEvent(.finished(reason, .tookBreak, note: nil))
-            }
-            .buttonStyle(.shiftSoft)
-            .padding(.top, Theme.Space.snug)
+            closeButton(title: "Actually, \(request.closeTitle.lowercased())", reason: nil)
+                .padding(.top, Theme.Space.tight)
         }
     }
 
     // MARK: Pieces
 
-    /// Always there, on every screen. Turning back has to be the easiest thing to do.
-    private var closeLink: some View {
-        Button("I don’t need this. Close it.") {
-            onEvent(.close)
+    /// Always available, from the first second. Turning back has to be the easiest thing
+    /// on the screen.
+    private func closeButton(title: String, reason: UrgeReason?) -> some View {
+        Button {
+            onEvent(.close(reason))
+        } label: {
+            Label(title, systemImage: request.isBrowser ? "xmark.square" : "power")
+                .frame(minWidth: 200)
         }
-        .buttonStyle(.plain)
-        .font(.callout.weight(.medium))
-        .foregroundStyle(Self.accent)
+        .buttonStyle(.shiftProminent(Palette.action))
+        .keyboardShortcut(.defaultAction)
+    }
+
+    private func breathe() async {
+        while secondsLeft > 0 {
+            let phase = (request.waitSeconds - secondsLeft) % 5
+            if phase == 0 || phase == 3 {
+                withAnimation(.easeInOut(duration: 2.5)) {
+                    inhaling = phase == 0
+                    cue = phase == 0 ? "Breathe in…" : "And let it go…"
+                }
+            }
+            try? await Task.sleep(for: .seconds(1))
+            if Task.isCancelled { return }
+            secondsLeft -= 1
+        }
     }
 }
 
-private struct ReasonLabel: View {
+private struct ChoiceLabel: View {
     let reason: UrgeReason
+    let detail: String
 
     var body: some View {
         HStack(spacing: Theme.Space.snug) {
@@ -404,13 +351,14 @@ private struct ReasonLabel: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(reason.title)
                     .font(.callout.weight(.semibold))
-                Text(reason.feeling)
+                Text(detail)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.65))
                     .lineLimit(2)
             }
             Spacer(minLength: 0)
         }
+        .foregroundStyle(.white)
         .multilineTextAlignment(.leading)
         .padding(.horizontal, Theme.Space.base)
         .padding(.vertical, Theme.Space.snug + 2)
@@ -419,32 +367,41 @@ private struct ReasonLabel: View {
     }
 }
 
-private struct ReasonButtonStyle: ButtonStyle {
-    let tint: Color
-
+private struct ChoiceButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        HoverBody(configuration: configuration, tint: tint)
+        HoverBody(configuration: configuration)
     }
 
     private struct HoverBody: View {
         let configuration: Configuration
-        let tint: Color
         @State private var hovering = false
 
         var body: some View {
             configuration.label
                 .background(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(.background.opacity(hovering ? 0.95 : 0.6))
+                        .fill(.white.opacity(hovering ? 0.16 : 0.08))
                 )
                 .overlay {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(hovering ? tint.opacity(0.7) : .primary.opacity(0.1), lineWidth: hovering ? 1.5 : 1)
+                        .strokeBorder(.white.opacity(hovering ? 0.35 : 0.14), lineWidth: 1)
                 }
                 .scaleEffect(configuration.isPressed ? 0.97 : 1)
                 .animation(.easeOut(duration: 0.12), value: hovering)
                 .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
                 .onHover { hovering = $0 }
         }
+    }
+}
+
+private extension View {
+    /// Fades and lifts a piece into place, a beat after the one before it.
+    func entrance(_ shown: Bool, delay: Double, distance: CGFloat = 18, reduceMotion: Bool) -> some View {
+        opacity(shown ? 1 : 0)
+            .offset(y: shown || reduceMotion ? 0 : distance)
+            .animation(
+                reduceMotion ? .easeOut(duration: 0.2) : .spring(response: 0.7, dampingFraction: 0.82).delay(delay),
+                value: shown
+            )
     }
 }

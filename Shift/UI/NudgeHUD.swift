@@ -140,7 +140,7 @@ final class NudgeHUDController {
             backing: .buffered,
             defer: false
         )
-        // Above ordinary windows, deliberately below the shield's `.screenSaver` level.
+        // Above ordinary windows, deliberately below the pause's `.screenSaver` level.
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.isFloatingPanel = true
@@ -223,6 +223,11 @@ private struct NudgeHUDView: View {
         HStack(alignment: .bottom, spacing: -10) {
             message
             NudgeCharacter(mood: mood, animates: !reduceMotion)
+                .overlay {
+                    // A burst of sparkles when someone turns back: a small celebration
+                    // the instant they do the thing the habit is built on.
+                    if content.kind == .reward, !reduceMotion { SparkleBurst() }
+                }
         }
         .padding(.trailing, Theme.Space.loose)
         .padding(.vertical, Theme.Space.loose)
@@ -327,5 +332,34 @@ private struct NudgeCharacter: View {
                 }
             }
             .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Celebration
+
+/// Eight small sparkles that fly out from Flop and fade, once.
+private struct SparkleBurst: View {
+    @State private var burst = false
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<8, id: \.self) { index in
+                let angle = Double(index) / 8 * 2 * .pi - .pi / 2
+                let reach: CGFloat = index.isMultiple(of: 2) ? 86 : 64
+                Image(systemName: index.isMultiple(of: 3) ? "sparkle" : "star.fill")
+                    .font(.system(size: index.isMultiple(of: 2) ? 13 : 9, weight: .bold))
+                    .foregroundStyle(index.isMultiple(of: 2)
+                                     ? Color(red: 1.0, green: 0.82, blue: 0.36)
+                                     : Color(red: 0.49, green: 0.86, blue: 0.78))
+                    .offset(x: burst ? cos(angle) * reach : 0, y: burst ? sin(angle) * reach : 0)
+                    .scaleEffect(burst ? 1 : 0.2)
+                    .opacity(burst ? 0 : 1)
+                    .rotationEffect(.degrees(burst ? 90 : 0))
+            }
+        }
+        .allowsHitTesting(false)
+        .onAppear {
+            withAnimation(.easeOut(duration: 1.1).delay(0.25)) { burst = true }
+        }
     }
 }

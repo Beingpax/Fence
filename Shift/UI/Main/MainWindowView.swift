@@ -256,6 +256,8 @@ struct BlocksView: View {
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, Theme.Space.base)
+                        // The whole dashed card is the button, not just its label.
+                        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
                         .background {
                             RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
                                 .strokeBorder(
@@ -746,7 +748,7 @@ struct ActivityView: View {
                     ContentUnavailableView(
                         "Nothing yet",
                         systemImage: "clock",
-                        description: Text("Blocks, nudges and shields show up here as they happen.")
+                        description: Text("Pauses, turn-backs and nudges show up here as they happen.")
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 }
