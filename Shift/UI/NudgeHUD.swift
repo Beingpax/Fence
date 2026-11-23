@@ -256,7 +256,9 @@ private struct NudgeHUDView: View {
     private var isOffscreen: Bool { !entered || isLeaving }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: -10) {
+        // Top-aligned: the card sits level with Flop's ears, up under the menu bar where a
+        // notification lands, with Flop standing beside it rather than under it.
+        HStack(alignment: .top, spacing: -10) {
             NudgeCharacter(mood: mood, animates: !reduceMotion)
                 .overlay {
                     // A burst of sparkles when someone turns back: a small celebration

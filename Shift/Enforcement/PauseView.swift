@@ -236,7 +236,12 @@ struct PauseView: View {
 
     private var question: some View {
         VStack(spacing: Theme.Space.wide) {
-            Text("What were you hoping it would give you?")
+            // The question has to be answerable by the chips under it. They name a state
+            // ("I'm bored", "This is hard"), not a reward, so asking what the feed was
+            // going to give you left the answers reading like non-sequiturs. This asks
+            // what's behind the reach, and keeps the pull as the subject rather than the
+            // person: no shame in it.
+            Text("What’s pulling you here?")
                 .font(.system(size: 26, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
                 .fixedSize(horizontal: false, vertical: true)

@@ -155,8 +155,9 @@ Rules that are easy to get wrong, and are covered by the tests:
     on purpose — fixed ones read as a metronome.
   - The HUD sits **top right, under the menu bar**, where macOS already puts things that
     want attention without taking it. **Flop stands to the left of the card, the card
-    against the screen edge**, and the pair **arrives and leaves exactly like a notification
-    banner**: in from beyond the right edge, and back out the same way when it is dismissed
+    against the screen edge at the height of his ears** (the row is top-aligned, so the card
+    lands under the menu bar where a banner does and Flop stands beside it, not under it),
+    and the pair **arrives and leaves exactly like a notification banner**: in from beyond the right edge, and back out the same way when it is dismissed
     or times out. The card never simply vanishes in place. The panel itself no longer
     fades; the SwiftUI card owns both halves of the movement, and `NudgeHUDView.isLeaving`
     is how the controller starts the exit (a new root view, so the slide-out animates
@@ -318,7 +319,11 @@ relitigate them without asking:
   the way: rippling rings, a glass orb with orbiting motes, and several organic blobs
   (opaque, foggy, then a translucent drop the user hated). When it ends, the orb grows into the question panel
   (`matchedGeometryEffect`), the question reveals, and six feeling chips arrive one after
-  another. Each chip is one short word and a white symbol; the longer description shows
+  another. **The question must be answerable by the chips.** It is "What's pulling you
+  here?": the chips name a state ("I'm bored", "This is hard"), so the earlier "What were
+  you hoping it would give you?" asked for a reward and left every answer reading like a
+  non-sequitur. It asks what is behind the reach, and keeps the pull as the subject rather
+  than the person — "why were you distracted" would put the blame back on them. Each chip is one short word and a white symbol; the longer description shows
   only on hover, in a single helper line, and 1–6 on the keyboard pick them. Nothing sits
   under the question but the chips: "Pick the closest one, there's no wrong answer" was
   cut as unnecessary. Choosing one
