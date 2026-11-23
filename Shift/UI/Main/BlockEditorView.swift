@@ -343,7 +343,7 @@ struct BlockInspector: View {
                     .disabled(isLocked)
             }
             Text(draft.breaks.isEnabled
-                 ? "Up to \(BreakPlan.dailyAllowance) short breaks a day. When you tell the pause you need a site for something specific, just that site opens for one or two minutes. The block stays on."
+                 ? "Up to \(BreakPlan.dailyAllowance) breaks a day. Each break gives you 2 or 5 minutes of access to the blocked site or app after a \(BreakPlan.waitMinutes)-minute wait."
                  : "Off: every reach is closed. Turn on to allow \(BreakPlan.dailyAllowance) short breaks a day, for when you really need a site.")
                 .font(.caption)
                 .foregroundStyle(.secondary)

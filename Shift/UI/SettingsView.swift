@@ -101,7 +101,7 @@ struct SettingsView: View {
 
     private var detection: some View {
         Panel("How blocking works", icon: "scope") {
-            Text("When a site, page, or app matches an active block, Shift shows what was blocked. The pause gives you time to breathe before asking what brought you there. You can close the tab or quit the app at any time. If breaks are enabled, “I need it” lets you enter a reason and allow that site, path, or app for one or two minutes. The rest of the block stays on. For the same rule within an hour, choices appear after 10 seconds the first time, 20 the second time, and 30 thereafter.")
+            Text("When a site, page, or app matches an active block, Shift shows what was blocked. The pause gives you time to breathe before asking what brought you there. You can close the tab or quit the app at any time. If breaks are enabled, choose “I need it,” enter a reason, and pick 2 or 5 minutes of access. Your access time starts after a \(BreakPlan.waitMinutes)-minute wait. The rest of the block stays on. For the same rule within an hour, choices appear after 10 seconds the first time, 20 the second time, and 30 thereafter.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

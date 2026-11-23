@@ -87,7 +87,7 @@ people actually want. Cold Turkey got this right, and the block is the correct u
 - **Lock:** whether the user may switch a block off. Engages the moment the block is
   switched on. Methods: none, for a duration, until a time, after typing a random string,
   or until the Mac restarts.
-- **Break:** an optional two-minute pause for one block, started from its shield.
+- **Break:** optional 2 or 5 minutes of access for the rule that triggered the shield, after a one-minute wait.
   Each block allows two starts per day, resetting at local midnight.
 - **Verdict:** `allow`, `nudge` (mild drift) or `block` (explicit rule match), each with a
   one-line reason and the block that produced it.
@@ -125,7 +125,7 @@ people actually want. Cold Turkey got this right, and the block is the correct u
 
 ### P3 — Beta
 - Network Extension content filter as a hostname backstop that doesn't depend on the AI.
-- Weekly local insights recap, Sparkle updates, notarized public beta.
+- Sparkle updates and notarized public beta.
 
 ### P4 — AI v2 and polish
 - Vision-language model for image- or video-heavy screens, where neither AX text nor OCR helps.
@@ -348,7 +348,7 @@ The `DistractionClassifier` and `ScreenTextReading` protocols in the skeleton ar
 - **Activation:** % of installs that finish a first session (target 60%).
 - **Retention:** week-4 retention of users who started 3+ sessions (target 35%).
 - **Trust:** false blocks per 10 focus hours in labeled evaluations (target under 1).
-- **Efficacy:** self-reported focus improvement in the weekly recap; shield frequency trending down over 4 weeks.
+- **Efficacy:** self-reported focus improvement and fewer shield encounters over time in beta feedback.
 - **Performance:** idle CPU under 3%, p95 verdict latency under 150 ms for tiers 0–2, under 1 s including tier 3.
 - **Running cost:** measurably lower energy impact than the screenshot-based competitors, measured in Activity Monitor over a one-hour session. This is a marketing claim we should be able to defend.
 
@@ -375,7 +375,7 @@ The `DistractionClassifier` and `ScreenTextReading` protocols in the skeleton ar
 | **M0 Skeleton** | Menu bar app, rules, shield, escalation. Builds clean. | Done |
 | **M1 Strict MVP** | Locked hardening, launch at login, watchdog, onboarding, nudge HUD, settings polish | +3 weeks |
 | **M2 AI v1** | AX text and OCR channels, bake-off, embeddings, Foundation Models judge, rabbit-hole detection | +4 weeks |
-| **M3 Beta** | NE hostname filter, insights, Sparkle, notarized public beta | +4 weeks |
+| **M3 Beta** | NE hostname filter, Sparkle, notarized public beta | +4 weeks |
 | **M4 AI v2** | VLM tier, doomscroll detection, personal adapter | Post-beta |
 
 ### Current implementation and remaining work
@@ -385,7 +385,7 @@ The `DistractionClassifier` and `ScreenTextReading` protocols in the skeleton ar
 | M0 / P0 | Block CRUD and ordering, schedule, locks, breaks, website and app rules, path rules, live context, recent activity, shield, two-reading hysteresis and per-rule daily escalation | Validate shield behavior across Spaces and displays, daily rollover, and timed starts with saved blocks. |
 | M1 / P1 | Launch at login, user-level watchdog with Trash restoration, quit protection, preset-based onboarding, shield preview, settings and nudge HUD | Plain-language rule generation, guided 25-minute first block, clock and time-zone hardening, and live verification of watch and relaunch behavior. |
 | M2 / P2 | Accessibility browser URLs and text, selective single-window OCR, installed-asset embedding pre-filter and on-device activity classification for optional nudges | Measure latency, missed distractions and unwanted nudges. |
-| M3 / P3 | | Network Extension hostname backstop, weekly insights, Sparkle and notarized public beta. |
+| M3 / P3 | | Network Extension hostname backstop, Sparkle and notarized public beta. |
 | M4 / P4 | | Vision-language model, doomscroll detection, on-device adaptation, calendar sessions and partner unlock codes. |
 
 The current M2 policy prefers Accessibility text. OCR handles an absent or sparse Accessibility result when Screen Recording is granted. Screen frames and source text are transient.

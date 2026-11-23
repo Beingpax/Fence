@@ -222,7 +222,9 @@ struct ScheduleWindow: Codable, Equatable, Identifiable {
 /// set in advance rather than in the moment of weakness.
 struct BreakPlan: Codable, Equatable {
     var isEnabled: Bool = false
-    static let minutes = 2
+    static let accessMinutes = [2, 5]
+    static let waitMinutes = 1
+    static let waitSeconds = waitMinutes * 60
     static let dailyAllowance = 2
 
     /// Runtime: when the current break ends.
@@ -244,9 +246,7 @@ struct BreakPlan: Codable, Equatable {
 
     /// Uses one of today's breaks.
     ///
-    /// A break no longer pauses the block. It's spent on one site for a minute or two (see
-    /// `AppModel.allow`), and everything else the block covers stays blocked. Only the
-    /// lock decides when a block can actually be switched off.
+    /// The daily allowance is spent when access starts for the matched rule.
     mutating func spend(at date: Date) -> Bool {
         let available = remaining(at: date)
         guard available > 0 else { return false }

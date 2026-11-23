@@ -16,7 +16,6 @@ struct PauseRequest {
     /// Breaks left today on this block, or `nil` when the block has breaks switched off.
     /// "I need it" spends one of these, so it only appears when the block allows breaks.
     var breaksLeft: Int?
-    var plans: [UrgeReason: String]
     /// The headline and line under it, dealt from `PauseCopy` for this visit.
     var title: String
     var subtitle: String
@@ -53,7 +52,7 @@ struct PauseRequest {
 enum PauseEvent {
     /// Close it, with the craving they named, if they named one.
     case close(UrgeReason?)
-    /// "I need it": a stated reason, then this one site for a minute or two.
+    /// "I need it": the wait has ended and access can start.
     case takeBreak(minutes: Int, note: String)
 }
 
@@ -73,19 +72,23 @@ final class PauseWindow: NSWindow {
 final class PauseController {
     private var windows: [PauseWindow] = []
     private var savedPresentationOptions: NSApplication.PresentationOptions = []
-    /// Which encounter this pause is for. See `AppModel.encounterKey`.
-    private(set) var key: String?
+    private var presentationID: UUID?
+    private(set) var blockID: Block.ID?
 
     var isShowing: Bool { !windows.isEmpty }
 
-    func present(_ request: PauseRequest, key: String, onEvent: @escaping (PauseEvent) -> Void) {
+    func present(_ request: PauseRequest, onEvent: @escaping (PauseEvent) -> Void) {
         dismiss()
-        self.key = key
 
         let screens = NSScreen.screens
-        guard let primaryScreen = NSScreen.main ?? screens.first else {
-            self.key = nil
-            return
+        guard let primaryScreen = NSScreen.main ?? screens.first else { return }
+        let presentationID = UUID()
+        self.presentationID = presentationID
+        blockID = request.blockID
+        let handleEvent: (PauseEvent) -> Void = { [weak self] event in
+            // A window that is fading out may still finish its countdown.
+            guard self?.presentationID == presentationID else { return }
+            onEvent(event)
         }
         let wallpaper = PauseWallpaper()
         var primaryWindow: PauseWindow?
@@ -106,7 +109,7 @@ final class PauseController {
             window.alphaValue = 0
 
             let content: AnyView = screen == primaryScreen
-                ? AnyView(PauseView(request: request, wallpaper: wallpaper, onEvent: onEvent))
+                ? AnyView(PauseView(request: request, wallpaper: wallpaper, onEvent: handleEvent))
                 : AnyView(PauseBackdrop(wallpaper: wallpaper))
             window.contentView = NSHostingView(rootView: content)
             if screen == primaryScreen { primaryWindow = window }
@@ -139,14 +142,14 @@ final class PauseController {
         }
     }
 
-    /// Gives the system back straight away, so the browser can take the front and close
-    /// the tab, and lets the windows fade out on their own time.
+    /// Gives the system back straight away and lets the windows fade out on their own time.
     func dismiss() {
         guard isShowing else { return }
         NSApp.presentationOptions = savedPresentationOptions
         let leaving = windows
         windows.removeAll()
-        key = nil
+        presentationID = nil
+        blockID = nil
 
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             Self.releaseWindows(leaving)

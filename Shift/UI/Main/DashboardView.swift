@@ -28,8 +28,6 @@ struct DashboardView: View {
                 } else {
                     activeList
                 }
-
-                WeekPanel()
             }
             .mainPageInsets()
             .frame(maxWidth: .infinity, alignment: .top)

@@ -11,19 +11,16 @@ import SwiftUI
 /// 1. **One thing at a time.** During the breath there is no panel, only the constellation
 ///    and a bar that empties. No cue to read, no digits to watch.
 ///    The question appears only once the breath is done, and choosing an answer replaces
-///    the question. There's no way back from an answer: it ends in closing the tab.
+///    the question. “I need it” can lead to a separate wait for temporary access.
 /// 2. **The orb becomes the panel.** The breath and the question are one object changing
 ///    shape, so the moment it opens is felt rather than merely noticed.
-/// 3. **Neutral glass, colour tiles.** Cards, panel and buttons are white glass; only the
-///    feeling icons carry colour, as solid tiles drawn exactly like the sidebar's
-///    (`SidebarIconTile`), so each is recognisable at a glance and the screen still feels
-///    like part of the app. White type and a neutral scrim keep the palette consistent
-///    across the daily landscapes and all five lighting variants.
+/// 3. **Frosted panel, solid buttons.** The panel uses neutral glass and every button uses
+///    a white fill with dark text. The feeling icons use the same coloured tiles as the sidebar.
 /// 4. **Words arrive, they don't switch on.** Each line fades in at its own pace
 ///    (`revealOnAppear`). Text that changes in place (`SwapText`) fully leaves
 ///    before the next line arrives, never overlapping.
-/// 5. **Turning back is always the easiest thing.** The close button sits outside the
-///    panel, is never disabled, and answers to Return.
+/// 5. **Keep the close button visible.** It sits outside the panel and answers to Return
+///    outside the reason form.
 struct PauseView: View {
     let request: PauseRequest
     let wallpaper: PauseWallpaper
@@ -33,12 +30,14 @@ struct PauseView: View {
 
     private enum Phase: Equatable {
         case breathing, asking, answering(UrgeReason)
+        case waitingForAccess(minutes: Int, note: String)
     }
 
     @State private var phase: Phase = .breathing
     @State private var secondsLeft: Int
+    @State private var accessWaitSecondsLeft = BreakPlan.waitSeconds
     @State private var breathStart: Date?
-    /// The wait, left to run: 1 at the start, 0 when the question opens.
+    /// The fraction remaining in the current wait.
     @State private var drain: Double = 1
     @State private var hovered: UrgeReason?
     @State private var note = ""
@@ -67,6 +66,11 @@ struct PauseView: View {
             .task { await breathe() }
         }
         .task { await wallpaper.followClock() }
+        .task(id: phase) {
+            if case let .waitingForAccess(minutes, note) = phase {
+                await waitForAccess(minutes: minutes, note: note)
+            }
+        }
         .environment(\.colorScheme, .dark)
         .onAppear { appeared = true }
     }
@@ -83,6 +87,8 @@ struct PauseView: View {
                     panel { question }
                 case .answering(let reason):
                     panel { answer(for: reason) }
+                case .waitingForAccess(let minutes, _):
+                    panel { accessWait(minutes: minutes) }
                 }
             }
             .frame(minHeight: 280)
@@ -149,30 +155,27 @@ struct PauseView: View {
                         .matchedGeometryEffect(id: "surface", in: surface)
                 }
 
-            breathBar
+            waitBar(remaining: drain)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Pause. \(secondsLeft) second\(secondsLeft == 1 ? "" : "s") left.")
     }
 
-    /// The wait, as a bar that empties rather than a number that ticks down. Digits invite
-    /// you to watch them and count; a bar is read in one glance and then forgotten, which
-    /// is what a breath needs. It empties from the right, like every other progress bar on
-    /// the platform: anchored at the leading edge, it shrinks one way instead of pulling
-    /// away from the middle in both directions at once. "Breathe in" and "and let it go"
-    /// went with it: the constellation already opens and gathers in time with the breath,
-    /// and words only ask to be obeyed.
-    private var breathBar: some View {
-        Capsule()
-            .fill(.white.opacity(0.16))
-            .frame(width: 260, height: 5)
-            .overlay(alignment: .leading) {
-                Capsule()
-                    .fill(.white.opacity(0.9))
-                    .frame(width: 260 * drain)
-            }
-            .overlay { Capsule().strokeBorder(.white.opacity(0.14)) }
-            .accessibilityHidden(true)
+    /// Both waits use a bar that drains toward the leading edge.
+    private func waitBar(remaining: Double) -> some View {
+        GeometryReader { geometry in
+            Capsule()
+                .fill(.white.opacity(0.16))
+                .overlay(alignment: .leading) {
+                    Capsule()
+                        .fill(.white.opacity(0.9))
+                        .frame(width: geometry.size.width * remaining)
+                }
+                .overlay { Capsule().strokeBorder(.white.opacity(0.14)) }
+        }
+        .frame(maxWidth: 260)
+        .frame(height: 5)
+        .accessibilityHidden(true)
     }
 
     private func breathe() async {
@@ -293,9 +296,8 @@ struct PauseView: View {
         } label: {
             FeelingChip(reason: reason, number: index + 1, highlighted: hovered == reason)
         }
-        .buttonStyle(PressScaleStyle())
+        .buttonStyle(PauseButtonStyle())
         .disabled(disabled)
-        .opacity(disabled ? 0.4 : 1)
         .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: [])
         .onHover { inside in
             if inside { hovered = reason } else if hovered == reason { hovered = nil }
@@ -333,12 +335,10 @@ struct PauseView: View {
              "Send a short message to someone you’d like to talk to.")
         case .needed:
             ("Say what you need it for.",
-             "You can allow \(request.blockedTarget) for one or two minutes. “\(request.blockName)” stays on for everything else.")
+             "Your access time starts after a \(BreakPlan.waitMinutes)-minute wait.")
         }
     }
 
-    /// The suggestion for one answer. No way back to the question from here: having named
-    /// it, the only thing left to do is close it (or, for "I need it", open it briefly).
     private func answer(for reason: UrgeReason) -> some View {
         let text = suggestion(for: reason)
         return VStack(spacing: Theme.Space.loose) {
@@ -358,24 +358,6 @@ struct PauseView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 520)
                 .revealOnAppear(delay: 0.4, duration: 1.2)
-
-            if let plan = request.plans[reason], !plan.isEmpty {
-                // Their own words, from the weekly review. A promise you made yourself
-                // carries far more weight than any line an app could write.
-                VStack(spacing: 2) {
-                    Text("Your plan")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.85))
-                    Text("\(reason.planLead) \(plan).")
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(.white)
-                }
-                .padding(.horizontal, Theme.Space.base)
-                .padding(.vertical, Theme.Space.snug)
-                .frame(maxWidth: .infinity)
-                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.12)) }
-            }
 
             if reason == .needed {
                 needed
@@ -402,32 +384,74 @@ struct PauseView: View {
                 .onAppear { noteFocused = true }
 
             HStack(spacing: Theme.Space.snug) {
-                ForEach([1, 2], id: \.self) { minutes in
+                ForEach(BreakPlan.accessMinutes, id: \.self) { minutes in
                     Button {
-                        onEvent(.takeBreak(minutes: minutes, note: trimmed))
+                        guard phase == .answering(.needed) else { return }
+                        noteFocused = false
+                        drain = 1
+                        phase = .waitingForAccess(minutes: minutes, note: trimmed)
                     } label: {
-                        Text("Allow for \(minutes) min")
-                            .font(.callout.weight(.semibold))
-                            .foregroundStyle(.white)
+                        Text("Allow for \(minutes) minutes")
                             .frame(minWidth: 130)
-                            .padding(.vertical, Theme.Space.snug)
-                            .background(.white.opacity(0.14), in: Capsule())
-                            .overlay { Capsule().strokeBorder(.white.opacity(0.22)) }
-                            .contentShape(Capsule())
+                            .padding(.horizontal, Theme.Space.snug)
+                            .padding(.vertical, Theme.Space.snug + 3)
                     }
-                    .buttonStyle(PressScaleStyle())
+                    .buttonStyle(PauseButtonStyle())
                     .disabled(trimmed.isEmpty)
-                    .opacity(trimmed.isEmpty ? 0.45 : 1)
                 }
             }
 
             if let left = request.breaksLeft {
-                Text("Uses one of today’s breaks. \(left) left.")
+                Text("Uses one of today’s breaks when access starts. \(left) left.")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.85))
             }
         }
         .padding(.top, Theme.Space.tight)
+    }
+
+    private func accessWait(minutes: Int) -> some View {
+        VStack(spacing: Theme.Space.loose) {
+            VStack(spacing: Theme.Space.tight) {
+                Text("Access starts in")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+
+                Text(Duration.seconds(accessWaitSecondsLeft).formatted(.time(pattern: .minuteSecond)))
+                    .font(.system(size: 48, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .accessibilityLabel("\(accessWaitSecondsLeft) second\(accessWaitSecondsLeft == 1 ? "" : "s")")
+            }
+            .accessibilityElement(children: .combine)
+
+            waitBar(remaining: drain)
+
+            Text("Then \(minutes) minutes of access to \(request.blockedTarget).")
+                .font(.body)
+                .foregroundStyle(.white.opacity(0.82))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 520)
+        }
+    }
+
+    private func waitForAccess(minutes: Int, note: String) async {
+        let clock = ContinuousClock()
+        let start = clock.now
+        let total = Double(BreakPlan.waitSeconds)
+        if !reduceMotion {
+            withAnimation(.linear(duration: total)) { drain = 0 }
+        }
+        for elapsed in 1...BreakPlan.waitSeconds {
+            do {
+                try await clock.sleep(until: start.advanced(by: .seconds(elapsed)), tolerance: nil)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            accessWaitSecondsLeft = BreakPlan.waitSeconds - elapsed
+            if reduceMotion { drain = Double(accessWaitSecondsLeft) / total }
+        }
+        onEvent(.takeBreak(minutes: minutes, note: note))
     }
 
     // MARK: The way out
@@ -437,37 +461,23 @@ struct PauseView: View {
         return nil
     }
 
-    /// Outside the panel, never disabled, and Return presses it. Turning back has to be the
-    /// easiest thing on the screen, so it is the one solid white button on it from the
-    /// moment the question opens — not only after a feeling is picked. The exception is
-    /// "I need it", where the break buttons are the thing being offered and a white button
-    /// beside them would fight for the same job.
+    /// Keep the way out visible in the same place throughout the pause.
     private var closeButton: some View {
-        let solid = chosen != .needed
-        return Button {
+        Button {
             onEvent(.close(chosen == .needed ? nil : chosen))
         } label: {
             Label(request.closeTitle, systemImage: request.isBrowser ? "xmark" : "power")
-                .font(.body.weight(.semibold))
                 .padding(.horizontal, Theme.Space.loose + 4)
                 .padding(.vertical, Theme.Space.snug + 3)
-                .foregroundStyle(solid ? Color.black.opacity(0.85) : .white)
-                .background {
-                    Capsule().fill(solid ? Color.white : Color.black.opacity(0.32))
-                }
-                .overlay { Capsule().strokeBorder(.white.opacity(solid ? 0 : 0.24)) }
-                .contentShape(Capsule())
         }
-        .buttonStyle(PressScaleStyle())
+        .buttonStyle(PauseButtonStyle())
         .keyboardShortcut(chosen == .needed ? nil : .defaultAction)
-        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: solid)
     }
 }
 
 // MARK: - Pieces
 
-/// One feeling: a sidebar-style colour tile, one word, and its number key, on neutral glass.
-/// The card brightens and lifts under the pointer; only the tile carries colour.
+/// A feeling's label, colour tile, and keyboard shortcut.
 private struct FeelingChip: View {
     let reason: UrgeReason
     let number: Int
@@ -478,40 +488,33 @@ private struct FeelingChip: View {
             SidebarIconTile(systemName: reason.symbol, background: Color.tint(for: reason), size: 32)
                 .symbolEffect(.bounce, value: highlighted)
             Text(reason.title)
-                .font(.system(.body, design: .rounded).weight(.semibold))
-                .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
             Spacer(minLength: 0)
             Text("\(number)")
                 .font(.caption2.monospacedDigit().weight(.semibold))
-                .foregroundStyle(.white.opacity(highlighted ? 1 : 0.85))
+                .opacity(highlighted ? 1 : 0.7)
         }
         .padding(.leading, Theme.Space.snug)
         .padding(.trailing, Theme.Space.base)
         .frame(height: 56)
-        .background {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.white.opacity(highlighted ? 0.18 : 0.07))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(.white.opacity(highlighted ? 0.4 : 0.12), lineWidth: 1)
-        }
-        .scaleEffect(highlighted ? 1.03 : 1)
-        .offset(y: highlighted ? -2 : 0)
-        .shadow(color: .black.opacity(highlighted ? 0.25 : 0), radius: 12, y: 6)
-        .animation(.spring(response: 0.32, dampingFraction: 0.7), value: highlighted)
-        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .accessibilityLabel("\(reason.title). \(reason.feeling)")
     }
 }
 
-private struct PressScaleStyle: ButtonStyle {
+private struct PauseButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+            .font(.body.weight(.semibold))
+            .foregroundStyle(Color.black.opacity(0.85))
+            .background(.white, in: Capsule())
+            .contentShape(Capsule())
+            .opacity(isEnabled ? 1 : 0.45)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: configuration.isPressed)
     }
 }
 

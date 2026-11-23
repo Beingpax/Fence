@@ -17,8 +17,6 @@ final class AppModel {
     // MARK: Observable state
 
     let store: BlockStore
-    /// Every reach for a blocked site, and the plans written in the weekly review.
-    @ObservationIgnored private(set) lazy var urges = UrgeLog()
 
     private(set) var lastContext: ScreenContext?
     private(set) var lastVerdict: Verdict?
@@ -188,6 +186,12 @@ final class AppModel {
             }
         }
 
+        if let blockID = pause.blockID, !active.contains(where: { $0.id == blockID }) {
+            pause.dismiss()
+            hysteresis.reset()
+            monitor.resampleSoon()
+        }
+
         syncLockProtections()
 
         // Permissions can change in System Settings even when no block is active.
@@ -230,7 +234,7 @@ final class AppModel {
             nudgeHysteresis.reset()
             guard let key = encounterKey(for: verdict, context: context),
                   let reachKey = reachKey(for: verdict) else { return }
-            // Already pausing, closing the page this came from, or let through for a minute.
+            // Already pausing, closing the page this came from, or temporarily allowed.
             if pause.isShowing { return }
             if let until = allowances[reachKey], until > Date() { return }
             if context.processID == closingPID, Date() < closingUntil { return }
@@ -241,7 +245,7 @@ final class AppModel {
                 monitor.resampleSoon()
                 return
             }
-            beginReach(key: key, reachKey: reachKey, verdict: verdict, context: context)
+            beginReach(reachKey: reachKey, verdict: verdict, context: context)
         }
     }
 
@@ -249,10 +253,9 @@ final class AppModel {
 
     /// How long a reach is remembered when deciding how hard the next one should be.
     private static let reachWindow: TimeInterval = 3600
-    static let previewKey = "preview"
 
     /// One reach for a blocked site or app. Repeat reaches within the hour are counted per rule.
-    private func beginReach(key: String, reachKey: String, verdict: Verdict, context: ScreenContext) {
+    private func beginReach(reachKey: String, verdict: Verdict, context: ScreenContext) {
         let now = Date()
         var recent = (reaches[reachKey] ?? []).filter { now.timeIntervalSince($0) < Self.reachWindow }
         // Every reach from the third onward uses the same escalation level.
@@ -274,54 +277,53 @@ final class AppModel {
             isBrowser: Browser(bundleID: context.bundleID) != nil,
             visit: recent.count,
             breaksLeft: breaks.flatMap { $0.isEnabled ? $0.remaining(at: now) : nil },
-            plans: urges.plans,
             title: copy.title,
             subtitle: copy.subtitle
         )
         nudgeHUD.hide()
         if playNudgeSounds { request.visit >= 3 ? NudgeSound.playDeep() : NudgeSound.playPause() }
         log("Paused · \(target)", symbol: "wind")
-        pause.present(request, key: key) { [weak self] event in
-            self?.handlePause(event, key: key, request: request, context: context)
+        pause.present(request) { [weak self] event in
+            self?.handlePause(event, request: request, context: context)
         }
     }
 
-    private func handlePause(_ event: PauseEvent, key: String, request: PauseRequest, context: ScreenContext) {
-        guard pause.key == key else { return }
+    private func handlePause(_ event: PauseEvent, request: PauseRequest, context: ScreenContext) {
         pause.dismiss()
         hysteresis.reset()
 
         switch event {
         case .close(let reason):
             closeTarget(context, isPreview: request.isPreview)
-            if !request.isPreview {
-                urges.record(UrgeEvent(date: Date(), blockName: request.blockName, target: request.target,
-                                       reason: reason, outcome: .closed))
-            }
             reward(PauseCopy.reward(for: reason, visit: request.visit))
             log("Turned back · \(request.target)\(reason.map { " · \($0.shortLabel)" } ?? "")",
                 symbol: "arrow.uturn.backward")
 
         case .takeBreak(let minutes, let note):
-            let headline = "\(minutes) minute\(minutes == 1 ? "" : "s"). Go do it."
+            let headline = "\(minutes) minutes of access."
             guard !request.isPreview else {
                 nudgeHUD.status(headline: headline, detail: note)
                 return
             }
-            guard let blockID = request.blockID, store.spendBreak(id: blockID) else {
-                // No break left after all (or the block went quiet meanwhile), so this is
-                // a close.
-                closeTarget(context, isPreview: false)
-                nudgeHUD.status(headline: "Break didn’t start.", detail: "Check the break settings for “\(request.blockName)”.")
+
+            // The process, rule or schedule may have changed during the wait.
+            guard BreakPlan.accessMinutes.contains(minutes),
+                  let app = NSRunningApplication(processIdentifier: context.processID),
+                  !app.isTerminated, app.bundleIdentifier == context.bundleID,
+                  let blockID = request.blockID, let block = store.block(id: blockID),
+                  let verdict = BlockEvaluator(blocks: [block], driftKeywords: []).ruleVerdict(for: context),
+                  verdict.ruleTarget == request.ruleTarget, let reachKey = reachKey(for: verdict),
+                  store.spendBreak(id: blockID) else {
+                monitor.resampleSoon()
+                nudgeHUD.status(headline: "Break didn’t start.", detail: "Access is no longer available for \(request.blockedTarget).")
                 return
             }
-            urges.record(UrgeEvent(date: Date(), blockName: request.blockName, target: request.target,
-                                   reason: .needed, outcome: .allowed, note: note))
+
+            allow(reachKey: reachKey, minutes: minutes)
+            NSApp.yieldActivation(to: app)
+            app.activate()
             nudgeHUD.status(headline: headline, detail: note)
             log("\(minutes) min on \(request.target) · \(note)", symbol: "cup.and.saucer")
-            if let reachKey = reachKey(for: request) {
-                allow(reachKey: reachKey, minutes: minutes)
-            }
         }
     }
 
@@ -339,12 +341,6 @@ final class AppModel {
             self.hysteresis.reset()
             self.monitor.resampleSoon()
         }
-    }
-
-    /// The same key `reachKey(for: Verdict)` builds, from what the pause was shown for.
-    private func reachKey(for request: PauseRequest) -> String? {
-        guard let blockID = request.blockID, let target = request.ruleTarget else { return nil }
-        return "\(blockID.uuidString)|\(target.identifier)"
     }
 
     private func closeTarget(_ context: ScreenContext, isPreview: Bool) {
@@ -455,13 +451,12 @@ final class AppModel {
         let request = PauseRequest(
             blockName: "Deep work", blockID: nil, ruleTarget: .website(site), target: site, appName: "Safari",
             isBrowser: true, visit: visit, breaksLeft: BreakPlan.dailyAllowance,
-            plans: urges.plans,
             title: copy.title, subtitle: copy.subtitle, isPreview: true
         )
         let context = ScreenContext(bundleID: "com.apple.Safari", appName: "Safari", processID: 0)
         if playNudgeSounds { visit >= 3 ? NudgeSound.playDeep() : NudgeSound.playPause() }
-        pause.present(request, key: Self.previewKey) { [weak self] event in
-            self?.handlePause(event, key: Self.previewKey, request: request, context: context)
+        pause.present(request) { [weak self] event in
+            self?.handlePause(event, request: request, context: context)
         }
     }
 

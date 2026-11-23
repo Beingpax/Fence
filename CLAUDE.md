@@ -23,8 +23,7 @@ Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (br
   and lock maths have standalone tests (`./Tools/run-block-tests.sh`, 22 assertions). The
   UI flows have not been walked through by hand.
 - Built: main window (Dashboard, Blocks, Activity), block editor, menu bar popover,
-  the full-screen pause with time-of-day wallpapers, reward and hint HUD, weekly review on the
-  Dashboard, onboarding, launch at login,
+  the full-screen pause with time-of-day wallpapers, reward and hint HUD, onboarding, launch at login,
   watchdog pair, and quit and Trash protection.
 - Active detection uses app, website, and path rules. Optional nudges use window-title keywords.
 - **The binary has two entry points.** `Shift` is the app; `Shift --watchdog` is the
@@ -50,9 +49,9 @@ xcodebuild -project Shift.xcodeproj -scheme Shift -configuration Debug -destinat
 3. **Blocking.** Switch the block on, visit a listed site in Safari and Chrome. The pause
    should cover every display almost at once. Choices unlock after 10 s (20 s on the
    second reach). Every answer except "I need it" closes only the tab, then shows the
-   reward. "I need it" appears only when the block allows breaks: type a reason, pick 1 or
-   2 minutes, and only that site opens; the block stays on and still blocks everything
-   else. A third reach within an hour waits 30 s and plays
+   reward. "I need it" appears only when the block allows breaks. Type a reason, pick 2 or
+   5 minutes, and wait one minute for access to the matched rule. The close button
+   cancels the wait. A third reach within an hour waits 30 s and plays
    the deeper chime. Check the wallpaper matches the time of day.
 4. **Schedules.** Set a window that starts a minute from now and confirm it self-activates.
 5. **Nudges.** With a block active and nudges enabled, open an unblocked window whose title contains a configured feed keyword.
@@ -80,7 +79,7 @@ A **block** is the unit of everything. It owns:
   storage and starts timed runs from the block’s menu bar context menu;
 - a **lock**: `none`, `duration`, `untilTime`, `randomString`, or `restart`, which engages
   the moment the block is switched on;
-- **breaks**: optional, with two two-minute pauses per local day.
+- **Breaks** are optional, with two starts per local day. Each gives 2 or 5 minutes of access after a one-minute wait.
 
 Several blocks can be active at once. `BlockEvaluator` asks each active block in order and
 the first with an opinion wins. A block is active when it is enabled or locked on, is
@@ -238,7 +237,7 @@ Shift/
 ├── Models/         Block (+ BlockList, BlockSchedule, ScheduleWindow, BlockLock, BreakPlan,
 │                   BlockTint), BlockStore (persistence, locking, CRUD),
 │                   ScreenContext, Verdict, ActivityEvent, DistractionPreset,
-│                   Urge (UrgeReason, UrgeLog: every reach, plus if-then plans),
+│                   Urge (the reasons shown in the pause),
 │                   PauseCopy (every line at the pause and on turning back, + CopyDeck)
 ├── Detection/      ContextMonitor (async sampling), AddressObserver (AX notifications),
 │                   WindowInspector (AX),
@@ -250,7 +249,7 @@ Shift/
 └── UI/             DesignSystem (Theme, BlockBadge), Design/ (Materials, Controls),
                     MenuBarView, SettingsView (a pane, not a scene), NudgeHUD,
                     PermissionsManager, Main/ (MainWindowController, MainWindowView +
-                    MainSection, DashboardView + WeekPanel, BlockEditorView + BlockInspector +
+                    MainSection, DashboardView, BlockEditorView + BlockInspector +
                     AppPickerView), Onboarding/
 ```
 
@@ -289,7 +288,7 @@ Flow: `AppModel.engineTick` (1 s) decides which blocks are active and starts or 
 detection → `ContextMonitor` sample (on every `AddressObserver` event, plus a 1.5 s poll) →
 `AppModel.handle` → `BlockEvaluator` over the active blocks → `Hysteresis` (2 consistent
 readings, the second requested 150 ms after the first) → `beginReach` → `PauseController`
-→ `handlePause` → close the tab (or start a break), reward, record.
+→ `handlePause` → close the tab and reward the user, or start temporary access.
 
 ### The pause
 Every choice here comes from habit research. Check changes against these, and don't
@@ -331,20 +330,16 @@ relitigate them without asking:
   only on hover, in a single helper line, and 1–6 on the keyboard pick them. Nothing sits
   under the question but the chips: "Pick the closest one, there's no wrong answer" was
   cut as unnecessary. Choosing one
-  replaces the question with its answer, and **there is no way back**: the only thing left
-  is the close button. **It is the one solid white button, with near-black text, from the
-  moment the question opens** — not only after a feeling is picked: turning back has to be
-  the easiest thing on the screen. The one exception is "I need it", where the break
-  buttons are what's being offered and a white button beside them would fight for the same
-  job. The close button sits outside the panel, never waits, and answers to Return. Sources: GOV.UK's
+  replaces the question with its answer. The solid white close button stays outside the
+  panel throughout the pause. Return activates it outside the reason form. Sources: GOV.UK's
   one-thing-per-page, Hick's law, one sec's breath-then-choice.
-- **Neutral glass, sidebar-style icon tiles.** Cards, panel and buttons are white glass
-  with a dark wash under the frost so they read on every backdrop. Only the feeling icons
+- **Neutral glass and white buttons.** The frosted panel has a dark wash for readability.
+  The feeling choices, access choices and close action use white capsules with dark text. The feeling icons
   carry colour, as solid system-colour tiles drawn exactly like the sidebar's
   (`SidebarIconTile`, which now takes a `size`): yellow, indigo, orange, teal, pink, green.
   Tinted, semi-transparent circles were rejected. The user rejected fully
-  colour-coded chips, and white-only symbols, and the teal/orange/purple tints in Settings
-  and the week panel (as looking AI-generated). Settings and Dashboard panels stay neutral.
+  colour-coded chips, white-only symbols, and the teal/orange/purple tints in Settings.
+  Settings and Dashboard panels stay neutral.
 - **Words arrive, they don't switch on.** Every line on the pause reveals letter by letter,
   rising out of a soft blur (`RevealRenderer`, a `TextRenderer`, via `revealOnAppear`).
   Text that changes in place (the hover line) uses `SwapText`: the old
@@ -357,11 +352,12 @@ relitigate them without asking:
   and the only button closes the tab. The person does the better thing themselves; the
   user explicitly didn't want in-app timers or forms for these.
 - **"I need it" opens one site, never the block.** It appears only when the block has
-  breaks on (`BreakPlan`, per block, 2 a day), asks what for, then offers 1 or 2 minutes.
-  It spends a break (`BlockStore.spendBreak`) but the block stays on and keeps blocking
-  everything else: only the chosen site is let through (`AppModel.allow`, keyed by
-  `reachKey`). When the time is up Shift reads the screen again, and if you're still
-  there the pause comes back. Only the lock decides when a block can be switched off.
+  breaks on (`BreakPlan`, per block, 2 a day), asks what for, then offers 2 or 5 minutes
+  of access after a one-minute wait. The countdown uses the same frosted panel and
+  continuously draining bar as the pause. Closing the target during the wait cancels it.
+  When access begins, it spends a break (`BlockStore.spendBreak`) and temporarily allows
+  the matched rule (`AppModel.allow`, keyed by `reachKey`). When access expires, Shift
+  reads the screen again and restores the pause if the current context is still blocked.
   With no breaks left it shows, disabled, as "No breaks left today".
 - **Never the same words twice in a row.** `PauseCopy` holds 48 pause headlines (by
   visit) and about 125 turning-back lines (general, harder, and per craving), dealt by
@@ -373,9 +369,6 @@ relitigate them without asking:
   (`reaches`, keyed by `reachKey`, not the process), so switching tabs or relaunching the
   browser can't reset anything. 10 s, then 20 s, then 30 s, with warmer copy each time.
 - **No shame, anywhere.** The voice is a friend's. The urge is "the pull", not the person.
-- **Plans in their own words.** The Dashboard's `WeekPanel` shows the week's reaches by
-  craving and peak hour, and takes an if-then plan per craving. The pause shows the plan
-  back on that craving's screen. Everything is in `UrgeLog`, on disk, local only.
 - `Close it` closes the **tab** (Command-W posted to the browser's pid by `TabCloser`, after
   yielding activation to it). Apps are asked to quit.
 
@@ -401,5 +394,5 @@ The standalone semantic classifier and text readers are outside the active detec
 - **M1 Strict MVP:** done in code, **not yet verified by hand**. Reworked in v0.3 around blocks: main window, block editor, per-block schedules, locks and breaks, launch at login, headless watchdog, quit and Trash protection, onboarding, nudge HUD, settings, screen-text reading.
 - **M2 AI v1:** dropped on 23 Nov 2026. The user removed focus goals and intent checks;
   the PRD's AI sections are out of date on this point.
-- **M3 Beta:** Network Extension hostname backstop (verify the non-MDM approval path first), weekly insights, Sparkle, notarized beta.
+- **M3 Beta:** Network Extension hostname backstop (verify the non-MDM approval path first), Sparkle, notarized beta.
 - **M4 AI v2:** VLM tier (and the downloader it needs), doomscroll detection, on-device adapter from evaluation feedback.
