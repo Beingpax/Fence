@@ -134,13 +134,13 @@ struct PauseView: View {
 
     // MARK: 1. The breath
 
-    /// A living blob of light in the colours of the sky behind (`BreathBlob`). It swells and
-    /// brightens on the in-breath and settles on the out-breath, its edge always gently
-    /// shifting. When the breath ends, it grows into the question panel.
+    /// A constellation that opens and draws itself on the in-breath and gathers into a knot
+    /// of light on the out-breath (`ConstellationBreath`). When the breath ends, the panel
+    /// grows from its centre.
     private var orb: some View {
         VStack(spacing: Theme.Space.base) {
-            BreathBlob(colors: period.glow, start: breathStart, animates: !reduceMotion)
-                .frame(width: 300, height: 260)
+            ConstellationBreath(start: breathStart, animates: !reduceMotion)
+                .frame(width: 560, height: 420)
                 .background {
                     Circle()
                         .fill(.clear)
@@ -484,157 +484,6 @@ private struct FeelingChip: View {
         .animation(.spring(response: 0.32, dampingFraction: 0.7), value: highlighted)
         .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .accessibilityLabel("\(reason.title). \(reason.feeling)")
-    }
-}
-
-/// The breathing visual: a living blob of light.
-///
-/// Three translucent layers in the colours of the sky behind, each a soft closed curve
-/// whose edge is slowly reshaped by a few overlapping waves, so it never holds one shape
-/// and never repeats exactly. Under them, a glow that brightens on the in-breath; over
-/// them, a glass sheen and a hairline rim, so it reads as an object rather than a smudge.
-///
-/// The breath itself is computed from the clock rather than animated: 3 s in, 2 s out,
-/// each eased, starting when the pause starts breathing. That keeps the swell in step with
-/// the cue to the frame, and means nothing ever snaps when SwiftUI re-renders.
-private struct BreathBlob: View {
-    let colors: [Color]
-    let start: Date?
-    let animates: Bool
-
-    /// 0 at the bottom of the out-breath, 1 at the top of the in-breath.
-    static func breath(at date: Date, start: Date?) -> Double {
-        guard let start else { return 0 }
-        let t = max(0, date.timeIntervalSince(start)).truncatingRemainder(dividingBy: 5)
-        func smooth(_ x: Double) -> Double { x * x * (3 - 2 * x) }
-        return t < 3 ? smooth(t / 3) : 1 - smooth((t - 3) / 2)
-    }
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !animates)) { timeline in
-            let t = animates ? timeline.date.timeIntervalSinceReferenceDate : 0
-            let b = animates ? Self.breath(at: timeline.date, start: start) : 0.6
-
-            Canvas { context, size in
-                let center = CGPoint(x: size.width / 2, y: size.height / 2 + sin(t * 0.9) * 3)
-                let radius = 72 + 28 * b
-                // Calmer at the top of the breath, a little more alive at the bottom.
-                let wobble = 0.06 + 0.03 * (1 - b)
-
-                // Lift: a soft shadow so the light sits above even a bright sky.
-                context.drawLayer { layer in
-                    layer.addFilter(.blur(radius: 26))
-                    layer.opacity = 0.22
-                    layer.fill(
-                        Self.blob(CGPoint(x: center.x, y: center.y + 16), radius: radius * 0.92, t: t, seed: 0, wobble: wobble),
-                        with: .color(.black)
-                    )
-                }
-
-                // Glow: the light the blob throws onto the sky around it.
-                context.drawLayer { layer in
-                    layer.addFilter(.blur(radius: 44))
-                    layer.opacity = 0.4 + 0.45 * b
-                    layer.fill(
-                        Self.blob(center, radius: radius * 1.35, t: t * 0.8, seed: 0.7, wobble: wobble),
-                        with: .radialGradient(
-                            Gradient(colors: [colors[0], colors[1].opacity(0.6)]),
-                            center: center, startRadius: 0, endRadius: radius * 1.35
-                        )
-                    )
-                }
-
-                let outline = Self.blob(center, radius: radius, t: t, seed: 0, wobble: wobble)
-
-                // The body: a clear, softly wobbling shape filled with translucent colour,
-                // with three pools of light drifting around inside it. The edge stays
-                // defined so it reads as one living thing; the inside keeps moving so it
-                // never looks like a sticker.
-                context.drawLayer { layer in
-                    layer.clip(to: outline)
-
-                    layer.fill(outline, with: .linearGradient(
-                        Gradient(colors: [colors[2].opacity(0.62), colors[0].opacity(0.7), colors[1].opacity(0.78)]),
-                        startPoint: CGPoint(x: center.x - radius, y: center.y - radius),
-                        endPoint: CGPoint(x: center.x + radius, y: center.y + radius)
-                    ))
-
-                    for index in 0..<3 {
-                        let seed = Double(index) * 2.1
-                        let pool = CGPoint(
-                            x: center.x + cos(t * (0.38 + Double(index) * 0.07) + seed) * radius * 0.42,
-                            y: center.y + sin(t * (0.47 + Double(index) * 0.05) + seed * 1.3) * radius * 0.38
-                        )
-                        let size = radius * (0.95 - Double(index) * 0.12)
-                        layer.drawLayer { light in
-                            light.addFilter(.blur(radius: 18))
-                            light.blendMode = .screen
-                            light.opacity = 0.85
-                            light.fill(Path(ellipseIn: CGRect(x: pool.x - size / 2, y: pool.y - size / 2,
-                                                              width: size, height: size)),
-                                       with: .color(colors[(index + 1) % colors.count]))
-                        }
-                    }
-
-                    // Depth: the edge darkens a touch, the way light falls off in a drop.
-                    layer.fill(outline, with: .radialGradient(
-                        Gradient(colors: [.clear, .clear, .black.opacity(0.2)]),
-                        center: center, startRadius: 0, endRadius: radius * 1.05
-                    ))
-                }
-
-                // A warm core that brightens as the breath fills.
-                context.drawLayer { layer in
-                    layer.clip(to: outline)
-                    layer.addFilter(.blur(radius: 22))
-                    layer.opacity = 0.18 + 0.32 * b
-                    layer.fill(Path(ellipseIn: CGRect(x: center.x - radius * 0.45, y: center.y - radius * 0.45,
-                                                      width: radius * 0.9, height: radius * 0.9)),
-                               with: .color(.white))
-                }
-
-                // A small glint, top left, like light catching a drop of water.
-                context.drawLayer { layer in
-                    layer.clip(to: outline)
-                    layer.addFilter(.blur(radius: 6))
-                    layer.fill(
-                        Path(ellipseIn: CGRect(x: center.x - radius * 0.62, y: center.y - radius * 0.72,
-                                               width: radius * 0.62, height: radius * 0.36)),
-                        with: .color(.white.opacity(0.38))
-                    )
-                }
-
-                // A faint rim, only where the light would catch it.
-                context.stroke(outline, with: .linearGradient(
-                    Gradient(colors: [.white.opacity(0.6), .white.opacity(0.08)]),
-                    startPoint: CGPoint(x: center.x - radius, y: center.y - radius),
-                    endPoint: CGPoint(x: center.x + radius * 0.3, y: center.y + radius * 0.3)
-                ), lineWidth: 1)
-            }
-        }
-        .accessibilityHidden(true)
-    }
-
-    /// A smooth closed curve around `center` whose radius is nudged by three slow waves.
-    static func blob(_ center: CGPoint, radius: Double, t: Double, seed: Double, wobble: Double) -> Path {
-        let count = 72
-        let points: [CGPoint] = (0..<count).map { index in
-            let angle = Double(index) / Double(count) * 2 * .pi
-            let wave = 0.55 * sin(2 * angle + t * 0.8 + seed)
-                + 0.30 * sin(3 * angle - t * 1.1 + seed * 1.7)
-                + 0.15 * sin(5 * angle + t * 1.6 + seed * 2.3)
-            let r = radius * (1 + wobble * wave)
-            return CGPoint(x: center.x + cos(angle) * r, y: center.y + sin(angle) * r)
-        }
-        func mid(_ a: CGPoint, _ b: CGPoint) -> CGPoint { CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2) }
-
-        var path = Path()
-        path.move(to: mid(points[count - 1], points[0]))
-        for index in 0..<count {
-            path.addQuadCurve(to: mid(points[index], points[(index + 1) % count]), control: points[index])
-        }
-        path.closeSubpath()
-        return path
     }
 }
 

@@ -290,15 +290,17 @@ relitigate them without asking:
   browser window with Flop on a frosted panel; the user rejected it because the page
   stayed visible around it. Flop appears only afterwards, in the reward card.
 - **One breath, then one honest question, one thing at a time.** During the breath there
-  is no panel: only `BreathBlob`, a translucent drop of light drawn in one `Canvas`. Its
-  edge is a smooth closed curve nudged by three slow waves, so it always gently changes
-  shape; three pools of light drift inside it; it has a halo, a warm core, a small glint
-  and a faint rim. The breath is computed from the clock, not animated: it swells over 3 s
-  and settles over 2 s, in step with the cue to the frame. Colours come from
-  `DayPeriod.glow`, the sky of the photo behind it. Under it, the cue and a small
-  countdown (5 s, 15 s on the second reach, 30 s from the third). Rejected on the way:
-  rings that ripple out, and a glass orb with orbiting motes (both not beautiful enough),
-  an opaque balloon-like blob, and a fully blurred one that read as fog. When it ends, the orb grows into the question panel
+  is no panel: only `ConstellationBreath`, chosen by the user from six HTML studies. On
+  the out-breath the stars gather into a tight knot with a warm glow; breathing in, they
+  open into a wide sky at three depths (near stars travel furthest, which reads as
+  drifting forward) and thin lines draw themselves into a constellation, retracting as the
+  breath empties. Warm and cool whites twinkle on their own clocks, the sky turns slowly,
+  and a shooting star passes every 13 s or so. One `Canvas` at 30 fps, stars generated once
+  from a fixed seed and stamped from pre-drawn glows. The breath is computed from the
+  clock: in over 3 s, out over 2 s, in step with the cue to the frame. Under it, the cue
+  and a small countdown (5 s, 15 s on the second reach, 30 s from the third). Rejected on
+  the way: rippling rings, a glass orb with orbiting motes, and several organic blobs
+  (opaque, foggy, then a translucent drop the user hated). When it ends, the orb grows into the question panel
   (`matchedGeometryEffect`), the question reveals, and six feeling chips arrive one after
   another. Each chip is one short word and a white symbol; the longer description shows
   only on hover, in a single helper line, and 1–6 on the keyboard pick them. Choosing one
