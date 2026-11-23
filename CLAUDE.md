@@ -154,10 +154,12 @@ Rules that are easy to get wrong, and are covered by the tests:
     one snaps somewhere and holds. Both the blink and the saccade intervals are jittered
     on purpose — fixed ones read as a metronome.
   - The HUD sits **top right, under the menu bar**, where macOS already puts things that
-    want attention without taking it. **Flop stands to the left of the card, the card
-    against the screen edge at the height of his ears** (the row is top-aligned, so the card
-    lands under the menu bar where a banner does and Flop stands beside it, not under it),
-    and the pair **arrives and leaves exactly like a notification banner**: in from beyond the right edge, and back out the same way when it is dismissed
+    want attention without taking it. **Flop stands to the left of the card, and the card's
+    top edge sits on the tips of his ears**, with his feet hanging below it. The row aligns
+    on `NudgeCharacterView.earTopInset()`, not on his frame: the frame keeps empty air above
+    the ears for the flutter, so aligning on it put the card level with nothing. The top
+    padding gives back what the ears take, which keeps the card under the menu bar where a
+    banner sits. The pair **arrives and leaves exactly like a notification banner**: in from beyond the right edge, and back out the same way when it is dismissed
     or times out. The card never simply vanishes in place. The panel itself no longer
     fades; the SwiftUI card owns both halves of the movement, and `NudgeHUDView.isLeaving`
     is how the controller starts the exit (a new root view, so the slide-out animates

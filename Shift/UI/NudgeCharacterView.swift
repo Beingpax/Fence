@@ -32,8 +32,19 @@ struct NudgeCharacterView: View {
     /// Wider than the 100-unit body needs, because at the last rung the ears swing out
     /// to horizontal and would otherwise be clipped at the edges. Geometry below is still
     /// written against a 100-wide body; `draw` shifts it into the middle.
-    private static let design = CGSize(width: 128, height: 120)
+    nonisolated private static let design = CGSize(width: 128, height: 120)
     private static let inset: CGFloat = (design.width - 100) / 2
+
+    /// How far below the top of the frame the ear tips rest, at a given height.
+    ///
+    /// The frame is as tall as the design box, and the box has room above the ears for the
+    /// last rung's flutter, so the top of the view is empty air. Anything lining itself up
+    /// with the ears — the nudge card does — has to measure from here rather than from the
+    /// frame, or it ends up level with nothing. The ear reaches design y ≈ 12 with its
+    /// stroke counted; the bob carries it a few points either side of that.
+    nonisolated static func earTopInset(forHeight height: CGFloat = 186) -> CGFloat {
+        height * 12 / design.height
+    }
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !animates)) { timeline in

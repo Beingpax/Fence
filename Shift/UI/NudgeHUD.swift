@@ -256,10 +256,12 @@ private struct NudgeHUDView: View {
     private var isOffscreen: Bool { !entered || isLeaving }
 
     var body: some View {
-        // Top-aligned: the card sits level with Flop's ears, up under the menu bar where a
-        // notification lands, with Flop standing beside it rather than under it.
+        // Top-aligned on the ears, not on Flop's frame: the card's top edge and the tips of
+        // his ears share a line, and his feet hang below the card. The alignment guide is
+        // what skips the empty air above his ears.
         HStack(alignment: .top, spacing: -10) {
             NudgeCharacter(mood: mood, animates: !reduceMotion)
+                .alignmentGuide(.top) { _ in NudgeCharacterView.earTopInset() }
                 .overlay {
                     // A burst of sparkles when someone turns back: a small celebration
                     // the instant they do the thing the habit is built on.
@@ -271,7 +273,10 @@ private struct NudgeHUDView: View {
             message
         }
         .padding(.trailing, Theme.Space.loose)
-        .padding(.vertical, Theme.Space.loose)
+        // Flop now reaches higher than the card, so the top padding gives back what the
+        // ears take: the card stays under the menu bar where a banner sits.
+        .padding(.top, max(0, Theme.Space.loose - NudgeCharacterView.earTopInset()))
+        .padding(.bottom, Theme.Space.loose)
         // Flop stands to the left, the card against the screen edge where banners sit.
         .frame(maxWidth: .infinity, alignment: .trailing)
         // Travels in from beyond the screen edge and back out the same way, like a
