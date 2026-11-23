@@ -1,0 +1,25 @@
+Shift/UI/Design/TextReveal.swift
+  s_50e4768796818f::t_ee3f0953edd91d 69-110
+Shift/Enforcement/PauseBackdrop.swift
+  s_50e4768796818f::t_308c674e7c0bc2 58-70
+CLAUDE.md
+  ai_agent 293-298,306-310,312-315
+Shift/Enforcement/PauseView.swift
+  s_50e4768796818f::t_defc27a5bb4dcf 16-19,21-22,45,55,136-139,141-144,146,148,151-154,156-159,172-173,247-248,326,328,330-332,455-456,466,469-470,503-579,588-599
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "68d3d465e268ca7872bc914eccea6a1e0d3b904a",
+  "prompts": {},
+  "sessions": {
+    "s_50e4768796818f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b8c0a791-6f45-4510-84f2-8286d4c70394",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Prakash Joshi Pax <101010368+Beingpax@users.noreply.github.com>"
+    }
+  }
+}
