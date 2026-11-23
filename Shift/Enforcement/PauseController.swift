@@ -22,6 +22,18 @@ struct PauseRequest {
     var subtitle: String
     var isPreview = false
 
+    /// The rule as it appears on screen, including any path that narrows a website block.
+    var blockedTarget: String {
+        switch ruleTarget {
+        case .website(let entry), .path(let entry):
+            WebsiteAddress(entry: entry)?.entry ?? entry
+        case .app:
+            appName
+        case nil:
+            target
+        }
+    }
+
     /// How long the choices stay out of reach. Two slow breaths the first time, four the
     /// second, six from the third on: each repeat costs more, so coming back is never free.
     /// Closing it never waits.

@@ -3,8 +3,8 @@ import SwiftUI
 /// The pause: one breath, one honest question, and a reason to close it.
 ///
 /// The only full-screen surface in Shift. Each reach within the hour waits longer before
-/// the question opens: 10, then 20, then 30 seconds. Every line on it comes from
-/// `PauseCopy`, dealt so it doesn't repeat.
+/// the question opens: 10, then 20, then 30 seconds. The opening copy comes from
+/// `PauseCopy` and the matched rule explains why the screen appeared.
 ///
 /// Design rules for this screen, worth keeping if it's changed:
 ///
@@ -126,7 +126,7 @@ struct PauseView: View {
                     .revealOnAppear(delay: 0.4, duration: 1.1)
             }
 
-            Label(request.blockName, systemImage: "square.stack")
+            Label("\(request.blockedTarget) is blocked by “\(request.blockName)”", systemImage: "square.stack")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(.white.opacity(0.85))
                 .entrance(appeared, delay: 0.55, reduceMotion: reduceMotion)
@@ -270,7 +270,12 @@ struct PauseView: View {
     }
 
     private var helperText: String {
-        guard let hovered else { return "Or press 1 to \(choices.count)." }
+        guard let hovered else {
+            if request.breaksLeft == 0 {
+                return "No breaks left today. Press 1 to \(choices.count - 1) to choose."
+            }
+            return "Or press 1 to \(choices.count)."
+        }
         if hovered == .needed, let left = request.breaksLeft {
             return left == 0 ? "No breaks left today." : "\(hovered.feeling). \(left) break\(left == 1 ? "" : "s") left today."
         }
@@ -313,22 +318,22 @@ struct PauseView: View {
         switch reason {
         case .bored:
             ("Give your mind something real.",
-             "The feed promises something new and serves more of the same. Close it, stand up, stretch, and look at something far away for a minute.")
+             "Stand up, stretch, or look out a window for a minute.")
         case .tired:
-            ("You need rest, not more input.",
-             "Scrolling feels like rest, but it keeps your brain working. Close it, shut your eyes, and let your shoulders drop for two minutes.")
+            ("Give yourself a rest.",
+             "Close your eyes and let your shoulders drop for two minutes.")
         case .stuck:
             ("Make it smaller.",
              "Hard work feels like a wall. A tiny next step is a door. Close this and write down one thing you could do in the next two minutes.")
         case .anxious:
-            ("Put it on paper, not in a feed.",
-             "A feed only adds noise to whatever you’re carrying. Close it and write down what’s on your mind. Out of your head, it gets lighter.")
+            ("Put it on paper.",
+             "Write down what’s on your mind. Start with one sentence.")
         case .lonely:
-            ("Reach a real person.",
-             "A feed shows you people without giving you any of them. Close it and send one message to someone you actually like.")
+            ("Reach out to someone.",
+             "Send a short message to someone you’d like to talk to.")
         case .needed:
-            ("Name it, and it’s yours for a minute.",
-             "Say exactly what you need \(request.target) for. Just this site opens; everything else in “\(request.blockName)” stays blocked.")
+            ("Say what you need it for.",
+             "You can allow \(request.blockedTarget) for one or two minutes. “\(request.blockName)” stays on for everything else.")
         }
     }
 
@@ -401,7 +406,7 @@ struct PauseView: View {
                     Button {
                         onEvent(.takeBreak(minutes: minutes, note: trimmed))
                     } label: {
-                        Text("Open for \(minutes) min")
+                        Text("Allow for \(minutes) min")
                             .font(.callout.weight(.semibold))
                             .foregroundStyle(.white)
                             .frame(minWidth: 130)
@@ -439,11 +444,10 @@ struct PauseView: View {
     /// beside them would fight for the same job.
     private var closeButton: some View {
         let solid = chosen != .needed
-        let title = chosen == nil ? "I don’t need it. \(request.closeTitle)" : request.closeTitle
         return Button {
             onEvent(.close(chosen == .needed ? nil : chosen))
         } label: {
-            Label(title, systemImage: request.isBrowser ? "xmark" : "power")
+            Label(request.closeTitle, systemImage: request.isBrowser ? "xmark" : "power")
                 .font(.body.weight(.semibold))
                 .padding(.horizontal, Theme.Space.loose + 4)
                 .padding(.vertical, Theme.Space.snug + 3)

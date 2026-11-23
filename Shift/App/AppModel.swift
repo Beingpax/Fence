@@ -251,11 +251,7 @@ final class AppModel {
     private static let reachWindow: TimeInterval = 3600
     static let previewKey = "preview"
 
-    /// One reach for a blocked site.
-    ///
-    /// The first in an hour gets a five-second breath before the choices open, the second
-    /// fifteen, and every one after that thirty. Every repeat costs more, so coming back is
-    /// never free, and switching away and back can't reset anything: the count is per site.
+    /// One reach for a blocked site or app. Repeat reaches within the hour are counted per rule.
     private func beginReach(key: String, reachKey: String, verdict: Verdict, context: ScreenContext) {
         let now = Date()
         var recent = (reaches[reachKey] ?? []).filter { now.timeIntervalSince($0) < Self.reachWindow }
@@ -268,7 +264,7 @@ final class AppModel {
         guard let blockID = verdict.blockID else { return }
         store.recordTrigger(id: blockID, now: now)
         let breaks = store.block(id: blockID)?.breaks
-        let copy = PauseCopy.pause(visit: recent.count, target: target)
+        let copy = PauseCopy.pause(visit: recent.count)
         let request = PauseRequest(
             blockName: verdict.blockName ?? "Shift",
             blockID: blockID,
@@ -316,7 +312,7 @@ final class AppModel {
                 // No break left after all (or the block went quiet meanwhile), so this is
                 // a close.
                 closeTarget(context, isPreview: false)
-                nudgeHUD.status(headline: "No breaks left today.", detail: "Closed it for you. Back to \(request.blockName).")
+                nudgeHUD.status(headline: "Break didn’t start.", detail: "Check the break settings for “\(request.blockName)”.")
                 return
             }
             urges.record(UrgeEvent(date: Date(), blockName: request.blockName, target: request.target,
@@ -454,9 +450,10 @@ final class AppModel {
 
     /// The pause as it looks on a first, second or third reach within the hour.
     func previewPause(visit: Int = 1) {
-        let copy = PauseCopy.pause(visit: visit, target: "instagram.com")
+        let site = "instagram.com"
+        let copy = PauseCopy.pause(visit: visit)
         let request = PauseRequest(
-            blockName: "Deep work", blockID: nil, ruleTarget: nil, target: "instagram.com", appName: "Safari",
+            blockName: "Deep work", blockID: nil, ruleTarget: .website(site), target: site, appName: "Safari",
             isBrowser: true, visit: visit, breaksLeft: BreakPlan.dailyAllowance,
             plans: urges.plans,
             title: copy.title, subtitle: copy.subtitle, isPreview: true

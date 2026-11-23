@@ -101,7 +101,7 @@ struct SettingsView: View {
 
     private var detection: some View {
         Panel("How blocking works", icon: "scope") {
-            Text("Shift checks the current app and browser address against your enabled blocks. A rule can match a whole website, a path like YouTube Shorts, or an app. The moment a match appears, usually before the page has loaded, Shift covers the screen with a pause: a breath, then a question about what you were really after, and what would meet that need better than the feed. Closing it closes just the tab. If the block allows breaks, “I need it” opens just that site for one or two minutes, for a reason you name; the block stays on. Each reach within the hour waits longer before the choices open: 10, then 20, then 30 seconds.")
+            Text("When a site, page, or app matches an active block, Shift shows what was blocked. The pause gives you time to breathe before asking what brought you there. You can close the tab or quit the app at any time. If breaks are enabled, “I need it” lets you enter a reason and allow that site, path, or app for one or two minutes. The rest of the block stays on. For the same rule within an hour, choices appear after 10 seconds the first time, 20 the second time, and 30 thereafter.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Every line Shift says at the pause and when someone turns back.
+/// Rotating copy for the pause and for turning back.
 ///
 /// Lots of them, on purpose. The same sentence every time stops being read by the third
 /// time, and a pause that's skimmed has no effect. Lines are dealt from a shuffled deck
@@ -11,81 +11,81 @@ import Foundation
 /// - **The urge is "the pull" or "the habit", never the person.** Shame makes people fight
 ///   the tool instead of the habit.
 /// - **Short.** Titles under about six words; subtitles one or two plain sentences.
-/// - **`{target}`** is replaced with the site or app, like "instagram.com".
+/// - The opening makes room to breathe. The question comes after the wait.
 /// - No exclamation marks in the pause. A little celebration is fine in rewards.
 enum PauseCopy {
     typealias Line = (title: String, subtitle: String)
 
     // MARK: The pause
 
-    /// The first reach within an hour: gentle, curious, inviting a single breath.
+    /// The first reach within an hour.
     static let firstReach: [Line] = [
-        ("Take a breath.", "You reached for {target}. Before it pulls you in, check in with yourself."),
-        ("Hey. Just a second.", "{target} will still be there. Let’s make sure you actually want it first."),
-        ("One breath first.", "Your hand knew the way to {target} before you decided. Let’s decide now."),
-        ("Pause here.", "That was quick. Was it you choosing {target}, or the habit?"),
-        ("Hold on a moment.", "Notice the pull toward {target}. You can feel it without following it."),
-        ("Breathe with me.", "Five seconds, then it’s your call. No judgement either way."),
-        ("Let’s slow down.", "The feed is fast on purpose. You don’t have to be."),
-        ("Quick check-in.", "Something sent you to {target}. Let’s find out what."),
-        ("Not so fast.", "Give yourself one breath before {target} gets the next ten minutes."),
-        ("Stay with me a second.", "The urge is loudest right now. Wait a moment and it gets quieter."),
-        ("Here’s your moment.", "Right now you can still choose. In a minute, the feed chooses for you."),
-        ("A small pause.", "You opened {target} on autopilot. Let’s switch the pilot back on."),
-        ("Breathe in.", "Whatever you were doing before this is still waiting for you."),
-        ("Hey, it’s okay.", "Everyone reaches for something. Let’s see what you were reaching for."),
-        ("Before you go in.", "Think about how you want to feel when you close {target} again."),
-        ("Let this one pass.", "Urges are waves. Watch this one rise, and let it roll by."),
-        ("Take a beat.", "You were in the middle of something. Let’s not hand it to {target}."),
-        ("Just breathe.", "Nothing’s wrong. You caught yourself, and that’s the hard part."),
-        ("Wait a moment.", "The best decisions happen a few seconds after the first impulse."),
-        ("Look up for a second.", "Away from the screen. One slow breath. Then choose."),
+        ("Take a breath.", "Let it out slowly before you move on."),
+        ("Hey. Just a moment.", "Let your shoulders drop for a breath."),
+        ("Start with a breath.", "Let it out slowly."),
+        ("Pause here.", "You can close this whenever you’re ready."),
+        ("Hold on a moment.", "Let your hands rest for a breath."),
+        ("Breathe with me.", "Take an easy breath in and a slow breath out."),
+        ("Let’s slow down.", "Give yourself a moment before the next step."),
+        ("A moment to reset.", "Let your eyes settle and take a slow breath."),
+        ("No rush.", "You can take this at your own pace."),
+        ("A little breathing room.", "Let your hands and shoulders relax."),
+        ("Here’s your moment.", "Put both feet on the floor and breathe."),
+        ("A small pause.", "The next step can wait for a breath."),
+        ("Breathe in.", "Let your shoulders soften as you breathe out."),
+        ("Hey, it’s okay.", "There’s room to slow down here."),
+        ("A moment to yourself.", "Give your hands a quick rest."),
+        ("Let the moment pass.", "Let your eyes rest somewhere beyond the screen."),
+        ("Take a beat.", "A slow breath is enough for now."),
+        ("Just breathe.", "Let your breathing find its own pace."),
+        ("Take it slowly.", "Give yourself room to breathe."),
+        ("Look up for a moment.", "Rest your eyes on something farther away."),
     ]
 
-    /// The second reach within an hour: no surprise, no scolding, a longer breath.
+    /// The second reach within an hour.
     static let secondReach: [Line] = [
-        ("Back again.", "That’s the pull, not you. Urges rise, peak and fade, usually within a minute. Ride this one out."),
-        ("Round two.", "{target} is persistent today. So are you. Fifteen seconds, then choose."),
-        ("Hello again.", "No shame in coming back. It usually means something’s unsettled. Let’s look at it."),
-        ("The pull is back.", "That’s normal. Habits knock a few times before they give up."),
-        ("Again? That’s okay.", "Every time you pause instead of scroll, the habit gets a little weaker."),
-        ("Still thinking about it?", "Something keeps sending you to {target}. Let’s name it this time."),
-        ("Let’s try this again.", "A slightly longer breath this time. The urge is already fading."),
-        ("You’re back.", "Last time you turned around. You can do it again."),
-        ("Same pull, new chance.", "You don’t have to win every time. Just this one."),
-        ("Here we are again.", "Fifteen slow seconds. Notice what you’re actually feeling."),
-        ("It’s calling again.", "{target} is built to be hard to resist. Resisting it is a skill, and you’re practising."),
-        ("Breathe a bit longer.", "The second reach is usually the restless one. Let it settle."),
-        ("One more breath.", "Whatever you’re avoiding is probably smaller than it feels."),
-        ("It’s persistent today.", "So is the part of you that wants to get things done."),
-        ("Let’s sit with it.", "The itch to check is strongest just before it fades."),
+        ("Back again.", "The second pause gives you a little more time."),
+        ("Round two.", "Take a few slow breaths if you like."),
+        ("Hello again.", "Take a moment to settle."),
+        ("Another pause.", "You can close this at any point."),
+        ("It’s okay to pause again.", "Rest your hands and take a breath."),
+        ("A little more time.", "Give your eyes a moment away from the screen."),
+        ("Let’s slow down again.", "Lean back and let your shoulders drop."),
+        ("You’re back.", "There’s a little more breathing room this time."),
+        ("A fresh moment.", "Look away from the screen for a breath or two."),
+        ("Here we are again.", "A slow breath is a good place to start."),
+        ("Pause for a bit longer.", "Put both feet on the floor and breathe."),
+        ("Breathe a bit longer.", "Let the next few breaths set the pace."),
+        ("Another chance to pause.", "You can close this whenever you’re ready."),
+        ("Settle in for a moment.", "Give your eyes a break from the screen."),
+        ("Pause with a breath.", "Let it out a little more slowly."),
     ]
 
-    /// The third reach and beyond: the pull is clearly strong, so be kinder and slower.
+    /// The third reach and beyond.
     static let laterReach: [Line] = [
-        ("Third time this hour.", "The pull is strong today, and that’s okay. Sit with it for thirty seconds, then choose."),
-        ("It’s a hard day for this.", "Some days the pull is louder. Be gentle with yourself, and stay a while."),
-        ("Let’s really stop.", "Thirty seconds. No feed, no task. Just you and your breath."),
-        ("Something’s up.", "Reaching this often usually means you need something. Let’s find out what."),
-        ("You keep coming back.", "That’s not weakness, it’s a signal. Listen to it for thirty seconds."),
-        ("Slow all the way down.", "Hands in your lap. Breathe. Let the restlessness pass through."),
-        ("This one’s a big wave.", "Big waves still pass. Ride it out with me."),
-        ("Let’s take a real pause.", "{target} won’t fix what you’re feeling right now. Let’s find something that will."),
+        ("A longer pause.", "There’s time to look away and breathe."),
+        ("Take your time.", "You can rest here for a few breaths."),
+        ("Let’s stay here a moment.", "Let your breathing settle into its own rhythm."),
+        ("Room to slow down.", "Let your eyes rest on something away from the screen."),
+        ("Another moment to reset.", "You can close this whenever you’re ready."),
+        ("Slow all the way down.", "Rest your hands in your lap and breathe."),
+        ("Give yourself a moment.", "Lean back and let your breathing find its own pace."),
+        ("A quiet pause.", "Give your eyes a break from the screen."),
         ("Hey. Step back.", "Look away from the screen. Find something far away to rest your eyes on."),
-        ("The feed can wait.", "It isn’t going anywhere. Neither are you. Thirty seconds."),
-        ("Your brain needs a break.", "Coming back this often is a sign it’s running on empty. Give it thirty quiet seconds."),
-        ("Still here. Still with you.", "No lecture. Just a longer breath this time."),
-        ("Let’s be honest.", "This isn’t about {target}. Something else needs your attention. Breathe and find it."),
+        ("Stay for a few breaths.", "Let your shoulders soften as you breathe out."),
+        ("A little longer here.", "You can close this at any point."),
+        ("Still here with you.", "The next step can wait while you breathe."),
+        ("Ease into the pause.", "Let your jaw and shoulders relax."),
     ]
 
     @MainActor
-    static func pause(visit: Int, target: String) -> Line {
+    static func pause(visit: Int) -> Line {
         let (deck, lines): (String, [Line]) = switch visit {
         case ...1: ("pause.first", firstReach)
         case 2: ("pause.second", secondReach)
         default: ("pause.later", laterReach)
         }
-        return fill(CopyDeck.draw(lines, deck: deck), target: target)
+        return CopyDeck.draw(lines, deck: deck)
     }
 
     // MARK: Turning back
@@ -245,11 +245,6 @@ enum PauseCopy {
         return visit > 1
             ? CopyDeck.draw(turnedBackHard, deck: "reward.hard")
             : CopyDeck.draw(turnedBack, deck: "reward.any")
-    }
-
-    private static func fill(_ line: Line, target: String) -> Line {
-        (line.title.replacingOccurrences(of: "{target}", with: target),
-         line.subtitle.replacingOccurrences(of: "{target}", with: target))
     }
 }
 
