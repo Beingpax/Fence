@@ -1,6 +1,5 @@
 import AppKit
 import ApplicationServices
-import CoreGraphics
 import os.log
 
 /// Live reads of the permissions Shift depends on, plus deep links to the right
@@ -25,7 +24,6 @@ enum PermissionsManager {
         _ = AXIsProcessTrustedWithOptions(options)
     }
 
-    /// Optional permission for reading the foreground window with OCR.
     // MARK: Settings deep links
 
     static func openAccessibilitySettings() {

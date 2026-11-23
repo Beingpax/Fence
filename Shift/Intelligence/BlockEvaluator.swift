@@ -47,24 +47,14 @@ struct BlockEvaluator {
         let target: RuleTarget
         let name: String
 
-        let matchingRules = website.map { address in
-            // Older onboarding data can have a URL stored in the other list.
-            (list.paths + list.hosts).compactMap { entry -> (entry: String, rule: WebsiteAddress)? in
-                guard let rule = WebsiteAddress(entry: entry), rule.matches(address) else { return nil }
-                return (entry, rule)
-            }
-        } ?? []
-        if let path = matchingRules.first(where: { !$0.rule.isDomainOnly }) {
-            target = .path(path.entry)
-            name = path.entry
-        } else if let domain = matchingRules.first {
-            target = .website(domain.entry.lowercased())
-            name = domain.entry
-        } else if list.apps.contains(where: { context.bundleID.lowercased() == $0.lowercased() }) {
-            target = .app(context.bundleID.lowercased())
-            name = context.appName
+        if let website, let match = matchingWebsiteRule(for: website, in: list) {
+            target = match.target
+            name = match.name
         } else {
-            return nil
+            let bundleID = context.bundleID.lowercased()
+            guard list.apps.contains(where: { bundleID == $0.lowercased() }) else { return nil }
+            target = .app(bundleID)
+            name = context.appName
         }
 
         return Verdict(
@@ -74,5 +64,18 @@ struct BlockEvaluator {
             blockName: block.name,
             ruleTarget: target
         )
+    }
+
+    private func matchingWebsiteRule(for address: WebsiteAddress, in list: BlockList) -> (target: RuleTarget, name: String)? {
+        var firstDomain: String?
+        // Older data can store paths and domains in either list. Paths take precedence.
+        for entries in [list.paths, list.hosts] {
+            for entry in entries {
+                guard let rule = WebsiteAddress(entry: entry), rule.matches(address) else { continue }
+                if !rule.isDomainOnly { return (.path(entry), entry) }
+                if firstDomain == nil { firstDomain = entry }
+            }
+        }
+        return firstDomain.map { (.website($0.lowercased()), $0) }
     }
 }

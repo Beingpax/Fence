@@ -7,6 +7,8 @@ enum WindowInspector {
         let title: String?
         let url: URL?
         let windowID: CGWindowID?
+
+        static let empty = Snapshot(title: nil, url: nil, windowID: nil)
     }
 
     enum QuitDialog: Equatable {
@@ -31,28 +33,44 @@ enum WindowInspector {
     static func snapshot(
         pid: pid_t, browser: Browser?, prepareAccessibility: Bool, verifyURL: Bool = false
     ) async -> Snapshot {
-        await Task.detached(priority: .userInitiated) {
-            var window = focusedWindow(pid: pid, browser: browser, enableWebAccessibility: prepareAccessibility)
-            var url: URL?
-            if let browser {
-                if verifyURL {
-                    if let focused = window,
-                       let address = verifiedPageURL(in: focused, browser: browser),
-                       let latestWindow = focusedWindow(pid: pid, browser: browser), CFEqual(focused, latestWindow) {
-                        url = address
-                    }
-                } else {
-                    url = window.flatMap { pageURL(in: $0, browser: browser) }
-                    if prepareAccessibility, url == nil {
-                        try? await Task.sleep(for: .milliseconds(150))
-                        window = focusedWindow(pid: pid, browser: browser)
-                        url = window.flatMap { pageURL(in: $0, browser: browser) }
-                    }
+        let worker = Task.detached(priority: .userInitiated) {
+            var snapshot = autoreleasepool {
+                readSnapshot(pid: pid, browser: browser, prepareAccessibility: prepareAccessibility, verifyURL: verifyURL)
+            }
+            if prepareAccessibility, !verifyURL, snapshot.url == nil, browser != nil, !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(150))
+                snapshot = autoreleasepool {
+                    readSnapshot(pid: pid, browser: browser, prepareAccessibility: false, verifyURL: false)
                 }
             }
-            let title = window.flatMap { string($0, "AXTitle") }
-            return Snapshot(title: title, url: url, windowID: frontWindowID(pid: pid, bounds: window.flatMap(bounds)))
-        }.value
+            return snapshot
+        }
+        return await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+    }
+
+    private static func readSnapshot(pid: pid_t, browser: Browser?, prepareAccessibility: Bool, verifyURL: Bool) -> Snapshot {
+        guard !Task.isCancelled else { return .empty }
+        let window = focusedWindow(pid: pid, browser: browser, enableWebAccessibility: prepareAccessibility)
+        var url: URL?
+        if let browser, let window, !Task.isCancelled {
+            if verifyURL {
+                if let address = verifiedPageURL(in: window, browser: browser),
+                   let latestWindow = focusedWindow(pid: pid, browser: browser), CFEqual(window, latestWindow) {
+                    url = address
+                }
+            } else {
+                url = pageURL(in: window, browser: browser)
+            }
+        }
+        // The Chromium preparation path retries once before publishing a sample.
+        guard !Task.isCancelled, !prepareAccessibility || verifyURL || url != nil else { return .empty }
+        let title = window.flatMap { string($0, "AXTitle") }
+        let windowID = title == nil && url == nil ? nil : frontWindowID(pid: pid, bounds: window.flatMap(bounds))
+        return Snapshot(title: title, url: url, windowID: windowID)
     }
 
     static func quitDialog(pid: pid_t) async -> QuitDialog {
@@ -109,7 +127,7 @@ enum WindowInspector {
     }
 
     static func focusedWindow(pid: pid_t, browser: Browser?, enableWebAccessibility: Bool = false) -> AXUIElement? {
-        guard AXIsProcessTrusted() else { return nil }
+        guard !Task.isCancelled, AXIsProcessTrusted() else { return nil }
         let application = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(application, 0.15)
         if enableWebAccessibility, browser == .dia {
@@ -148,7 +166,7 @@ enum WindowInspector {
         let deadline = ContinuousClock.now.advanced(by: .milliseconds(vivaldi ? 200 : 130))
         let nodeLimit = vivaldi ? 240 : 96
         var index = 0
-        while index < queue.count, index < nodeLimit, ContinuousClock.now < deadline {
+        while index < queue.count, index < nodeLimit, ContinuousClock.now < deadline, !Task.isCancelled {
             let (element, activePage) = queue[index]
             index += 1
             guard let role = string(element, "AXRole") else { continue }
@@ -170,12 +188,16 @@ enum WindowInspector {
                     belongsToActivePage = true
                 }
             }
-            queue.append(contentsOf: children(of: element, limit: vivaldi ? 40 : 24).map { ($0, belongsToActivePage) })
+            let childLimit = min(nodeLimit - queue.count, vivaldi ? 40 : 24)
+            if childLimit > 0 {
+                queue.append(contentsOf: children(of: element, limit: childLimit).map { ($0, belongsToActivePage) })
+            }
         }
         return found
     }
 
     static func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
+        guard !Task.isCancelled else { return nil }
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, key as CFString, &value) == .success else { return nil }
         return value
@@ -188,6 +210,7 @@ enum WindowInspector {
 
     static func children(of element: AXUIElement, limit: Int) -> [AXUIElement] {
         for key in ["AXVisibleChildren", "AXChildren"] {
+            guard !Task.isCancelled else { return [] }
             var count: CFIndex = 0
             guard AXUIElementGetAttributeValueCount(element, key as CFString, &count) == .success, count > 0 else {
                 continue
@@ -249,7 +272,7 @@ enum WindowInspector {
         var queue = children(of: window, limit: 32).map { (element: $0, inToolbar: false) }
         let deadline = ContinuousClock.now.advanced(by: .milliseconds(130))
         var index = 0
-        while index < queue.count, index < 96, ContinuousClock.now < deadline {
+        while index < queue.count, index < 96, ContinuousClock.now < deadline, !Task.isCancelled {
             let (element, inToolbar) = queue[index]
             index += 1
             guard let role = string(element, "AXRole"), !excludedRoles.contains(role) else { continue }
@@ -260,7 +283,10 @@ enum WindowInspector {
                 return reading
             }
             let childIsInToolbar = inToolbar || role == "AXToolbar"
-            queue.append(contentsOf: children(of: element, limit: 24).map { ($0, childIsInToolbar) })
+            let childLimit = min(96 - queue.count, 24)
+            if childLimit > 0 {
+                queue.append(contentsOf: children(of: element, limit: childLimit).map { ($0, childIsInToolbar) })
+            }
         }
         return nil
     }

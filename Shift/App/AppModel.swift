@@ -18,7 +18,7 @@ final class AppModel {
 
     let store: BlockStore
     /// Every reach for a blocked site, and the plans written in the weekly review.
-    let urges = UrgeLog()
+    @ObservationIgnored private(set) lazy var urges = UrgeLog()
 
     private(set) var lastContext: ScreenContext?
     private(set) var lastVerdict: Verdict?

@@ -53,8 +53,8 @@ final class ContextMonitor {
     func stop() {
         timer?.invalidate()
         timer = nil
+        // Keep ownership until the in-flight AX call returns. A restart queues a fresh sample.
         samplingTask?.cancel()
-        samplingTask = nil
         resampleTask?.cancel()
         resampleTask = nil
         wantsResample = false
@@ -70,6 +70,7 @@ final class ContextMonitor {
 
     func invalidate() {
         revision &+= 1
+        samplingTask?.cancel()
         onInvalidation?()
     }
 
@@ -88,9 +89,12 @@ final class ContextMonitor {
     /// Follows the front app with the address observer. Shift itself is skipped, so a
     /// Shift panel taking focus never unhooks the browser underneath it.
     private func observeFrontmost() {
+        guard PermissionsManager.isAccessibilityTrusted else {
+            if addressObserver.pid != nil { addressObserver.stop() }
+            return
+        }
         guard let app = NSWorkspace.shared.frontmostApplication,
-              app.bundleIdentifier != Bundle.main.bundleIdentifier,
-              PermissionsManager.isAccessibilityTrusted
+              app.bundleIdentifier != Bundle.main.bundleIdentifier
         else { return }
         addressObserver.observe(pid: app.processIdentifier)
     }
@@ -120,6 +124,7 @@ final class ContextMonitor {
 
     private func sample() {
         guard isRunning else { return }
+        observeFrontmost()
         guard samplingTask == nil else {
             wantsResample = true
             return
@@ -135,15 +140,13 @@ final class ContextMonitor {
         let browser = Browser(bundleID: bundleID)
         let prepareAccessibility = browser?.isChromium == true && accessibilityPreparedPID != pid
             && PermissionsManager.isAccessibilityTrusted
-        if prepareAccessibility { accessibilityPreparedPID = pid }
 
         let sampleRevision = revision
         samplingTask = Task { [weak self] in
             defer {
-                // A cancelled sample may finish after a new timer has started.
-                if !Task.isCancelled, let self {
+                if let self {
                     self.samplingTask = nil
-                    if self.revision != sampleRevision || self.wantsResample {
+                    if self.isRunning, self.revision != sampleRevision || self.wantsResample {
                         self.wantsResample = false
                         self.sample()
                     }
@@ -154,6 +157,7 @@ final class ContextMonitor {
             guard let self, !Task.isCancelled, self.isRunning, self.revision == sampleRevision,
                   NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
             else { return }
+            if prepareAccessibility { self.accessibilityPreparedPID = pid }
 
             let context = ScreenContext(
                 bundleID: bundleID,
