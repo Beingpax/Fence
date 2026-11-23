@@ -4,7 +4,7 @@ import SwiftUI
 /// Sections of the main window. Settings is one of these rather than a separate window:
 /// a menu bar app with two windows is one window too many.
 enum MainSection: String, CaseIterable, Identifiable, Hashable {
-    case dashboard, blocks, activity, settings
+    case dashboard, blocks, settings
 
     var id: String { rawValue }
 
@@ -12,7 +12,6 @@ enum MainSection: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .dashboard: "Dashboard"
         case .blocks: "Blocks"
-        case .activity: "Activity"
         case .settings: "Settings"
         }
     }
@@ -21,7 +20,6 @@ enum MainSection: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .dashboard: "square.grid.2x2.fill"
         case .blocks: "shield.lefthalf.filled"
-        case .activity: "clock.fill"
         case .settings: "gearshape.fill"
         }
     }
@@ -32,7 +30,6 @@ enum MainSection: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .dashboard: Color(nsColor: .systemOrange)
         case .blocks: Color(nsColor: .systemIndigo)
-        case .activity: Color(nsColor: .systemTeal)
         case .settings: Color(nsColor: .systemGray)
         }
     }
@@ -109,8 +106,6 @@ struct MainWindowView: View {
                 onSelect: selectBlock,
                 onAddBlock: model.presentNewBlock
             )
-        case .activity:
-            ActivityView()
         case .settings:
             SettingsView()
         }
@@ -160,10 +155,6 @@ private struct Sidebar: View {
 
                 Spacer(minLength: 16)
 
-                ActiveBlockStatus()
-                    .padding(.horizontal, SidebarLayout.horizontalInset)
-                    .padding(.bottom, 6)
-
                 SidebarRow(
                     title: MainSection.settings.title,
                     systemImage: MainSection.settings.symbol,
@@ -177,29 +168,6 @@ private struct Sidebar: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-    }
-}
-
-/// The one piece of live state worth keeping on screen at all times.
-private struct ActiveBlockStatus: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        let active = model.store.activeBlocks.count
-        HStack(spacing: 7) {
-            Circle()
-                .fill(active > 0 ? Color.green : Color.secondary.opacity(0.45))
-                .frame(width: 7, height: 7)
-
-            Text(active == 0 ? "No block active" : "\(active) block\(active == 1 ? "" : "s") active")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 8)
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -730,60 +698,6 @@ private struct ChallengeKeyInput: NSViewRepresentable {
                 onEdit?(.append(character))
             } else {
                 super.keyDown(with: event)
-            }
-        }
-    }
-}
-
-// MARK: - Activity
-
-struct ActivityView: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        Group {
-            if model.activity.isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
-                    PageHeader("Activity")
-                    ContentUnavailableView(
-                        "Nothing yet",
-                        systemImage: "clock",
-                        description: Text("Pauses, turn-backs and nudges show up here as they happen.")
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                }
-                .mainPageInsets()
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 2) {
-                        PageHeader("Activity", subtitle: "\(model.activity.count) recent event\(model.activity.count == 1 ? "" : "s")")
-                            .padding(.bottom, Theme.Space.snug)
-
-                        ForEach(model.activity) { event in
-                            HStack(spacing: Theme.Space.snug) {
-                                Image(systemName: event.symbol)
-                                    .font(.caption)
-                                    .frame(width: 20)
-                                    .foregroundStyle(.secondary)
-                                Text(event.text)
-                                    .font(.callout)
-                                Spacer()
-                                Text(event.date, style: .time)
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
-                                    .monospacedDigit()
-                            }
-                            .padding(.horizontal, Theme.Space.snug)
-                            .padding(.vertical, 7)
-                            .background {
-                                RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                                    .fill(.quaternary.opacity(0.4))
-                            }
-                        }
-                    }
-                    .mainPageInsets()
-                }
-                .scrollBounceBehavior(.basedOnSize)
             }
         }
     }

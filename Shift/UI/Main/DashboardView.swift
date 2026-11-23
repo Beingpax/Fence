@@ -40,7 +40,17 @@ struct DashboardView: View {
     // MARK: Header
 
     private var header: some View {
-        PageHeader("Dashboard", subtitle: subtitle)
+        PageHeader("Dashboard", subtitle: subtitle) {
+            if !active.isEmpty {
+                Circle()
+                    .fill(Color(nsColor: .systemGreen))
+                    .frame(width: 8, height: 8)
+                    .frame(width: 24, height: 36, alignment: .trailing)
+                    .help("A block is active")
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("A block is active")
+            }
+        }
     }
 
     /// The one line that answers "is anything happening right now".
