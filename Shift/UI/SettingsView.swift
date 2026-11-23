@@ -78,7 +78,7 @@ struct SettingsView: View {
             subtitle: "See each moment as it happens, without visiting a blocked site.",
             icon: "eye"
         ) {
-            PanelRow(title: "The pause", detail: "Reaches within an hour: 5, then 15, then 30 seconds before the choices open.") {
+            PanelRow(title: "The pause", detail: "Reaches within an hour: 10, then 20, then 30 seconds before the choices open.") {
                 HStack(spacing: Theme.Space.tight) {
                     Button("First") { model.previewPause(visit: 1) }
                         .buttonStyle(.shiftSoft)
@@ -101,7 +101,7 @@ struct SettingsView: View {
 
     private var detection: some View {
         Panel("How blocking works", icon: "scope") {
-            Text("Shift checks the current app and browser address against your enabled blocks. A rule can match a whole website, a path like YouTube Shorts, or an app. The moment a match appears, usually before the page has loaded, Shift covers the screen with a pause: a breath, then a question about what you were really after, and what would meet that need better than the feed. Closing it closes just the tab. If the block allows breaks, “I need it” opens just that site for one or two minutes, for a reason you name; the block stays on. Each reach within the hour waits longer before the choices open: 5, then 15, then 30 seconds.")
+            Text("Shift checks the current app and browser address against your enabled blocks. A rule can match a whole website, a path like YouTube Shorts, or an app. The moment a match appears, usually before the page has loaded, Shift covers the screen with a pause: a breath, then a question about what you were really after, and what would meet that need better than the feed. Closing it closes just the tab. If the block allows breaks, “I need it” opens just that site for one or two minutes, for a reason you name; the block stays on. Each reach within the hour waits longer before the choices open: 10, then 20, then 30 seconds.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

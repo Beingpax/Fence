@@ -22,13 +22,13 @@ struct PauseRequest {
     var subtitle: String
     var isPreview = false
 
-    /// How long the choices stay out of reach. One slow breath the first time, three the
+    /// How long the choices stay out of reach. Two slow breaths the first time, four the
     /// second, six from the third on: each repeat costs more, so coming back is never free.
     /// Closing it never waits.
     var waitSeconds: Int {
         switch visit {
-        case ...1: 5
-        case 2: 15
+        case ...1: 10
+        case 2: 20
         default: 30
         }
     }
@@ -70,28 +70,35 @@ final class PauseController {
         dismiss()
         self.key = key
 
-        let primaryScreen = NSScreen.main ?? NSScreen.screens.first
-        for screen in NSScreen.screens {
+        let screens = NSScreen.screens
+        guard let primaryScreen = NSScreen.main ?? screens.first else {
+            self.key = nil
+            return
+        }
+        let wallpaper = PauseWallpaper()
+        var primaryWindow: PauseWindow?
+        for screen in screens {
             let window = PauseWindow(
                 contentRect: screen.frame,
                 styleMask: [.borderless],
                 backing: .buffered,
                 defer: false
             )
-            window.setFrame(screen.frame, display: true)
+            window.setFrame(screen.frame, display: false)
             window.level = .screenSaver
             window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-            window.isOpaque = false
-            window.backgroundColor = .clear
+            window.isOpaque = true
+            window.backgroundColor = .black
             window.hasShadow = false
             window.isReleasedWhenClosed = false
             window.alphaValue = 0
 
             let content: AnyView = screen == primaryScreen
-                ? AnyView(PauseView(request: request, onEvent: onEvent))
-                : AnyView(PauseBackdrop())
+                ? AnyView(PauseView(request: request, wallpaper: wallpaper, onEvent: onEvent))
+                : AnyView(PauseBackdrop(wallpaper: wallpaper))
             window.contentView = NSHostingView(rootView: content)
-            window.makeKeyAndOrderFront(nil)
+            if screen == primaryScreen { primaryWindow = window }
+            window.orderFrontRegardless()
             windows.append(window)
         }
 
@@ -104,7 +111,7 @@ final class PauseController {
             .disableHideApplication,
             .disableAppleMenu,
         ]
-        windows.first(where: { $0.screen == primaryScreen })?.makeKey()
+        primaryWindow?.makeKey()
 
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         for window in windows {
