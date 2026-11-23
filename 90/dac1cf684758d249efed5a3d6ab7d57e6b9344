@@ -1,0 +1,22 @@
+Shift/Enforcement/PauseView.swift
+  s_b65ac54b17b40a::t_862be4a105ebe0 244
+  s_b65ac54b17b40a::t_0c4acad0622aea 239-243
+Shift/UI/NudgeHUD.swift
+  s_b65ac54b17b40a::t_0c4acad0622aea 259-261
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "90dac1cf684758d249efed5a3d6ab7d57e6b9344",
+  "prompts": {},
+  "sessions": {
+    "s_b65ac54b17b40a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6ccf5cce-dfe2-4fcf-8151-e1a544419150",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Prakash Joshi Pax <101010368+Beingpax@users.noreply.github.com>"
+    }
+  }
+}
