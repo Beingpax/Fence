@@ -42,23 +42,31 @@ enum NudgeMood {
 /// platform: a non-activating panel that floats over everything, never takes keyboard focus,
 /// never appears in Cmd+Tab or Mission Control, and fades itself out.
 ///
-/// It sits against the right edge rather than the bottom centre, because the ladder nudges
-/// have to be noticed without covering the thing the user is reading, and because a
-/// character leaning in from off-screen is a friendlier interruption than a banner.
+/// It sits against the right edge rather than the bottom centre, because a nudge has to be
+/// noticed without covering the thing the user is reading, and because that is where macOS
+/// already puts banners. Flop stands to the left of the card, the card against the screen
+/// edge, and the pair arrives and leaves exactly like a notification: in from beyond the
+/// right edge, and back out the same way.
 @MainActor
 final class NudgeHUDController {
     private var panel: NSPanel?
+    private var hosting: NSHostingView<NudgeHUDView>?
     private var dismissTask: Task<Void, Never>?
-    /// Ladder rungs replace each other every few seconds, so a fade-out already in flight
-    /// has to lose to the fade-in that follows it, or the panel gets ordered out from
-    /// under the new rung.
+    /// Cards can replace each other within a second or two, so a slide-out already in
+    /// flight has to lose to the card that follows it, or the panel gets ordered out from
+    /// under the new one.
     private var transitionTask: Task<Void, Never>?
+    /// True from the moment the card starts sliding out until the panel is gone.
+    private var isLeaving = false
+    /// How long the exit takes, plus a frame or two. Keep in step with
+    /// `NudgeHUDView.exitDuration`.
+    private let exitGrace: Duration = .milliseconds(340)
 
     /// How long a soft hint stays up before fading.
     private let hintDuration: Duration = .seconds(5)
     private let width: CGFloat = 580
 
-    var isShowing: Bool { panel?.isVisible ?? false }
+    var isShowing: Bool { (panel?.isVisible ?? false) && !isLeaving }
 
     private var current: NudgeContent?
 
@@ -85,39 +93,33 @@ final class NudgeHUDController {
 
     func show(_ content: NudgeContent) {
         current = content
-        let view = NudgeHUDView(
-            content: content,
-            onDismiss: { [weak self] in self?.hide() },
-            onHoverChange: { [weak self] hovering in
-                hovering ? self?.cancelAutoDismiss() : self?.scheduleAutoDismiss(after: self?.hintDuration ?? .seconds(5))
-            }
-        )
-
-        let hosting = NSHostingView(rootView: view)
-        hosting.frame = NSRect(x: 0, y: 0, width: width, height: hosting.fittingSize.height)
-        hosting.wantsLayer = true
-        hosting.layer?.backgroundColor = .clear
 
         let panel = self.panel ?? makePanel()
         self.panel = panel
-        panel.contentView = hosting
-        panel.setContentSize(NSSize(width: width, height: hosting.fittingSize.height))
-        position(panel)
 
-        if !panel.isVisible {
+        if let hosting, panel.isVisible, !isLeaving {
+            // A card already resting on screen swaps its words in place: handing SwiftUI a
+            // new root view is an update, not an appearance, so the entrance doesn't replay.
+            hosting.rootView = makeView(content)
+            fit(panel, hosting)
+        } else {
+            // Gone, or on its way out: build it fresh so it slides in from off-screen.
             transitionTask?.cancel()
-            panel.alphaValue = 0
+            transitionTask = nil
+            isLeaving = false
+
+            let hosting = NSHostingView(rootView: makeView(content))
+            hosting.wantsLayer = true
+            hosting.layer?.backgroundColor = .clear
+            hosting.frame = NSRect(x: 0, y: 0, width: width, height: hosting.fittingSize.height)
+            self.hosting = hosting
+            panel.contentView = hosting
+            fit(panel, hosting)
+
+            // The card animates itself in, so the panel is simply there at full strength.
+            // Fading the window as well read as a dissolve rather than an arrival.
+            panel.alphaValue = 1
             panel.orderFrontRegardless()
-            transitionTask = Task { [weak self, panel] in
-                await Self.fade(panel, to: 1)
-                if !Task.isCancelled { self?.transitionTask = nil }
-            }
-        } else if panel.alphaValue < 1 {
-            transitionTask?.cancel()
-            transitionTask = Task { [weak self, panel] in
-                await Self.fade(panel, to: 1)
-                if !Task.isCancelled { self?.transitionTask = nil }
-            }
         }
 
         scheduleAutoDismiss(after: hintDuration)
@@ -125,18 +127,49 @@ final class NudgeHUDController {
 
     func hide() {
         cancelAutoDismiss()
-        guard let panel, panel.isVisible else { return }
+        guard let panel, let hosting, let content = current, panel.isVisible, !isLeaving else { return }
+        isLeaving = true
+        // It leaves the way it came: back out past the right edge. `isLeaving` is a plain
+        // property of the root view, so giving SwiftUI a new one is what drives it.
+        hosting.rootView = makeView(content, leaving: true)
+
         transitionTask?.cancel()
-        transitionTask = Task { [panel, weak self] in
-            await Self.fade(panel, to: 0)
-            // A `show` during the fade cancels this, so the panel stays up for the new card.
+        transitionTask = Task { [weak self] in
+            try? await Task.sleep(for: self?.exitGrace ?? .milliseconds(340))
+            // A `show` during the exit cancels this, so the panel stays up for the new card.
             guard !Task.isCancelled else { return }
-            panel.orderOut(nil)
-            panel.contentView = nil
-            self?.cancelAutoDismiss()
-            self?.current = nil
-            self?.transitionTask = nil
+            self?.teardown()
         }
+    }
+
+    private func teardown() {
+        panel?.orderOut(nil)
+        panel?.contentView = nil
+        hosting = nil
+        current = nil
+        isLeaving = false
+        transitionTask = nil
+        cancelAutoDismiss()
+    }
+
+    private func makeView(_ content: NudgeContent, leaving: Bool = false) -> NudgeHUDView {
+        NudgeHUDView(
+            content: content,
+            isLeaving: leaving,
+            onDismiss: { [weak self] in self?.hide() },
+            onHoverChange: { [weak self] hovering in
+                hovering
+                    ? self?.cancelAutoDismiss()
+                    : self?.scheduleAutoDismiss(after: self?.hintDuration ?? .seconds(5))
+            }
+        )
+    }
+
+    /// Cards differ in height, and the panel is anchored by its top edge, so a resize has
+    /// to be followed by a reposition or the card appears to sink.
+    private func fit(_ panel: NSPanel, _ hosting: NSHostingView<NudgeHUDView>) {
+        panel.setContentSize(NSSize(width: width, height: hosting.fittingSize.height))
+        position(panel)
     }
 
     // MARK: Panel
@@ -179,26 +212,7 @@ final class NudgeHUDController {
         )
     }
 
-    // MARK: Fade and timing
-
-    /// Awaitable so callers can sequence work after the animation without passing a
-    /// non-Sendable completion closure into AppKit's `@Sendable` handler.
-    private static func fade(_ panel: NSPanel, to alpha: CGFloat) async {
-        guard !Task.isCancelled else { return }
-        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            panel.alphaValue = alpha
-            return
-        }
-        await withCheckedContinuation { continuation in
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.22
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                panel.animator().alphaValue = alpha
-            } completionHandler: {
-                continuation.resume()
-            }
-        }
-    }
+    // MARK: Timing
 
     private func scheduleAutoDismiss(after delay: Duration) {
         cancelAutoDismiss()
@@ -219,6 +233,8 @@ final class NudgeHUDController {
 
 private struct NudgeHUDView: View {
     let content: NudgeContent
+    /// Flipped by the controller to send the card back out before the panel goes.
+    var isLeaving = false
     let onDismiss: (() -> Void)?
     let onHoverChange: (Bool) -> Void
 
@@ -227,30 +243,52 @@ private struct NudgeHUDView: View {
     @State private var isHovering = false
     @State private var entered = false
 
+    /// How long the exit runs. `NudgeHUDController.exitGrace` waits this out.
+    static let exitDuration: Double = 0.28
+
+    /// Far enough to clear Flop, the card and the gap at the edge, so the pair ends up
+    /// fully past the screen's right edge rather than half-visible against it.
+    private static let travel: CGFloat = 540
+
     private var mood: NudgeMood { content.mood }
+
+    /// Off to the right both before the entrance and during the exit.
+    private var isOffscreen: Bool { !entered || isLeaving }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: -10) {
-            message
             NudgeCharacter(mood: mood, animates: !reduceMotion)
                 .overlay {
                     // A burst of sparkles when someone turns back: a small celebration
                     // the instant they do the thing the habit is built on.
                     if content.kind == .reward, !reduceMotion { SparkleBurst() }
                 }
+                // Leaning in front of the card, not behind it: the overlap is what ties
+                // the pair together.
+                .zIndex(1)
+            message
         }
         .padding(.trailing, Theme.Space.loose)
         .padding(.vertical, Theme.Space.loose)
+        // Flop stands to the left, the card against the screen edge where banners sit.
         .frame(maxWidth: .infinity, alignment: .trailing)
-        // Slides in from beyond the screen edge. The panel is clipped to its window, so an
-        // offset wider than the content reads as the character walking on from off-screen.
-        .offset(x: entered ? 0 : 470)
+        // Travels in from beyond the screen edge and back out the same way, like a
+        // notification banner. The panel clips to its window, and the window's right edge
+        // is the screen's, so an offset wider than the content hides it completely.
+        .offset(x: isOffscreen ? (reduceMotion ? 0 : Self.travel) : 0)
+        .opacity(isOffscreen ? 0 : 1)
+        // Only the exit is animated from here: `isLeaving` arrives as a new root view,
+        // outside any `withAnimation`. Under Reduce Motion both ends become a cross-fade.
+        .animation(reduceMotion
+                   ? .easeOut(duration: 0.2)
+                   : .easeIn(duration: Self.exitDuration), value: isLeaving)
         .onAppear {
             guard !reduceMotion else {
                 entered = true
                 return
             }
-            withAnimation(.spring(response: 0.44, dampingFraction: 0.74)) { entered = true }
+            // Eased, not bouncy: a banner settles into place, it doesn't overshoot.
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) { entered = true }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
