@@ -55,6 +55,19 @@ enum DayPeriod: CaseIterable {
         }
     }
 
+    /// The light inside the breathing orb, taken from the photo's own sky so the orb looks
+    /// lit by the same sun rather than pasted on top: gold and rose at dawn, sky and leaf at
+    /// midday, amber at the savanna, ember at sunset, indigo under the stars.
+    var glow: [Color] {
+        switch self {
+        case .sunrise: [Color(red: 1.0, green: 0.78, blue: 0.52), Color(red: 0.98, green: 0.60, blue: 0.58), Color(red: 1.0, green: 0.90, blue: 0.62)]
+        case .morning: [Color(red: 0.58, green: 0.82, blue: 1.0), Color(red: 0.60, green: 0.92, blue: 0.76), Color(red: 0.86, green: 0.94, blue: 1.0)]
+        case .afternoon: [Color(red: 1.0, green: 0.80, blue: 0.48), Color(red: 0.76, green: 0.86, blue: 0.56), Color(red: 1.0, green: 0.92, blue: 0.72)]
+        case .sunset: [Color(red: 1.0, green: 0.56, blue: 0.44), Color(red: 0.92, green: 0.48, blue: 0.70), Color(red: 1.0, green: 0.78, blue: 0.44)]
+        case .night: [Color(red: 0.48, green: 0.54, blue: 1.0), Color(red: 0.72, green: 0.56, blue: 1.0), Color(red: 0.44, green: 0.82, blue: 0.92)]
+        }
+    }
+
     /// The fallback colour behind the photo while it decodes.
     var ground: Color {
         switch self {

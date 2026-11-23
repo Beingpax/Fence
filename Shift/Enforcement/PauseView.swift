@@ -13,10 +13,13 @@ import SwiftUI
 ///    the question. There's no way back from an answer: it ends in closing the tab.
 /// 2. **The orb becomes the panel.** The breath and the question are one object changing
 ///    shape, so the moment it opens is felt rather than merely noticed.
-/// 3. **Neutral, so the photo carries the colour.** White type, white glass, white symbols.
-///    Colour-coded chips looked generated; the landscape behind is the only colour here.
+/// 3. **Neutral glass, coloured symbols.** Cards, panel and buttons are white glass; only
+///    the feeling symbols carry colour, so each is recognisable at a glance without the
+///    screen turning into a paint chart. The breathing light takes its colours from the
+///    time of day, to match the photo behind it.
 /// 4. **Words arrive, they don't switch on.** Every line reveals letter by letter out of a
-///    soft blur (`revealOnAppear`), and the breathing cue dissolves into the next.
+///    soft blur (`revealOnAppear`). Text that changes in place (`SwapText`) fully leaves
+///    before the next line arrives, never overlapping.
 /// 5. **Turning back is always the easiest thing.** The close button sits outside the
 ///    panel, is never disabled, and answers to Return.
 struct PauseView: View {
@@ -39,6 +42,7 @@ struct PauseView: View {
     @State private var questionShown = false
     @FocusState private var noteFocused: Bool
     @Namespace private var surface
+    private let period = DayPeriod()
 
     init(request: PauseRequest, onEvent: @escaping (PauseEvent) -> Void) {
         self.request = request
@@ -48,7 +52,7 @@ struct PauseView: View {
 
     var body: some View {
         ZStack {
-            PauseBackdrop()
+            PauseBackdrop(period: period)
             GeometryReader { geometry in
                 ScrollView {
                     content
@@ -129,61 +133,32 @@ struct PauseView: View {
 
     // MARK: 1. The breath
 
-    /// A frosted orb with three soft rings around it. Breathing in, the orb swells and the
-    /// rings ripple outward one after another; breathing out, they gather back in. The
-    /// whole thing floats a little, so it never sits dead still. When the breath ends, the
-    /// orb grows into the question panel.
+    /// A glass orb with light drifting inside it, lit in the colours of the sky behind.
+    /// Breathing in, it swells, its halo blooms and the motes around it gather in; breathing
+    /// out, everything settles and drifts loose again. When the breath ends, the orb grows
+    /// into the question panel.
     private var orb: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
-            let float = reduceMotion ? 0 : sin(t * 0.9) * 4
-
-            ZStack {
-                ForEach(0..<3, id: \.self) { ring in
+        VStack(spacing: Theme.Space.base) {
+            BreathLight(colors: period.glow, inhaling: inhaling, animates: !reduceMotion)
+                .frame(width: 300, height: 260)
+                .background {
                     Circle()
-                        .strokeBorder(.white.opacity(0.26 - Double(ring) * 0.07), lineWidth: 1)
+                        .fill(.clear)
                         .frame(width: 180, height: 180)
-                        .scaleEffect(reduceMotion ? 1 + Double(ring) * 0.16
-                                     : (inhaling ? 1.18 + Double(ring) * 0.2 : 0.96 + Double(ring) * 0.03))
-                        .animation(
-                            .easeInOut(duration: inhaling ? 3 : 2).delay(Double(ring) * 0.14),
-                            value: inhaling
-                        )
+                        .matchedGeometryEffect(id: "surface", in: surface)
                 }
 
-                Circle()
-                    .fill(.white.opacity(0.12))
-                    .frame(width: 210, height: 210)
-                    .blur(radius: 30)
-                    .scaleEffect(reduceMotion ? 1 : (inhaling ? 1.15 : 0.8))
-                    .animation(.easeInOut(duration: inhaling ? 3 : 2), value: inhaling)
-
-                Circle()
-                    .fill(.ultraThinMaterial)
-                    .overlay { Circle().fill(.black.opacity(0.12)) }
-                    .matchedGeometryEffect(id: "surface", in: surface)
-                    .frame(width: 168, height: 168)
-                    .overlay { Circle().strokeBorder(.white.opacity(0.22), lineWidth: 1) }
-                    .scaleEffect(reduceMotion ? 1 : (inhaling ? 1.08 : 0.92))
-                    .animation(.easeInOut(duration: inhaling ? 3 : 2), value: inhaling)
-
-                VStack(spacing: 6) {
-                    ZStack {
-                        Text(cue)
-                            .font(.system(.title3, design: .rounded).weight(.semibold))
-                            .foregroundStyle(.white)
-                            .id(cue)
-                            .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(TextRevealTransition()))
-                    }
-                    Text("\(secondsLeft)")
-                        .font(.system(.callout, design: .rounded).monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.55))
-                        .contentTransition(.numericText(countsDown: true))
+            VStack(spacing: 4) {
+                SwapText(cue) {
+                    $0.font(.system(.title3, design: .rounded).weight(.semibold))
+                        .foregroundStyle(.white)
                 }
+                Text("\(secondsLeft)")
+                    .font(.system(.callout, design: .rounded).monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.5))
+                    .contentTransition(.numericText(countsDown: true))
             }
-            .offset(y: float)
         }
-        .frame(height: 280)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(cue). \(secondsLeft) seconds")
     }
@@ -194,10 +169,8 @@ struct PauseView: View {
         while secondsLeft > 0 {
             let step = (request.waitSeconds - secondsLeft) % 5
             if step == 0 || step == 3 {
-                withAnimation(.linear(duration: 0.7)) {
-                    inhaling = step == 0
-                    cue = step == 0 ? "Breathe in" : "And let it go"
-                }
+                inhaling = step == 0
+                cue = step == 0 ? "Breathe in" : "And let it go"
             }
             try? await Task.sleep(for: .seconds(1))
             if Task.isCancelled { return }
@@ -271,14 +244,9 @@ struct PauseView: View {
 
             // One helper line, filled by whatever is under the pointer, instead of six
             // descriptions competing for attention at once.
-            ZStack {
-                Text(helperText)
-                    .font(.callout)
-                    .foregroundStyle(.white.opacity(hovered == nil ? 0.5 : 0.85))
-                    .id(helperText)
-                    .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(TextRevealTransition()))
+            SwapText(helperText, outDuration: 0.18, inDuration: 0.4) {
+                $0.font(.callout).foregroundStyle(.white.opacity(0.75))
             }
-            .animation(.linear(duration: 0.35), value: helperText)
             .frame(height: 20)
             .opacity(questionShown ? 1 : 0)
             .animation(.easeOut(duration: 0.4).delay(0.7), value: questionShown)
@@ -355,13 +323,13 @@ struct PauseView: View {
         return VStack(spacing: Theme.Space.base) {
             ZStack {
                 Circle()
-                    .fill(.white.opacity(0.12))
+                    .fill(Color.tint(for: reason).opacity(0.18))
                     .frame(width: 60, height: 60)
-                    .overlay { Circle().strokeBorder(.white.opacity(0.18)) }
+                    .overlay { Circle().strokeBorder(Color.tint(for: reason).opacity(0.35)) }
                 Image(systemName: reason.symbol)
-                    .font(.system(size: 24, weight: .regular))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(.white)
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundStyle(Color.tint(for: reason))
+                    .symbolEffect(.bounce, options: .nonRepeating, value: reason)
             }
             .accessibilityHidden(true)
 
@@ -484,8 +452,8 @@ struct PauseView: View {
 
 // MARK: - Pieces
 
-/// One feeling: a white symbol in a glass circle, one word, and its number key. Neutral on
-/// purpose; it brightens and lifts under the pointer instead of changing colour.
+/// One feeling: a coloured symbol, one word, and its number key, on neutral glass. The
+/// card brightens and lifts under the pointer; only the symbol carries colour.
 private struct FeelingChip: View {
     let reason: UrgeReason
     let number: Int
@@ -495,12 +463,11 @@ private struct FeelingChip: View {
         HStack(spacing: Theme.Space.snug) {
             ZStack {
                 Circle()
-                    .fill(.white.opacity(highlighted ? 0.22 : 0.1))
+                    .fill(Color.tint(for: reason).opacity(highlighted ? 0.28 : 0.16))
                     .frame(width: 34, height: 34)
                 Image(systemName: reason.symbol)
-                    .font(.system(size: 14, weight: .medium))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(.white)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.tint(for: reason))
                     .symbolEffect(.bounce, value: highlighted)
             }
             Text(reason.title)
@@ -533,11 +500,103 @@ private struct FeelingChip: View {
     }
 }
 
+/// The breathing visual: a glass orb with soft light drifting inside, a halo, and a ring of
+/// motes. Everything rides one clock, so the drift never stops; the breath itself is the
+/// slow swell layered on top.
+private struct BreathLight: View {
+    let colors: [Color]
+    let inhaling: Bool
+    let animates: Bool
+
+    private var swell: Animation { .easeInOut(duration: inhaling ? 3 : 2) }
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !animates)) { timeline in
+            let t = animates ? timeline.date.timeIntervalSinceReferenceDate : 0
+
+            ZStack {
+                // Halo: the light the orb throws onto the sky around it.
+                Circle()
+                    .fill(RadialGradient(
+                        colors: [colors[0].opacity(0.5), colors[1].opacity(0.16), .clear],
+                        center: .center, startRadius: 30, endRadius: 160
+                    ))
+                    .frame(width: 320, height: 320)
+                    .scaleEffect(inhaling ? 1.08 : 0.76)
+                    .opacity(inhaling ? 1 : 0.55)
+                    .animation(swell, value: inhaling)
+
+                // Motes: gathered in on the in-breath, drifting loose on the out-breath.
+                ForEach(0..<14, id: \.self) { index in
+                    let angle = Double(index) / 14 * 2 * .pi + t * (index.isMultiple(of: 2) ? 0.07 : -0.05)
+                    let wobble = sin(t * 0.8 + Double(index) * 1.7) * 6
+                    let radius = (inhaling ? 104.0 : 136.0) + wobble + Double(index % 3) * 6
+                    Circle()
+                        .fill(colors[index % colors.count])
+                        .frame(width: index % 3 == 0 ? 4 : 3, height: index % 3 == 0 ? 4 : 3)
+                        .opacity((inhaling ? 0.85 : 0.4) * (0.6 + 0.4 * sin(t * 1.3 + Double(index))))
+                        .offset(x: cos(angle) * radius, y: sin(angle) * radius)
+                        .animation(swell, value: inhaling)
+                }
+
+                // The orb: frosted glass with coloured light moving inside it.
+                ZStack {
+                    Circle().fill(.ultraThinMaterial)
+                    ForEach(0..<3, id: \.self) { index in
+                        let phase = Double(index) * 2.1
+                        Circle()
+                            .fill(colors[index % colors.count])
+                            .frame(width: 118, height: 118)
+                            .offset(x: cos(t * 0.42 + phase) * 36, y: sin(t * 0.57 + phase * 1.3) * 32)
+                            .blur(radius: 24)
+                            .opacity(0.9)
+                    }
+                    // Soft specular highlight, top left, like light on glass.
+                    Circle()
+                        .fill(RadialGradient(
+                            colors: [.white.opacity(0.5), .clear],
+                            center: UnitPoint(x: 0.32, y: 0.24), startRadius: 2, endRadius: 72
+                        ))
+                }
+                .frame(width: 176, height: 176)
+                .clipShape(Circle())
+                .overlay {
+                    Circle().strokeBorder(
+                        LinearGradient(colors: [.white.opacity(0.65), .white.opacity(0.06)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing),
+                        lineWidth: 1.2
+                    )
+                }
+                .shadow(color: colors[0].opacity(0.4), radius: 36)
+                .scaleEffect(inhaling ? 1.1 : 0.86)
+                .animation(swell, value: inhaling)
+            }
+            .offset(y: animates ? sin(t * 0.9) * 4 : 0)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 private struct PressScaleStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
             .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+    }
+}
+
+private extension Color {
+    /// Each feeling's symbol colour. Soft and slightly desaturated, so they sit together
+    /// as a set on dark glass rather than shouting.
+    static func tint(for reason: UrgeReason) -> Color {
+        switch reason {
+        case .bored: Color(red: 0.98, green: 0.79, blue: 0.42)
+        case .tired: Color(red: 0.67, green: 0.71, blue: 1.0)
+        case .stuck: Color(red: 1.0, green: 0.64, blue: 0.50)
+        case .anxious: Color(red: 0.52, green: 0.86, blue: 0.84)
+        case .lonely: Color(red: 1.0, green: 0.64, blue: 0.76)
+        case .needed: Color(red: 0.64, green: 0.88, blue: 0.58)
+        }
     }
 }
 

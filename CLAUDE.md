@@ -290,9 +290,12 @@ relitigate them without asking:
   browser window with Flop on a frosted panel; the user rejected it because the page
   stayed visible around it. Flop appears only afterwards, in the reward card.
 - **One breath, then one honest question, one thing at a time.** During the breath there
-  is no panel: only a floating frosted orb with three rings that ripple outward on the
-  in-breath and gather on the out-breath, and a small countdown (5 s, 15 s on the second
-  reach, 30 s from the third). When it ends, the orb grows into the question panel
+  is no panel: only `BreathLight`, a glass orb with soft light drifting inside it, a halo,
+  and a ring of motes. It swells and the motes gather in on the in-breath (3 s), and it
+  settles and they drift loose on the out-breath (2 s). Its colours come from
+  `DayPeriod.glow`, the sky of the photo behind it. Under it, the cue and a small
+  countdown (5 s, 15 s on the second reach, 30 s from the third). An earlier ring-ripple
+  version was rejected as not beautiful enough. When it ends, the orb grows into the question panel
   (`matchedGeometryEffect`), the question reveals, and six feeling chips arrive one after
   another. Each chip is one short word and a white symbol; the longer description shows
   only on hover, in a single helper line, and 1–6 on the keyboard pick them. Choosing one
@@ -300,13 +303,16 @@ relitigate them without asking:
   is the close button, which turns solid white as the obvious next step. The close button
   sits outside the panel, never waits, and answers to Return. Sources: GOV.UK's
   one-thing-per-page, Hick's law, one sec's breath-then-choice.
-- **Neutral, so the photo carries the colour.** White type, white glass, white symbols,
-  and a dark wash under the panel's frost so it reads on every backdrop. The user rejected
-  colour-coded chips (and the teal/orange/purple tints in Settings and the week panel) as
-  looking AI-generated. Don't reintroduce decorative colour on this screen or on panels.
+- **Neutral glass, coloured symbols.** Cards, panel and buttons are white glass with a dark
+  wash under the frost so they read on every backdrop. Only the feeling symbols carry
+  colour (soft, slightly desaturated, one per feeling). The user rejected fully
+  colour-coded chips, and white-only symbols, and the teal/orange/purple tints in Settings
+  and the week panel (as looking AI-generated). Settings and Dashboard panels stay neutral.
 - **Words arrive, they don't switch on.** Every line on the pause reveals letter by letter,
-  rising out of a soft blur (`RevealRenderer`, a `TextRenderer`, via `revealOnAppear`), and
-  the breathing cue and hover line dissolve into the next (`TextRevealTransition`).
+  rising out of a soft blur (`RevealRenderer`, a `TextRenderer`, via `revealOnAppear`).
+  Text that changes in place (the breathing cue, the hover line) uses `SwapText`: the old
+  words fully dissolve before the new ones rise in. A crossfade that showed both at once
+  was rejected.
   Naming the craving weakens it. `UrgeReason` lists them in the person's own words:
   bored, drained, this is hard, anxious, alone, I need it.
 - **Every answer closes it, except one.** Each craving gets a line on what would meet it

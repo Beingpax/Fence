@@ -66,11 +66,48 @@ private struct RevealOnAppear: ViewModifier {
     }
 }
 
-/// For text that changes in place, like a breathing cue: the old words dissolve back into
-/// blur while the new ones settle in.
-struct TextRevealTransition: Transition {
-    func body(content: Content, phase: TransitionPhase) -> some View {
-        content.textRenderer(RevealRenderer(progress: phase.isIdentity ? 1 : 0))
+/// Text that changes in place, one line at a time: the old words dissolve completely back
+/// into blur, and only then do the new ones rise in. Never both at once, which is what made
+/// a crossfade look like two cues fighting.
+///
+/// Changes that arrive while a swap is running (hovering across several buttons quickly)
+/// skip straight to the latest text rather than queueing.
+struct SwapText: View {
+    let text: String
+    var outDuration: Double = 0.32
+    var inDuration: Double = 0.6
+    let style: (Text) -> Text
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shown: String
+    @State private var visible = true
+    @State private var generation = 0
+
+    init(_ text: String, outDuration: Double = 0.32, inDuration: Double = 0.6, style: @escaping (Text) -> Text) {
+        self.text = text
+        self.outDuration = outDuration
+        self.inDuration = inDuration
+        self.style = style
+        _shown = State(initialValue: text)
+    }
+
+    var body: some View {
+        style(Text(shown))
+            .textRenderer(RevealRenderer(progress: visible || reduceMotion ? 1 : 0, spread: 0.45))
+            .opacity(reduceMotion && !visible ? 0 : 1)
+            .onChange(of: text) { _, new in swap(to: new) }
+    }
+
+    private func swap(to new: String) {
+        generation += 1
+        let current = generation
+        Task { @MainActor in
+            withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .linear(duration: outDuration)) { visible = false }
+            try? await Task.sleep(for: .seconds(reduceMotion ? 0.15 : outDuration))
+            guard current == generation else { return }
+            shown = new
+            withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .linear(duration: inDuration)) { visible = true }
+        }
     }
 }
 
