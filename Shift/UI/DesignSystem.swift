@@ -162,6 +162,27 @@ struct BehindWindowBlur: NSViewRepresentable {
     }
 }
 
+/// The surface macOS notification banners are drawn on: regular Liquid Glass, adaptive to
+/// light and dark, with the system's own edge highlight.
+///
+/// The nudge uses it so a nudge reads as belonging to the same family as the banners that
+/// slide in from the same corner. Under Reduce Transparency it falls back to the opaque
+/// window background, like every other glass surface in the app.
+struct NotificationGlass: NSViewRepresentable {
+    var cornerRadius: CGFloat
+
+    func makeNSView(context: Context) -> NSGlassEffectView {
+        let view = NSGlassEffectView()
+        view.style = .regular
+        view.cornerRadius = cornerRadius
+        return view
+    }
+
+    func updateNSView(_ nsView: NSGlassEffectView, context: Context) {
+        nsView.cornerRadius = cornerRadius
+    }
+}
+
 
 extension BlockTint {
     var color: Color {

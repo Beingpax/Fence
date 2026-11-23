@@ -28,6 +28,8 @@ struct DashboardView: View {
                 } else {
                     activeList
                 }
+
+                WeekPanel()
             }
             .mainPageInsets()
             .frame(maxWidth: .infinity, alignment: .top)
@@ -68,7 +70,7 @@ struct DashboardView: View {
             )
             StatTile(
                 value: "\(model.store.blocks.reduce(0) { $0 + $1.stats.timesTriggered })",
-                label: "Times stopped",
+                label: "Times paused",
                 symbol: "hand.raised.fill",
                 tint: .orange
             )

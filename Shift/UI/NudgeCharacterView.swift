@@ -215,7 +215,18 @@ struct NudgeCharacterView: View {
                            height: cos(t * 0.36) * 0.35 + wander.height)
         let openness = max(0.06, 1 - lid * 0.94)
 
-        for side in [-1.0, 1.0] {
+        if spec.happyEyes {
+            for side in [-1.0, 1.0] {
+                let cx = 50 + side * 11
+                var arc = Path()
+                arc.move(to: CGPoint(x: cx - 7, y: 76))
+                arc.addQuadCurve(to: CGPoint(x: cx + 7, y: 76), control: CGPoint(x: cx, y: 65))
+                context.stroke(arc, with: .color(spec.ink),
+                               style: StrokeStyle(lineWidth: 2.8, lineCap: .round))
+            }
+        }
+
+        for side in [-1.0, 1.0] where !spec.happyEyes {
             let cx = 50 + side * 11
             let ry = 9.5 * spec.eyeOpen * openness
             let socket = CGRect(x: cx - 9, y: 74 - ry, width: 18, height: ry * 2)
@@ -289,6 +300,9 @@ struct NudgeCharacterView: View {
             mouth.addQuadCurve(to: CGPoint(x: 48, y: 89), control: CGPoint(x: 45, y: 87))
             mouth.addQuadCurve(to: CGPoint(x: 54, y: 91), control: CGPoint(x: 51, y: 93))
             mouth.addQuadCurve(to: CGPoint(x: 60, y: 89), control: CGPoint(x: 57, y: 87))
+        case .grin:
+            mouth.move(to: CGPoint(x: 40, y: 87))
+            mouth.addQuadCurve(to: CGPoint(x: 60, y: 87), control: CGPoint(x: 50, y: 101))
         case .frown:
             // A stroke, never a filled shape. Filled, at this scale, it stops reading as
             // a mouth and starts reading as lipstick. Wide and deep, though — a shallow
@@ -305,7 +319,7 @@ struct NudgeCharacterView: View {
 
 /// One mood, ears to mouth. The ears are the headline; the face only confirms.
 struct FaceSpec {
-    enum Mouth { case smile, wavy, frown }
+    enum Mouth { case smile, wavy, frown, grin }
 
     /// Degrees each ear swings back from upright. 0 is perked, ~96 is pinned flat.
     var earAngle: Double
@@ -340,6 +354,9 @@ struct FaceSpec {
     var earFill: Color
     var ink: Color
     var blush: Color
+    /// Closed, upturned arcs instead of open eyes: the face of someone smiling with
+    /// their whole face. Only the happy mood uses it.
+    var happyEyes = false
 }
 
 extension NudgeMood {
@@ -366,6 +383,20 @@ extension NudgeMood {
                      mouthWeight: 2.6, heat: 0, cheek: 0.2,
                      body: Palette.warn, lit: Palette.warnLit, shade: Palette.warnShade,
                      earFill: Palette.warnEar, ink: Palette.warnInk, blush: Palette.blush)
+
+        case .happy:
+            // Ears perked past upright and fluttering fast, a bigger bounce, a grin and
+            // smiling eyes. Shown the moment someone walks away from a feed, so it has to
+            // read as delight from the corner of an eye.
+            FaceSpec(earAngle: -6, earAsymmetry: 0, earFlutter: 22, earTempo: 5,
+                     width: 32, lean: 0, bobAmount: 5, swayAmount: 2.5, tempo: 3.2,
+                     shiver: 0,
+                     eyeOpen: 1.0, pupilOffset: CGSize(width: 0, height: -1),
+                     lidWedge: 0, browTilt: 0, browWeight: 3, mouth: .grin,
+                     mouthWeight: 2.8, heat: 0, cheek: 0.95,
+                     body: Palette.calm, lit: Palette.calmLit, shade: Palette.calmShade,
+                     earFill: Palette.calmEar, ink: Palette.calmInk, blush: Palette.blush,
+                     happyEyes: true)
 
         case .alarmed:
             // Both ears pinned flat back, wider stance, shivering. Out of patience.

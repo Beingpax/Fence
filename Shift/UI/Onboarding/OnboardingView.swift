@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// First-run setup, in the order PRD §12 specifies:
-/// welcome → "what steals your time?" → permissions → a demo shield → ready.
+/// welcome → "what steals your time?" → permissions → a demo pause → ready.
 ///
 /// Design intent: one decision per screen, plain language throughout, and no hostname or
 /// bundle ID ever shown to the user. The flow can be re-run later from Settings.
@@ -207,18 +207,19 @@ struct OnboardingView: View {
     private var demoStep: some View {
         VStack(alignment: .leading, spacing: Theme.Space.base) {
             VStack(alignment: .leading, spacing: Theme.Space.snug) {
-                Label("The shield covers every display and every Space.", systemImage: "rectangle.on.rectangle")
-                Label("The shield can quit the entire browser or app.", systemImage: "power")
-                Label("You get \(NudgeLadder.stepCount) nudges first. Close the tab and nothing happens.", systemImage: "hand.wave")
+                Label("Reach for a blocked site and Shift pauses you, before the page loads.", systemImage: "wind")
+                Label("One breath, one honest question, and something better to do instead.", systemImage: "heart")
+                Label("Walk away and Flop cheers. That’s the new habit forming.", systemImage: "hand.thumbsup")
+                Label("Keep coming back, and the third time in an hour covers the screen.", systemImage: "rectangle.on.rectangle")
             }
             .font(.callout)
             .labelStyle(.titleAndIcon)
 
             Button {
-                model.previewShield()
+                model.previewPause()
                 hasSeenDemo = true
             } label: {
-                Label("Preview the shield", systemImage: "play.fill")
+                Label("Preview the pause", systemImage: "play.fill")
             }
             .buttonStyle(.shiftSoft)
             .controlSize(.large)
@@ -340,7 +341,7 @@ struct OnboardingView: View {
         switch step {
         case .demo:
             if !hasSeenDemo {
-                model.previewShield()
+                model.previewPause()
                 hasSeenDemo = true
                 return
             }
@@ -402,8 +403,8 @@ private struct WelcomeStep: View {
              "Block a whole website, a section like YouTube Shorts, or an app."),
             ("lock.laptopcomputer", .teal, "Everything stays on this Mac",
              "Shift checks the current app and web address on your Mac."),
-            ("hand.raised.fill", .orange, "Choose how strict to be",
-             "Repeated blocks raise the shield level. A lock controls when you can turn a block off."),
+            ("heart.fill", .orange, "Built around how habits change",
+             "Shift pauses you instead of punishing you, and helps you swap the habit for something better. A lock decides when a block can be turned off."),
         ]
     }
 }

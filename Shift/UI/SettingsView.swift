@@ -67,31 +67,37 @@ struct SettingsView: View {
             PanelRow(title: "Show nudges") {
                 ShiftSwitch(isOn: $model.showNudges)
             }
+            PanelRow(title: "Sounds", detail: "A soft chime when Shift pauses you, a bright one when you turn back, and a calm tone if the screen is covered.") {
+                ShiftSwitch(isOn: $model.playNudgeSounds)
+            }
         }
     }
 
     private var previews: some View {
         Panel(
             "Previews",
-            subtitle: "Walk the escalation: three nudges, then the shield.",
+            subtitle: "See each moment as it happens, without visiting a blocked site.",
             icon: "eye",
             tint: .orange
         ) {
-            PanelRow(title: "Nudges", detail: "Each rung. Live: 5s on screen, 5s off.") {
+            PanelRow(title: "The pause", detail: "First reach: one breath. Second in an hour: three.") {
                 HStack(spacing: Theme.Space.tight) {
-                    ForEach(1...NudgeLadder.stepCount, id: \.self) { step in
-                        Button("\(step)") { model.previewNudge(step: step) }
-                            .buttonStyle(.shiftSoft)
-                            .accessibilityLabel("Preview nudge \(step)")
-                    }
+                    Button("First") { model.previewPause(visit: 1) }
+                        .buttonStyle(.shiftSoft)
+                    Button("Second") { model.previewPause(visit: 2) }
+                        .buttonStyle(.shiftSoft)
                 }
             }
-            PanelRow(title: "Shield", detail: "Where the nudges end up if you stay.") {
+            PanelRow(title: "Turning back", detail: "What Flop does when you walk away.") {
+                Button("Show") { model.previewReward() }
+                    .buttonStyle(.shiftSoft)
+            }
+            PanelRow(title: "Full-screen block", detail: "The third reach in an hour.") {
                 Button("Show") { model.previewShield() }
                     .buttonStyle(.shiftSoft)
             }
-            PanelRow(title: "Drift hint", detail: "The quiet HUD, for mild drift. Never escalates.") {
-                Button("Show") { model.previewNudge() }
+            PanelRow(title: "Drift hint", detail: "The quiet card, for mild drift. Never escalates.") {
+                Button("Show") { model.previewHint() }
                     .buttonStyle(.shiftSoft)
             }
         }
@@ -99,7 +105,7 @@ struct SettingsView: View {
 
     private var detection: some View {
         Panel("How blocking works", icon: "scope", tint: .purple) {
-            Text("Shift checks the current app and browser address against your enabled blocks. A rule can match a whole website, a path like YouTube Shorts, or an app. A match nudges you \(NudgeLadder.stepCount) times — five seconds on screen, five seconds off — and only covers the screen if you are still there.")
+            Text("Shift checks the current app and browser address against your enabled blocks. A rule can match a whole website, a path like YouTube Shorts, or an app. The moment a match appears, usually before the page has loaded, Shift covers that window with a pause: one breath, then a question about what you were really after, and something better to do instead. A second reach within the hour gets a longer pause. The third covers the screen.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -1,6 +1,6 @@
 import Foundation
 
-/// How the shield behaves once the nudges in `NudgeLadder` are spent.
+/// How the shield behaves on the third reach for a blocked site within an hour.
 ///
 /// There are no escalation tiers. Friction used to grow with the day's repeat count, which
 /// meant the first slip was free and the fourth was punitive for no reason the user could

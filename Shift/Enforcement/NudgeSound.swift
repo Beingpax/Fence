@@ -1,0 +1,40 @@
+import AppKit
+
+/// The three sounds Shift makes, each with one job.
+///
+/// - **pause**: a soft, low singing-bowl chime as the pause covers the page. An
+///   invitation to breathe, never an alarm, because shame and alarm make people fight
+///   the tool rather than listen to it.
+/// - **reward**: a bright rising glass bell the moment someone turns back on their own.
+///   This is the most important of the three: behaviour that's rewarded straight away is
+///   behaviour that repeats, and turning back is the habit Shift is trying to build.
+/// - **shield**: a calm, deep chord as the full-screen block lands on the third reach in
+///   an hour. A reset, not a fourth, louder warning.
+///
+/// Generated with ElevenLabs' sound effects model, then trimmed, faded and loudness-matched
+/// with ffmpeg. They live in `Resources/Sounds`. Settings → Nudges → Sounds turns them off.
+@MainActor
+enum NudgeSound {
+    private static var cache: [String: NSSound] = [:]
+
+    static func playPause() { play("pause") }
+    static func playReward() { play("reward") }
+    static func playShield() { play("shield") }
+
+    private static func play(_ name: String) {
+        guard let sound = sound(named: name) else { return }
+        // Started over rather than stacked when the same sound comes round again quickly.
+        if sound.isPlaying { sound.stop() }
+        sound.play()
+    }
+
+    private static func sound(named name: String) -> NSSound? {
+        if let cached = cache[name] { return cached }
+        guard let url = Bundle.main.url(forResource: name, withExtension: "m4a"),
+              let sound = NSSound(contentsOf: url, byReference: true)
+        else { return nil }
+        sound.volume = 0.8
+        cache[name] = sound
+        return sound
+    }
+}

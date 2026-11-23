@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// The full-screen shield: the last rung of `NudgeLadder`, after the nudges are spent.
+/// The full-screen shield: the third reach for a blocked site within an hour, after two pauses.
 ///
 /// One tier, not three. The escalation lives in the ladder now, so by the time this appears
 /// the user has already been asked three times — which is why the wait and the phrase are
@@ -159,7 +159,7 @@ struct ShieldView: View {
 
     private var reflectionField: some View {
         VStack(alignment: .leading, spacing: Theme.Space.snug) {
-            Text("What were you trying to do, and what pulled you away?")
+            Text("Be honest with yourself: what were you working on, and what keeps pulling you away?")
                 .font(.callout.weight(.medium))
                 .foregroundStyle(.white.opacity(0.92))
                 .frame(maxWidth: .infinity, alignment: .leading)

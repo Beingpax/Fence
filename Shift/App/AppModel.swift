@@ -17,6 +17,8 @@ final class AppModel {
     // MARK: Observable state
 
     let store: BlockStore
+    /// Every reach for a blocked site, and the plans written in the weekly review.
+    let urges = UrgeLog()
 
     private(set) var lastContext: ScreenContext?
     private(set) var lastVerdict: Verdict?
@@ -39,8 +41,13 @@ final class AppModel {
             Preferences.showNudges = showNudges
             intentNudges.reset()
             nudgeHysteresis.reset()
-            if !showNudges { nudgeHUD.hide() }
+            if !showNudges { nudgeHUD.hideHint() }
         }
+    }
+
+    /// Whether the pause, the reward and the shield make their sounds.
+    var playNudgeSounds: Bool {
+        didSet { Preferences.playNudgeSounds = playNudgeSounds }
     }
 
     var showInDock: Bool {
@@ -63,7 +70,19 @@ final class AppModel {
     @ObservationIgnored private let shield = ShieldController()
     @ObservationIgnored private var resolvingProcesses: Set<pid_t> = []
     @ObservationIgnored private let nudgeHUD = NudgeHUDController()
-    @ObservationIgnored private let nudgeLadder = NudgeLadder()
+    @ObservationIgnored private let pause = PauseController()
+    /// When each site was last reached for, per block, for escalation.
+    @ObservationIgnored private var reaches: [String: [Date]] = [:]
+    /// "I need it" grants, until when.
+    @ObservationIgnored private var allowances: [String: Date] = [:]
+    @ObservationIgnored private var allowanceTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var pausedRequest: PauseRequest?
+    /// The encounter the shield is being raised for, while its last check runs.
+    @ObservationIgnored private var pendingShieldKey: String?
+    /// The tab is being closed in this process; ignore it until then, or a sample landing
+    /// before Command-W would open a second pause for the page that's on its way out.
+    @ObservationIgnored private var closingPID: pid_t?
+    @ObservationIgnored private var closingUntil = Date.distantPast
     @ObservationIgnored private let onboarding = OnboardingController()
     @ObservationIgnored private let mainWindow = MainWindowController()
     @ObservationIgnored private var hysteresis = Hysteresis(requiredHits: 2)
@@ -78,6 +97,7 @@ final class AppModel {
     private init() {
         store = BlockStore()
         showNudges = Preferences.showNudges
+        playNudgeSounds = Preferences.playNudgeSounds
         showInDock = Preferences.showInDock
         driftKeywords = Preferences.driftKeywords
         hasCompletedOnboarding = Preferences.hasCompletedOnboarding
@@ -87,8 +107,7 @@ final class AppModel {
         }
         monitor.onInvalidation = { [weak self] in
             self?.intentNudges.reset()
-            self?.nudgeLadder.reset()
-            self?.nudgeHUD.hide()
+            self?.nudgeHUD.hideHint()
         }
     }
 
@@ -161,8 +180,13 @@ final class AppModel {
                 lastContext = nil
                 lastVerdict = nil
                 shield.dismiss()
-                nudgeLadder.reset()
-                nudgeHUD.hide()
+                pause.dismiss()
+                pausedRequest = nil
+                pendingShieldKey = nil
+                allowanceTasks.values.forEach { $0.cancel() }
+                allowanceTasks.removeAll()
+                allowances.removeAll()
+                nudgeHUD.hideHint()
                 hysteresis.reset()
                 log("Nothing active", symbol: "eye.slash")
             }
@@ -183,17 +207,24 @@ final class AppModel {
         if lastContext != context { lastContext = context }
         if locationChanged {
             lastVerdict = nil
-            if nudgeLadder.key == nil { nudgeHUD.hide() }
+            nudgeHUD.hideHint()
         }
         guard !shield.isShowing, !resolvingProcesses.contains(context.processID) else { return }
 
         let evaluator = BlockEvaluator(blocks: store.activeBlocks, driftKeywords: driftKeywords)
-        if let verdict = evaluator.ruleVerdict(for: context) {
+        let ruleVerdict = evaluator.ruleVerdict(for: context)
+
+        // Leaving while the pause is up is the right answer, and gets treated as one.
+        if pause.isShowing, !pause.isCommitted, let key = pause.key, key != Self.previewKey,
+           ruleVerdict.flatMap({ encounterKey(for: $0, context: context) }) != key {
+            walkedAway()
+        }
+
+        if let verdict = ruleVerdict {
             intentNudges.reset()
             apply(verdict, to: context)
             return
         }
-        endLadder()
         hysteresis.reset()
 
         let goals = evaluator.intentGoals()
@@ -234,78 +265,270 @@ final class AppModel {
         case .allow:
             hysteresis.reset()
             nudgeHysteresis.reset()
-            endLadder()
         case .nudge:
             hysteresis.reset()
-            endLadder()
             if verdict.source == .rules, !nudgeHysteresis.register(context.signature) { return }
             considerNudge(verdict, on: context)
         case .block:
             nudgeHysteresis.reset()
-            guard let key = ladderKey(for: verdict, context: context) else { return }
-            // Keyed on the rule and the app, not the window signature: a page's title can
-            // churn while the user sits on the same blocked site, and that must not restart
-            // the ladder — otherwise it never reaches the shield.
-            // A new encounter still has to read consistently once, so a stray frame can't
-            // open with a nudge. After that the ladder owns the timing.
-            if key != nudgeLadder.key {
-                guard hysteresis.register(key) else { return }
+            guard let key = encounterKey(for: verdict, context: context),
+                  let reachKey = reachKey(for: verdict) else { return }
+            // Already pausing for this, already raising the shield, or the person asked
+            // for two minutes and is using them.
+            if pause.key == key || pendingShieldKey == key { return }
+            if context.processID == closingPID, Date() < closingUntil { return }
+            if let until = allowances[reachKey], until > Date() { return }
+            // A new encounter has to read the same twice, so a stray frame can't trigger
+            // anything. The second reading is requested straight away instead of waiting
+            // for the next poll, which keeps the pause ahead of the page load.
+            guard hysteresis.register(key) else {
+                monitor.resampleSoon()
+                return
             }
-            climbLadder(key: key, verdict: verdict, on: context)
+            beginReach(key: key, reachKey: reachKey, verdict: verdict, context: context)
         }
     }
 
-    /// Nudge, re-check, nudge again, and only then cover the screen.
+    // MARK: The pause
+
+    /// How long a reach is remembered when deciding how hard the next one should be.
+    private static let reachWindow: TimeInterval = 3600
+    /// Reaches per `reachWindow` that get the pause. The one after gets the shield.
+    private static let pausesPerHour = 2
+    /// "I need it" buys exactly this long.
+    private static let allowance: TimeInterval = 120
+    static let previewKey = "preview"
+
+    /// One reach for a blocked site.
     ///
-    /// Three nudges five seconds apart, each one re-verifying that the user is still on the
-    /// same blocked thing. Closing the tab yourself at any point ends it with nothing having
-    /// happened, which is the whole point: the habit is worth more than the punishment.
-    private func climbLadder(key: String, verdict: Verdict, on context: ScreenContext) {
-        let location = context.host ?? context.appName
-        nudgeLadder.begin(
-            key: key,
-            onStep: { [weak self] step in
-                guard let self else { return }
-                let copy = Self.ladderCopy(
-                    step: step,
-                    location: location,
-                    appName: context.appName,
-                    blockName: verdict.blockName ?? "Shift"
-                )
-                self.nudgeHUD.ladder(step: step, headline: copy.headline, detail: copy.detail)
-                self.log("Nudge \(step) of \(NudgeLadder.stepCount) · \(location)", symbol: "hand.wave")
-            },
-            onRest: { [weak self] in
-                self?.nudgeHUD.hide()
-            },
-            isStillHere: { [weak self] in
-                self?.currentBlockedContext(key: key) != nil
-            },
-            onExhausted: { [weak self] in
-                await self?.confirmAndEnforce(key: key, target: verdict.ruleTarget)
-            }
+    /// The first in an hour gets a single breath, the second gets three, and the third gets
+    /// the full-screen block. Every repeat costs more, so coming back is never free, and
+    /// switching away and back can't reset anything: the count is per site, not per visit.
+    private func beginReach(key: String, reachKey: String, verdict: Verdict, context: ScreenContext) {
+        let now = Date()
+        var recent = (reaches[reachKey] ?? []).filter { now.timeIntervalSince($0) < Self.reachWindow }
+        recent.append(now)
+        reaches[reachKey] = recent
+        let target = context.host ?? context.appName
+
+        if recent.count > Self.pausesPerHour {
+            pendingShieldKey = key
+            Task { await confirmAndEnforce(key: key, target: verdict.ruleTarget) }
+            return
+        }
+
+        guard let blockID = verdict.blockID else { return }
+        store.recordTrigger(id: blockID, now: now)
+        let request = PauseRequest(
+            blockName: verdict.blockName ?? "Shift",
+            target: target,
+            appName: context.appName,
+            visit: recent.count,
+            allowsNeeded: !(store.block(id: blockID)?.isLocked() ?? false),
+            plans: urges.plans
         )
+        pausedRequest = request
+        nudgeHUD.hide()
+        if playNudgeSounds { NudgeSound.playPause() }
+        log("Paused · \(target)", symbol: "wind")
+        pause.present(request, key: key, over: context.windowID.flatMap(WindowInspector.frame(of:))) { [weak self] event in
+            self?.handlePause(event, key: key, reachKey: reachKey, request: request, context: context)
+        }
     }
 
-    private func ladderKey(for verdict: Verdict, context: ScreenContext) -> String? {
+    private func handlePause(
+        _ event: PauseEvent, key: String, reachKey: String, request: PauseRequest, context: ScreenContext
+    ) {
+        guard pause.key == key else { return }
+        let isPreview = request.isPreview
+        let record = { [weak self] (outcome: UrgeOutcome, reason: UrgeReason?, note: String?) in
+            guard !isPreview else { return }
+            self?.urges.record(UrgeEvent(
+                date: Date(), blockName: request.blockName, target: request.target,
+                reason: reason, outcome: outcome, note: note
+            ))
+        }
+
+        switch event {
+        case .close:
+            pause.dismiss()
+            closeTarget(context, isPreview: isPreview)
+            record(.closed, nil, nil)
+            reward(request.visit > 1 ? Self.harderReward : Self.closedRewards.randomElement() ?? Self.harderReward)
+            log("Turned back · \(request.target)", symbol: "arrow.uturn.backward")
+
+        case .beganBreak:
+            // Close the page now, so nothing is waiting behind the cover when the break ends.
+            pause.commit()
+            closeTarget(context, isPreview: isPreview)
+            log("Break instead of \(request.target)", symbol: "cup.and.saucer")
+
+        case .finished(let reason, let outcome, let note):
+            if !pause.isCommitted { closeTarget(context, isPreview: isPreview) }
+            pause.dismiss()
+            record(outcome, reason, note)
+            reward(Self.reward(for: outcome, note: note))
+            log("Turned back · \(request.target) · \(reason.shortLabel)", symbol: "arrow.uturn.backward")
+
+        case .openMessages:
+            pause.dismiss()
+            closeTarget(context, isPreview: isPreview)
+            if !isPreview { openMessages() }
+            record(.reachedOut, .lonely, nil)
+            reward(Self.reward(for: .reachedOut, note: nil))
+            log("Reached out instead of \(request.target)", symbol: "message")
+
+        case .allow(let note):
+            pause.dismiss()
+            record(.allowed, .needed, note)
+            nudgeHUD.status(headline: "Two minutes. Go do it.", detail: note)
+            guard !isPreview else { return }
+            allow(reachKey: reachKey, note: note, request: request)
+        }
+        pausedRequest = nil
+    }
+
+    /// The person switched away while the pause was up. That's turning back too.
+    private func walkedAway() {
+        let request = pausedRequest
+        pause.dismiss()
+        pausedRequest = nil
+        hysteresis.reset()
+        guard let request else { return }
+        urges.record(UrgeEvent(date: Date(), blockName: request.blockName, target: request.target,
+                               reason: nil, outcome: .walkedAway))
+        reward(Self.reward(for: .walkedAway, note: nil))
+        log("Walked away from \(request.target)", symbol: "figure.walk")
+    }
+
+    /// Two minutes for a stated reason, then Shift closes it.
+    private func allow(reachKey: String, note: String, request: PauseRequest) {
+        allowances[reachKey] = Date().addingTimeInterval(Self.allowance)
+        log("Two minutes · \(request.target) · \(note)", symbol: "timer")
+        allowanceTasks[reachKey]?.cancel()
+        allowanceTasks[reachKey] = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.allowance - 30))
+            guard !Task.isCancelled, let self else { return }
+            if self.allowedContext(reachKey) != nil {
+                self.nudgeHUD.status(headline: "30 seconds left.", detail: "Wrap up: \(note)")
+            }
+            try? await Task.sleep(for: .seconds(30))
+            guard !Task.isCancelled else { return }
+            self.allowances[reachKey] = nil
+            self.allowanceTasks[reachKey] = nil
+            self.hysteresis.reset()
+            guard let context = self.allowedContext(reachKey) else { return }
+            self.closeTarget(context, isPreview: false)
+            self.nudgeHUD.status(headline: "Time’s up.", detail: "Hope you got what you came for. Back to \(request.blockName).")
+            self.log("Closed after two minutes · \(request.target)", symbol: "timer")
+        }
+    }
+
+    /// The front context, if it's still the site an allowance was granted for.
+    private func allowedContext(_ reachKey: String) -> ScreenContext? {
+        guard let context = lastContext,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == context.processID,
+              let verdict = BlockEvaluator(blocks: store.activeBlocks, driftKeywords: driftKeywords).ruleVerdict(for: context),
+              self.reachKey(for: verdict) == reachKey
+        else { return nil }
+        return context
+    }
+
+    private func closeTarget(_ context: ScreenContext, isPreview: Bool) {
+        guard !isPreview else { return }
+        hysteresis.reset()
+        closingPID = context.processID
+        closingUntil = Date().addingTimeInterval(1.5)
+        if Browser(bundleID: context.bundleID) != nil {
+            Task { await TabCloser.closeFrontTab(pid: context.processID) }
+        } else {
+            TabCloser.quit(pid: context.processID)
+        }
+    }
+
+    private func openMessages() {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.MobileSMS") else { return }
+        Task {
+            // After the tab closes, or the browser would take the front back from Messages.
+            try? await Task.sleep(for: .milliseconds(450))
+            _ = try? await NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+        }
+    }
+
+    // MARK: Reward
+
+    /// Praise, the moment someone turns back. This is the step that builds the habit:
+    /// behaviour that's rewarded straight away repeats, and before this, turning back got
+    /// nothing at all.
+    ///
+    /// Several lines, picked at random, because the same line every time stops being
+    /// heard. Specific to what the person just did wherever possible.
+    private func reward(_ message: (headline: String, detail: String)) {
+        nudgeHUD.reward(headline: message.headline, detail: message.detail)
+        if playNudgeSounds { NudgeSound.playReward() }
+    }
+
+    private static let closedRewards: [(headline: String, detail: String)] = [
+        ("That’s the one that counts.", "You chose your work over the feed."),
+        ("Nice save.", "Every time you do this, the next one gets easier."),
+        ("Back to it.", "Future you just said thank you."),
+        ("Look at you.", "Walking away is a muscle. You just used it."),
+    ]
+
+    private static let harderReward = (
+        headline: "That one was harder.",
+        detail: "You turned back anyway. That’s exactly how habits change."
+    )
+
+    private static func reward(for outcome: UrgeOutcome, note: String?) -> (headline: String, detail: String) {
+        switch outcome {
+        case .tookBreak:
+            ("Welcome back.", "That was real rest. Ready when you are.")
+        case .wroteStep:
+            ("Go do that step.", note.map { "“\($0)”" } ?? "Small steps are how hard things get done.")
+        case .wroteItDown:
+            ("Lighter already.", "It’s written down. You don’t have to carry it right now.")
+        case .reachedOut:
+            ("That’s real connection.", "Worth more than any feed.")
+        case .walkedAway:
+            ("Good call.", "You walked away on your own.")
+        default:
+            closedRewards.randomElement() ?? harderReward
+        }
+    }
+
+    // MARK: Encounters
+
+    /// One encounter: this block's rule, in this process. Not the window signature, because
+    /// a page's title churns while the person sits on the same blocked site.
+    private func encounterKey(for verdict: Verdict, context: ScreenContext) -> String? {
         guard verdict.kind == .block, verdict.source == .rules,
               let blockID = verdict.blockID, let target = verdict.ruleTarget else { return nil }
         return "\(blockID.uuidString)|\(target.identifier)|\(context.processID)"
     }
 
-    /// Use the latest sample during the warnings so a title change alone cannot stall them.
+    /// The thing reached for, across visits and processes. Escalation and allowances
+    /// key on this, so quitting and reopening the browser doesn't reset them.
+    private func reachKey(for verdict: Verdict) -> String? {
+        guard let blockID = verdict.blockID, let target = verdict.ruleTarget else { return nil }
+        return "\(blockID.uuidString)|\(target.identifier)"
+    }
+
+    /// Use the latest sample so a title change alone can't stall the shield.
     private func currentBlockedContext(key: String) -> ScreenContext? {
         guard !shield.isShowing, monitor.isRunning, let context = lastContext,
               !resolvingProcesses.contains(context.processID),
               NSWorkspace.shared.frontmostApplication?.processIdentifier == context.processID
         else { return nil }
         let evaluator = BlockEvaluator(blocks: store.activeBlocks, driftKeywords: driftKeywords)
-        guard let verdict = evaluator.ruleVerdict(for: context), ladderKey(for: verdict, context: context) == key
+        guard let verdict = evaluator.ruleVerdict(for: context), encounterKey(for: verdict, context: context) == key
         else { return nil }
         return context
     }
 
+    /// Third reach in an hour: read the page once more, then cover the screen.
     private func confirmAndEnforce(key: String, target: RuleTarget?) async {
+        defer { if pendingShieldKey == key { pendingShieldKey = nil } }
         guard let target, let context = currentBlockedContext(key: key) else { return }
         let readWebsite: Bool
         switch target {
@@ -314,44 +537,11 @@ final class AppModel {
         }
 
         guard let fresh = await monitor.confirm(context, readWebsite: readWebsite), !Task.isCancelled,
-              nudgeLadder.key == key, currentBlockedContext(key: key) != nil else { return }
+              pendingShieldKey == key, currentBlockedContext(key: key) != nil else { return }
         let evaluator = BlockEvaluator(blocks: store.activeBlocks, driftKeywords: driftKeywords)
-        guard let verdict = evaluator.ruleVerdict(for: fresh), ladderKey(for: verdict, context: fresh) == key
+        guard let verdict = evaluator.ruleVerdict(for: fresh), encounterKey(for: verdict, context: fresh) == key
         else { return }
-        enforce(verdict, on: fresh)
-    }
-
-    /// Drops any ladder in progress and takes its nudge down with it.
-    private func endLadder() {
-        guard nudgeLadder.key != nil else { return }
-        nudgeLadder.reset()
-        nudgeHUD.hide()
-    }
-
-    /// What the character says at each rung.
-    ///
-    /// No counters and no "nudge 2 of 3": the creature's ears and colour already say how
-    /// far along you are, and a tally made it read as a machine keeping score. Rung 2 asks
-    /// a question, rung 3 states what is about to happen.
-    private static func ladderCopy(
-        step: Int,
-        location: String,
-        appName: String,
-        blockName: String
-    ) -> (headline: String, detail: String) {
-        switch step {
-        case ...1:
-            return ("\(location) is blocked", "“\(blockName)” is on. Close it and get back to it.")
-        case 2:
-            return ("Still on \(location)?", "Close it yourself, or I'll handle it.")
-        default:
-            return (
-                "I'll handle it now.",
-                location == appName
-                    ? "Closing \(appName)."
-                    : "Closing \(appName) unless you leave \(location)."
-            )
-        }
+        enforce(verdict, on: fresh, reason: "Third time this hour. The pull is strong today, so let’s stop here.")
     }
 
     private func considerNudge(_ verdict: Verdict, on context: ScreenContext) {
@@ -369,11 +559,15 @@ final class AppModel {
         log("Nudged · \(location)", symbol: "arrow.turn.up.left")
     }
 
-    private func enforce(_ verdict: Verdict, on context: ScreenContext) {
+    private func enforce(_ verdict: Verdict, on context: ScreenContext, reason: String? = nil) {
         guard verdict.kind == .block, verdict.source == .rules,
               let blockID = verdict.blockID,
               !resolvingProcesses.contains(context.processID) else { return }
         nudgeHUD.hide()
+        pause.dismiss()
+        pausedRequest = nil
+        urges.record(UrgeEvent(date: Date(), blockName: verdict.blockName ?? "Shift",
+                               target: context.host ?? context.appName, reason: nil, outcome: .shielded))
 
         let now = Date()
         store.recordTrigger(id: blockID, now: now)
@@ -388,11 +582,12 @@ final class AppModel {
             bundleID: context.bundleID,
             processID: context.processID,
             host: context.host,
-            reason: verdict.reason,
+            reason: reason ?? verdict.reason,
             blockName: verdict.blockName ?? "Shift",
             blockID: blockID,
             breakMinutes: breakMinutes
         )
+        if playNudgeSounds { NudgeSound.playShield() }
         shield.present(request) { [weak self] resolution in
             self?.resolve(resolution, for: request)
         }
@@ -400,7 +595,6 @@ final class AppModel {
 
     private func resolve(_ resolution: ShieldResolution, for request: ShieldRequest) {
         hysteresis.reset()
-        nudgeLadder.reset()
         guard !request.isPreview else { return }
         monitor.invalidate()
 
@@ -511,19 +705,31 @@ final class AppModel {
             breakMinutes: BreakPlan.minutes,
             isPreview: true
         )
+        if playNudgeSounds { NudgeSound.playShield() }
         shield.present(request) { [weak self] resolution in
             self?.resolve(resolution, for: request)
         }
     }
 
-    /// `step` previews a rung of the escalation ladder; `nil` previews a soft hint.
-    func previewNudge(step: Int? = nil) {
-        guard let step else {
-            nudgeHUD.hint(reason: "“Shorts” looks like a feed", detail: "youtube.com")
-            return
+    /// The pause as it looks on a first reach (`visit` 1) or a second (`visit` 2).
+    func previewPause(visit: Int = 1) {
+        let request = PauseRequest(
+            blockName: "Deep work", target: "instagram.com", appName: "Safari",
+            visit: visit, allowsNeeded: true, plans: urges.plans, isPreview: true
+        )
+        let context = ScreenContext(bundleID: "com.apple.Safari", appName: "Safari", processID: 0)
+        if playNudgeSounds { NudgeSound.playPause() }
+        pause.present(request, key: Self.previewKey, over: nil) { [weak self] event in
+            self?.handlePause(event, key: Self.previewKey, reachKey: Self.previewKey, request: request, context: context)
         }
-        let copy = Self.ladderCopy(step: step, location: "instagram.com", appName: "Safari", blockName: "Deep work")
-        nudgeHUD.ladder(step: step, headline: copy.headline, detail: copy.detail)
+    }
+
+    func previewReward() {
+        reward(Self.closedRewards.randomElement() ?? Self.harderReward)
+    }
+
+    func previewHint() {
+        nudgeHUD.hint(reason: "“Shorts” looks like a feed", detail: "youtube.com")
     }
 
     // MARK: Windows
@@ -627,6 +833,7 @@ enum Preferences {
     private enum Key {
         static let showNudges = "Shift.showNudges"
         static let showInDock = "Shift.showInDock"
+        static let playNudgeSounds = "Shift.playNudgeSounds"
         static let driftKeywords = "Shift.driftKeywords"
         static let hasCompletedOnboarding = "Shift.hasCompletedOnboarding.v1"
     }
@@ -634,6 +841,11 @@ enum Preferences {
     static var showNudges: Bool {
         get { UserDefaults.standard.object(forKey: Key.showNudges) as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: Key.showNudges) }
+    }
+
+    static var playNudgeSounds: Bool {
+        get { UserDefaults.standard.object(forKey: Key.playNudgeSounds) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: Key.playNudgeSounds) }
     }
 
     static var showInDock: Bool {

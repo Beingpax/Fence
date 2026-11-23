@@ -1,34 +1,37 @@
 import AppKit
 import SwiftUI
 
-/// What one nudge says, and how worried it looks saying it.
+/// What one card says, and how Flop looks saying it.
 struct NudgeContent: Equatable {
+    enum Kind: Equatable {
+        /// A soft hint from the intent or feed-keyword checks. Never escalates.
+        case hint
+        /// Praise for turning back on your own. See `AppModel.reward`.
+        case reward
+        /// A plain status line, such as the two minutes you asked for starting.
+        case status
+    }
+
     var headline: String
     var detail: String
-    /// `1...total` for a rung of the escalation ladder; `nil` for a soft hint that never
-    /// escalates into anything (the intent and feed-keyword nudges).
-    var step: Int?
-    var total: Int = NudgeLadder.stepCount
+    var kind: Kind
 
-    var mood: NudgeMood {
-        guard let step else { return .calm }
-        switch step {
-        case ...1: return .calm
-        case 2: return .concerned
-        default: return .alarmed
-        }
-    }
+    var mood: NudgeMood { kind == .reward ? .happy : .calm }
 }
 
 /// Drives which rendered expression appears and what colour the panel carries.
+///
+/// `concerned` and `alarmed` belonged to the old three-nudge ladder. They stay because the
+/// character's ears are still the clearest way to show escalation, should it come back.
 enum NudgeMood {
-    case calm, concerned, alarmed
+    case calm, concerned, alarmed, happy
 
     var tint: Color {
         switch self {
         case .calm: Color(red: 0.36, green: 0.78, blue: 0.72)
         case .concerned: Color(red: 0.98, green: 0.69, blue: 0.33)
         case .alarmed: Color(red: 0.98, green: 0.45, blue: 0.47)
+        case .happy: Color(red: 0.36, green: 0.78, blue: 0.72)
         }
     }
 }
@@ -57,23 +60,35 @@ final class NudgeHUDController {
 
     var isShowing: Bool { panel?.isVisible ?? false }
 
+    private var current: NudgeContent?
+
     /// A nudge that will never turn into anything. Fades itself out.
     func hint(reason: String, detail: String) {
-        show(NudgeContent(headline: reason, detail: detail, step: nil))
+        show(NudgeContent(headline: reason, detail: detail, kind: .hint))
     }
 
-    /// Rung `step` of the escalation ladder.
-    func ladder(step: Int, headline: String, detail: String) {
-        show(NudgeContent(headline: headline, detail: detail, step: step))
+    /// Flop, delighted, the moment someone turns back on their own.
+    func reward(headline: String, detail: String) {
+        show(NudgeContent(headline: headline, detail: detail, kind: .reward))
+    }
+
+    func status(headline: String, detail: String) {
+        show(NudgeContent(headline: headline, detail: detail, kind: .status))
+    }
+
+    /// Takes a soft hint down when the user moves on, but leaves praise alone: a reward
+    /// usually lands right as the user switches app, and it has to survive that.
+    func hideHint() {
+        guard current?.kind == .hint else { return }
+        hide()
     }
 
     func show(_ content: NudgeContent) {
-        let isHint = content.step == nil
+        current = content
         let view = NudgeHUDView(
             content: content,
-            onDismiss: isHint ? { [weak self] in self?.hide() } : nil,
+            onDismiss: { [weak self] in self?.hide() },
             onHoverChange: { [weak self] hovering in
-                guard isHint else { return }
                 hovering ? self?.cancelAutoDismiss() : self?.scheduleAutoDismiss(after: self?.hintDuration ?? .seconds(5))
             }
         )
@@ -99,20 +114,19 @@ final class NudgeHUDController {
             transitionTask = Task { [panel] in await fade(panel, to: 1) }
         }
 
-        // The ladder takes its own rungs down after `visible`. This timer is only a
-        // backstop against a rung outliving the ladder that put it there.
-        scheduleAutoDismiss(after: isHint ? hintDuration : NudgeLadder.visible + .seconds(2))
+        scheduleAutoDismiss(after: hintDuration)
     }
 
     func hide() {
         cancelAutoDismiss()
         transitionTask?.cancel()
         guard let panel, panel.isVisible else { return }
-        transitionTask = Task { [panel] in
-            await fade(panel, to: 0)
-            // A `show` during the fade cancels this, so the panel stays up for the new rung.
+        transitionTask = Task { [panel, weak self] in
+            await self?.fade(panel, to: 0)
+            // A `show` during the fade cancels this, so the panel stays up for the new card.
             guard !Task.isCancelled else { return }
             panel.orderOut(nil)
+            self?.current = nil
         }
     }
 
@@ -195,12 +209,11 @@ final class NudgeHUDController {
 
 private struct NudgeHUDView: View {
     let content: NudgeContent
-    /// Soft hints can be swatted away. A ladder rung can't, because dismissing it would
-    /// imply it had been dealt with.
     let onDismiss: (() -> Void)?
     let onHoverChange: (Bool) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var isHovering = false
     @State private var entered = false
 
@@ -229,10 +242,7 @@ private struct NudgeHUDView: View {
     }
 
     private var accessibilityLabel: String {
-        if let step = content.step {
-            return "Shift nudge \(step) of \(content.total): \(content.headline). \(content.detail)"
-        }
-        return "Shift nudge: \(content.headline). \(content.detail)"
+        "Shift: \(content.headline). \(content.detail)"
     }
 
     private var message: some View {
@@ -256,9 +266,10 @@ private struct NudgeHUDView: View {
                 }
             }
 
+            // Banner body text: same size as the title, regular weight, full contrast.
             Text(content.detail)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.callout)
+                .foregroundStyle(.primary)
                 .lineLimit(2)
 
         }
@@ -266,20 +277,19 @@ private struct NudgeHUDView: View {
         .padding(.vertical, Theme.Space.snug + 1)
         .frame(width: 300, alignment: .leading)
         .background {
-            // Behind-window blur rather than Liquid Glass: this panel floats over other
-            // apps, so it has to sample the desktop, which only NSVisualEffectView does.
-            // The radius has to be passed in — a SwiftUI clipShape cannot clip a
-            // behind-window blur, and without it the card sits inside a faint rectangle.
-            BehindWindowBlur(material: .hudWindow, cornerRadius: Theme.Radius.hud)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.hud, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: Theme.Radius.hud, style: .continuous)
-                .strokeBorder(mood.tint.opacity(content.step == content.total ? 0.55 : 0.3), lineWidth: 1)
+            // The same glass macOS draws notification banners on, so a nudge looks like
+            // it belongs next to them. No tinted border any more: banners don't carry one,
+            // and Flop's ears and colour already say which rung this is.
+            if reduceTransparency {
+                RoundedRectangle(cornerRadius: Theme.Radius.hud, style: .continuous)
+                    .fill(Color(nsColor: .windowBackgroundColor))
+            } else {
+                NotificationGlass(cornerRadius: Theme.Radius.hud)
+            }
         }
         // No drop shadow. NSHostingView clips at the window bounds, so any shadow wide
         // enough to be worth having gets sliced off at the edge and leaves a hard grey
-        // line across the desktop. The tinted border is what separates the card instead.
+        // line across the desktop. The glass draws its own edge highlight instead.
         .animation(.easeOut(duration: 0.15), value: isHovering)
         .onHover { hovering in
             isHovering = hovering

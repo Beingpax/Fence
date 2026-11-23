@@ -81,6 +81,16 @@ enum WindowInspector {
         }.value
     }
 
+    /// A window's frame as the window server reports it: screen coordinates with the
+    /// origin at the top left of the primary display. No Accessibility round trip.
+    static func frame(of windowID: CGWindowID) -> CGRect? {
+        guard let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]])?.first,
+              let dictionary = info[kCGWindowBounds as String] as? NSDictionary,
+              let frame = CGRect(dictionaryRepresentation: dictionary), !frame.isEmpty
+        else { return nil }
+        return frame
+    }
+
     static func frontWindowID(pid: pid_t, bounds: CGRect? = nil) -> CGWindowID? {
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
         let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []

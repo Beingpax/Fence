@@ -6,6 +6,9 @@ Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (br
 
 ## Current status (read first)
 
+- **Blocking is built on habit psychology** as of 23 Nov 2026: a rule match gets a pause
+  over the browser window, not a ladder of nudges. See "The pause" below; read it before
+  touching enforcement or any copy the user sees.
 - **The app is organised around blocks, not sessions** as of 22 Nov 2026. This replaced the
   original focus-session model. See "The block model" below; it is the most important
   thing to understand before changing anything.
@@ -15,7 +18,8 @@ Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (br
   and lock maths have standalone tests (`./Tools/run-block-tests.sh`, 22 assertions). The
   UI flows have not been walked through by hand.
 - Built: main window (Dashboard, Blocks, Activity), block editor, menu bar popover,
-  full-screen shield with escalation and breaks, nudge HUD, onboarding, launch at login,
+  the pause, full-screen shield with breaks, reward and hint HUD, weekly review on the
+  Dashboard, onboarding, launch at login,
   watchdog pair, and quit and Trash protection.
 - Active detection uses app, website, and path rules. Optional nudges use window-title keywords.
 - **The binary has two entry points.** `Shift` is the app; `Shift --watchdog` is the
@@ -28,8 +32,8 @@ xcodebuild -project Shift.xcodeproj -scheme Shift -configuration Debug -destinat
 ```
 
 - Run from Xcode with Cmd+R. Shift is an `LSUIElement` menu bar app (◎ icon), with no Dock icon.
-- Test without side effects: Settings → Previews has each nudge rung, the shield, and the soft drift hint.
-- Real test: switch on a block listing `instagram.com` or `youtube.com/shorts`, then open it in Safari or Chrome. The first nudge should lean in within about 3 seconds, and the shield about 15 seconds after that if you stay.
+- Test without side effects: Settings → Previews has the pause (first and second reach), the turning-back reward, the shield, and the soft drift hint.
+- Real test: switch on a block listing `instagram.com` or `youtube.com/shorts`, then open it in Safari or Chrome. The pause should cover that window within about a quarter of a second of pressing Return, usually before the page has loaded.
 - Shift requests Accessibility for window titles and browser addresses.
 - **Signing is load-bearing for permissions.** `DEVELOPMENT_TEAM = V6J6A3VWY2` is set on both configurations, so builds are signed with a real identity. Do not let this fall back to ad-hoc. macOS keys TCC grants to the designated requirement, and an ad-hoc signature puts the binary's `cdhash` in that requirement, so **every rebuild silently voids the Accessibility grant** and the app reports "not granted" while System Settings still shows it enabled. Verify with `codesign -d -r- <app>`: the requirement must name the certificate, not a `cdhash`. If a grant ever does go stale, `tccutil reset Accessibility com.beingpax.Shift` and grant it again.
 - Automated GUI testing needs Accessibility and Screen Recording granted to the terminal running Claude Code. Without them, `osascript` UI scripting fails with -1719 and `screencapture` fails outright, so shield verification has to be manual.
@@ -38,10 +42,13 @@ xcodebuild -project Shift.xcodeproj -scheme Shift -configuration Debug -destinat
 
 1. **Menu bar.** Icon appears; the count next to it matches the number of active blocks.
 2. **Main window.** Menu bar → Open Shift. Create a block, add sites and apps, save.
-3. **Blocking.** Switch the block on, visit a listed site in Safari and Chrome. A nudge
-   should lean in from the right within about 3 s, then two more 5 s apart, then the
-   shield. Leaving the site at any rung should end it silently. The shield's primary
-   action quits the browser.
+3. **Blocking.** Switch the block on, visit a listed site in Safari and Chrome. The pause
+   should cover just that window almost at once. Check each answer: break (tab closes,
+   2-minute timer, reward), stuck and anxious (text, tab closes, reward), lonely (Messages
+   opens), "I need it" (two minutes, then the tab closes itself). "Close it" closes only
+   the tab. Cmd+Tab away during the pause should dismiss it with a "Good call" reward.
+   Reach a third time within an hour: the shield, whose primary action quits the browser.
+   Confirm the text fields take typing while the browser stays frontmost.
 4. **Schedules.** Set a window that starts a minute from now and confirm it self-activates.
 5. **Nudges.** With a block active and nudges enabled, open an unblocked window whose title contains a configured feed keyword.
 6. **Locks.** Each of duration, until-time, random-string and restart. Check that the
@@ -137,21 +144,24 @@ Rules that are easy to get wrong, and are covered by the tests:
     on purpose — fixed ones read as a metronome.
   - The HUD sits **top right, under the menu bar**, where macOS already puts things that
     want attention without taking it.
+  - **Three sounds** (`Enforcement/NudgeSound.swift`, `Resources/Sounds/`): `pause` (a soft
+    singing-bowl chime, an invitation, never an alarm), `reward` (a bright rising glass bell
+    when you turn back) and `shield` (a calm deep chord: a reset, not a louder warning).
+    Polished chimes, not creature voices: a cartoon-creature set was tried and rejected.
+    Generated with ElevenLabs sound effects, trimmed and loudness-matched with ffmpeg. Soft
+    hints stay silent. Settings → Nudges → "Sounds" switches them all off.
 
 - **Name:** "Shift", subtitle "Local App & Website Blocker".
 - **No Dock icon by default,** but there is a "Show Shift in the Dock" switch in Settings → General that flips the activation policy at runtime. `LSUIElement` keeps the default as menu-bar-only.
 - **Platform:** Apple Silicon Macs running macOS 26 or later.
 - **Detection stays local.** Read browser addresses through Accessibility. Match enabled app, website, and path rules before considering a title-based nudge.
-- **Nudges come before the shield.** A rule match no longer raises the shield directly.
-  `NudgeLadder` shows 3 nudges: each appears for 5 s, then **leaves the screen for 5 s**
-  before the next. The pause is deliberate — three nudges back to back read as one long
-  complaint, whereas appearing, leaving and returning reads as someone checking on you,
-  and it leaves a quiet moment in which to actually close the tab. The last rung also
-  clears before the shield lands. Leaving at any point ends it with nothing having
-  happened. See "The nudge ladder" below.
+- **The pause comes before the shield.** The three-nudge ladder is gone: it let the feed
+  pay out for 25 seconds before anything happened, trained people to tune Flop out, gave
+  nothing for turning back, and reset whenever you switched tabs, so the feed could be
+  scrolled in free 25-second chunks forever. See "The pause" below.
 - **Shield:** frosted full-screen window on every display and Space; while it's up, the Dock, menu bar and Cmd+Tab are disabled. The text says "Not now." plus a one-line reason.
   - **Quit the entire browser or app.** Let the user respond when the target shows a quit confirmation.
-  - **One tier, not three.** The ladder is the escalation now, so the shield is always a
+  - **It's the third reach in an hour**, after two pauses. The shield is always a
     10-second wait plus **20 words in your own hand** about what you were doing and what
     pulled you away. That replaced copying out a fixed sentence: transcribing "I am
     choosing to get distracted" is friction you can perform without reading it, and by
@@ -162,13 +172,12 @@ Rules that are easy to get wrong, and are covered by the tests:
   - **The backdrop is a photograph** (`ShieldDawn`), twilight over dunes, under the
     Unsplash License — see `CREDITS.md`. A hand-rolled gradient always looks hand-rolled
     at full-screen size, and this is the one surface that fills a display. It is also
-    deliberately *not* an angry red: this appears after three nudges have already been
+    deliberately *not* an angry red: this appears after two pauses have already been
     ignored, so being louder adds nothing, and "start again" is the note to hit. Keep the
     scrim light — the sky already carries white type, and a heavy scrim wastes the photo.
-  - **No progress indicator anywhere.** No "nudge 2 of 3" and no dots. A tally made the
-    whole thing read as a machine keeping score; the character's ears and colour say
-    where you are.
-  - Only confident blocks reach the ladder; soft hints never do. Default to allow on work apps when unsure.
+  - **No progress indicator anywhere.** No "pause 2 of 2" and no dots. A tally made the
+    whole thing read as a machine keeping score.
+  - Only confident blocks reach the pause; soft hints never do. Default to allow on work apps when unsure.
 - **Locked mode:** you can't end the session or quit Shift early.
 - **Honesty:** an admin can always win. We sell friction, not a prison.
 
@@ -208,17 +217,20 @@ Shift/
 │                   AppDelegate (quit protection), AppModel (@Observable, @MainActor engine)
 ├── Models/         Block (+ BlockList, BlockSchedule, ScheduleWindow, BlockLock, BreakPlan,
 │                   BlockTint), BlockStore (persistence, locking, CRUD),
-│                   ScreenContext, Verdict, ActivityEvent, DistractionPreset
-├── Detection/      ContextMonitor (async sampling), WindowInspector (AX),
+│                   ScreenContext, Verdict, ActivityEvent, DistractionPreset,
+│                   Urge (UrgeReason, UrgeLog: every reach, plus if-then plans)
+├── Detection/      ContextMonitor (async sampling), AddressObserver (AX notifications),
+│                   WindowInspector (AX),
 │                   Browser (browser identities),
 │                   ScreenTextReader (ScreenCaptureKit + Vision, an actor)
 ├── Intelligence/   BlockEvaluator (tier 0), Hysteresis
-├── Enforcement/    ShieldController, ShieldView, ShieldPolicy, GuardState, NudgeLadder,
+├── Enforcement/    PauseController + PauseView, TabCloser, NudgeSound, ShieldController,
+│                   ShieldView, ShieldPolicy, GuardState,
 │                   LaunchAtLogin, WatchdogService, WatchdogRunner
 └── UI/             DesignSystem (Theme, BlockBadge), Design/ (Materials, Controls),
                     MenuBarView, SettingsView (a pane, not a scene), NudgeHUD,
                     PermissionsManager, Main/ (MainWindowController, MainWindowView +
-                    MainSection, DashboardView, BlockEditorView + BlockInspector +
+                    MainSection, DashboardView + WeekPanel, BlockEditorView + BlockInspector +
                     AppPickerView), Onboarding/
 ```
 
@@ -244,38 +256,61 @@ generous spacing. Three rules hold it together.
    neither of which matches anything else here. Each section carries its own tint.
 
 Liquid Glass button styles are still right on the shield, which floats over other apps.
-The shield and the nudge HUD use `BehindWindowBlur` because they must sample the desktop.
+The shield uses `BehindWindowBlur` because it must sample the desktop. The nudge card uses
+`NotificationGlass` (`NSGlassEffectView`), the same surface macOS draws notification banners on,
+so a nudge looks like it belongs beside them.
 
 ### Design system
 All spacing, radii, verdict colours and glass surfaces come from `Theme` and `glassCard()` in
 `UI/DesignSystem.swift`. Two rules there are not optional: every glass surface falls back to an
 opaque material under Reduce Transparency, and every animation falls back to a cross-fade under
-Reduce Motion. The shield and the nudge HUD use `BehindWindowBlur` rather than Liquid Glass,
+Reduce Motion. The shield and the pause use `BehindWindowBlur` rather than Liquid Glass,
 because both float over *other apps* and so must sample the desktop, which only
-`NSVisualEffectView` does.
+`NSVisualEffectView` reliably does.
 
 Flow: `AppModel.engineTick` (1 s) decides which blocks are active and starts or stops
-detection → `ContextMonitor` sample → `AppModel.handle` → `BlockEvaluator` over the active
-blocks → `Hysteresis` (2 consistent readings) → `NudgeLadder` (3 nudges, 5 s apart) →
-`ShieldController.present` → resolve (quit app / take a break).
+detection → `ContextMonitor` sample (on every `AddressObserver` event, plus a 1.5 s poll) →
+`AppModel.handle` → `BlockEvaluator` over the active blocks → `Hysteresis` (2 consistent
+readings, the second requested 150 ms after the first) → `beginReach` → `PauseController`
+(reaches 1 and 2 in an hour) or `ShieldController.present` (reach 3+) → `handlePause` →
+close the tab, reward, record.
 
-### The nudge ladder
-`Enforcement/NudgeLadder.swift` owns the escalation between "you matched a rule" and "your
-screen is covered". Three rules there are easy to get wrong:
+### The pause
+Every choice here comes from habit research. Check changes against these, and don't
+relitigate them without asking:
 
-- **It is keyed on the rule and the process, not `context.signature`.** A page's title
-  churns while the user sits still, and a signature key would restart the ladder on every
-  churn, so it would never reach the shield.
-- **Timing is driven by the ladder, not the 1.5 s sampler**, so the rungs land on exact
-  5-second intervals. Presence stays authoritative: `isStillHere` re-evaluates the rules
-  immediately before every rung, and `AppModel.endLadder()` tears the ladder down the
-  moment a sample stops matching.
-- **`showNudges` does not gate it.** That preference is for the soft intent and
-  feed-keyword hints. The ladder is how blocking works, so it always runs.
+- **Catch the cue, before the reward.** `AddressObserver` subscribes to the front app's
+  Accessibility notifications (focused element, title, window, `AXLoadComplete`), so
+  pressing Return wakes a sample within ~0.1 s. Value-changed is deliberately *not*
+  observed: it fires on every keystroke in every text field. A feed that never pays out
+  stops being worth reaching for, which is why speed matters more than anything else.
+- **Cover the window, not the screen.** `PauseController` puts a non-activating panel over
+  the browser window's frame (from `WindowInspector.frame(of:)`). The browser stays
+  frontmost underneath, so the sampler keeps reading it and the text fields still take
+  typing. Walking away to another app is a right answer, and `walkedAway()` rewards it.
+- **One breath, then one honest question.** "What were you hoping it would give you?"
+  Naming the craving weakens it. `UrgeReason` lists them in the person's own words:
+  bored, drained, this is hard, anxious, alone, I need it.
+- **Replace, don't remove.** Each answer leads to a routine that meets the same need
+  better: a 2-minute break, the next tiny step, writing the worry down, messaging a real
+  person, or two minutes for a stated reason (`allow`, then Shift closes it). Locked
+  blocks don't offer "I need it".
+- **Reward turning back, immediately.** Flop's happy face and the `reward` chime, with
+  copy picked at random from a pool so it never goes stale. This is the step that
+  builds the habit; before it, turning back got nothing.
+- **Repeats cost more.** Reaches are counted per block and target for an hour
+  (`reaches`, keyed by `reachKey`, not the process), so switching tabs or relaunching the
+  browser can't reset anything. 1st: one breath. 2nd: three breaths. 3rd: the shield.
+- **No shame, anywhere.** The voice is a friend's. The urge is "the pull", not the person.
+- **Plans in their own words.** The Dashboard's `WeekPanel` shows the week's reaches by
+  craving and peak hour, and takes an if-then plan per craving. The pause shows the plan
+  back on that craving's screen. Everything is in `UrgeLog`, on disk, local only.
+- `Close it` closes the **tab** (Command-W posted to the browser's pid by `TabCloser`, after
+  re-activating it, because Close Tab needs the key window). Apps are asked to quit.
 
-`NudgeHUDController` serves both: `hint(reason:detail:)` for the soft kind (fades after
-5 s, no progress dots) and `ladder(step:headline:detail:)` for the rungs. A rung replaces
-the one before it, which is why `show` has to cancel an in-flight fade-out.
+`NudgeHUDController` now serves three kinds: `hint` (soft drift), `reward` (happy Flop),
+and `status` (the "I need it" countdown lines). `hideHint()` takes down only hints, so a
+reward survives the app switch it usually lands on.
 
 The standalone semantic classifier and text readers are outside the active detection path. `AppModel` applies explicit rules and handles confirmation and enforcement.
 

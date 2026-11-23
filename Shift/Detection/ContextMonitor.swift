@@ -2,6 +2,10 @@ import AppKit
 import Foundation
 
 /// Samples the foreground app and its window while blocks are active.
+///
+/// Two triggers. `AddressObserver` asks for a sample the instant the front app navigates,
+/// switches windows or moves focus, which is what lets the pause land before a feed has
+/// loaded. The 1.5 s poll is the backstop for apps that post no Accessibility notifications.
 @MainActor
 final class ContextMonitor {
     var onSample: ((ScreenContext) -> Void)?
@@ -13,11 +17,18 @@ final class ContextMonitor {
     private var samplingTask: Task<Void, Never>?
     private var revision: UInt64 = 0
     private var accessibilityPreparedPID: pid_t?
+    private let addressObserver = AddressObserver()
+    /// A trigger arrived while a sample was in flight; take another once it lands.
+    private var wantsResample = false
+    private var resampleTask: Task<Void, Never>?
 
     var isRunning: Bool { timer != nil }
 
     func start() {
         guard !isRunning else { return }
+
+        addressObserver.onChange = { [weak self] in self?.sample() }
+        observeFrontmost()
 
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -25,6 +36,7 @@ final class ContextMonitor {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
+                self?.observeFrontmost()
                 self?.invalidate()
                 self?.sample()
             }
@@ -43,6 +55,10 @@ final class ContextMonitor {
         timer = nil
         samplingTask?.cancel()
         samplingTask = nil
+        resampleTask?.cancel()
+        resampleTask = nil
+        wantsResample = false
+        addressObserver.stop()
         invalidate()
         accessibilityPreparedPID = nil
 
@@ -55,6 +71,28 @@ final class ContextMonitor {
     func invalidate() {
         revision &+= 1
         onInvalidation?()
+    }
+
+    /// A second reading shortly after the first, so a new match can be confirmed in a
+    /// fraction of a second instead of waiting a whole poll interval.
+    func resampleSoon() {
+        guard isRunning, resampleTask == nil else { return }
+        resampleTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard let self, !Task.isCancelled else { return }
+            self.resampleTask = nil
+            self.sample()
+        }
+    }
+
+    /// Follows the front app with the address observer. Shift itself is skipped, so a
+    /// Shift panel taking focus never unhooks the browser underneath it.
+    private func observeFrontmost() {
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              app.bundleIdentifier != Bundle.main.bundleIdentifier,
+              PermissionsManager.isAccessibilityTrusted
+        else { return }
+        addressObserver.observe(pid: app.processIdentifier)
     }
 
     /// Checks the live foreground app and, for a site rule, reads the browser again.
@@ -81,7 +119,11 @@ final class ContextMonitor {
     }
 
     private func sample() {
-        guard samplingTask == nil, isRunning else { return }
+        guard isRunning else { return }
+        guard samplingTask == nil else {
+            wantsResample = true
+            return
+        }
 
         guard let app = NSWorkspace.shared.frontmostApplication,
               let bundleID = app.bundleIdentifier,
@@ -101,7 +143,10 @@ final class ContextMonitor {
                 // A cancelled sample may finish after a new timer has started.
                 if !Task.isCancelled, let self {
                     self.samplingTask = nil
-                    if self.revision != sampleRevision { self.sample() }
+                    if self.revision != sampleRevision || self.wantsResample {
+                        self.wantsResample = false
+                        self.sample()
+                    }
                 }
             }
             let snapshot = await WindowInspector.snapshot(pid: pid, browser: browser, prepareAccessibility: prepareAccessibility)
