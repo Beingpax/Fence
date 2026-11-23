@@ -736,17 +736,10 @@ private struct AppTile: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: Theme.Space.tight) {
-                Group {
-                    if let icon = app.icon {
-                        Image(nsImage: icon).resizable()
-                    } else {
-                        Image(systemName: "app")
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .frame(width: 24, height: 24)
-                .accessibilityHidden(true)
+                Image(nsImage: InstalledApps.shared.icon(for: app))
+                    .resizable()
+                    .frame(width: 24, height: 24)
+                    .accessibilityHidden(true)
                 Text(app.name)
                     .font(.callout)
                     .lineLimit(1)

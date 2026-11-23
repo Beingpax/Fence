@@ -130,7 +130,7 @@ final class PauseController {
         key = nil
 
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            leaving.forEach { $0.orderOut(nil) }
+            Self.releaseWindows(leaving)
             return
         }
         NSAnimationContext.runAnimationGroup { context in
@@ -138,7 +138,14 @@ final class PauseController {
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             leaving.forEach { $0.animator().alphaValue = 0 }
         } completionHandler: {
-            MainActor.assumeIsolated { leaving.forEach { $0.orderOut(nil) } }
+            MainActor.assumeIsolated { Self.releaseWindows(leaving) }
+        }
+    }
+
+    private static func releaseWindows(_ windows: [PauseWindow]) {
+        for window in windows {
+            window.close()
+            window.contentView = nil
         }
     }
 }

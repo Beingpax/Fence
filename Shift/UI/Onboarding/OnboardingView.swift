@@ -287,13 +287,9 @@ struct OnboardingView: View {
                         Label {
                             Text(app.name)
                         } icon: {
-                            if let icon = app.icon {
-                                Image(nsImage: icon)
-                                    .resizable()
-                                    .frame(width: 18, height: 18)
-                            } else {
-                                Image(systemName: "app")
-                            }
+                            Image(nsImage: catalog.icon(for: app))
+                                .resizable()
+                                .frame(width: 18, height: 18)
                         }
                     }
                     .toggleStyle(.checkbox)

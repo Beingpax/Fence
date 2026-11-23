@@ -37,7 +37,7 @@ enum WatchdogRunner {
         signal(SIGINT, SIG_IGN)
 
         while true {
-            tick()
+            autoreleasepool { tick() }
             Thread.sleep(forTimeInterval: pollInterval)
         }
     }
@@ -85,6 +85,7 @@ enum WatchdogRunner {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = false
         configuration.addsToRecentItems = false
+        configuration.arguments = [WatchdogService.backgroundLaunchFlag]
         NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, error in
             if let error {
                 log.error("Relaunch failed: \(error.localizedDescription, privacy: .public). Falling back to open(1).")
@@ -96,7 +97,7 @@ enum WatchdogRunner {
     private static func openViaCommandLine(_ url: URL) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-g", url.path]
+        process.arguments = ["-g", url.path, "--args", WatchdogService.backgroundLaunchFlag]
         try? process.run()
     }
 

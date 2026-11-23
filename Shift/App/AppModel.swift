@@ -80,6 +80,7 @@ final class AppModel {
     @ObservationIgnored private var hysteresis = Hysteresis(requiredHits: 2)
     @ObservationIgnored private var nudgeHysteresis = Hysteresis(requiredHits: 2)
     @ObservationIgnored private var engineTimer: Timer?
+    @ObservationIgnored private var activationObserver: NSObjectProtocol?
     @ObservationIgnored private var tickCount = 0
 
     @ObservationIgnored private var lastNudgeSignature: String?
@@ -111,11 +112,7 @@ final class AppModel {
         refreshSystemState()
         startEngine()
 
-        // Warm the app catalogue now. Scanning the application folders and pulling icons
-        // takes a moment, and doing it when the picker opens makes the picker feel slow.
-        InstalledApps.shared.loadIfNeeded()
-
-        openApp()
+        if !CommandLine.arguments.contains(WatchdogService.backgroundLaunchFlag) { openApp() }
     }
 
     func applicationWillTerminate() {
@@ -124,6 +121,10 @@ final class AppModel {
         if WatchdogService.hasConfiguration { WatchdogService.remove() }
         monitor.stop()
         engineTimer?.invalidate()
+        if let activationObserver {
+            NotificationCenter.default.removeObserver(activationObserver)
+            self.activationObserver = nil
+        }
         store.flushPendingSaves()
     }
 
@@ -155,6 +156,13 @@ final class AppModel {
     private func engineTick() {
         tickCount += 1
         store.tick()
+        if tickCount % 60 == 0, !reaches.isEmpty {
+            let cutoff = Date().addingTimeInterval(-Self.reachWindow)
+            reaches = reaches.compactMapValues { dates in
+                let recent = dates.filter { $0 > cutoff }
+                return recent.isEmpty ? nil : recent
+            }
+        }
 
         let active = store.activeBlocks
         let shouldWatch = !active.isEmpty
@@ -251,6 +259,8 @@ final class AppModel {
     private func beginReach(key: String, reachKey: String, verdict: Verdict, context: ScreenContext) {
         let now = Date()
         var recent = (reaches[reachKey] ?? []).filter { now.timeIntervalSince($0) < Self.reachWindow }
+        // Every reach from the third onward uses the same escalation level.
+        if recent.count == 3 { recent.removeFirst() }
         recent.append(now)
         reaches[reachKey] = recent
         let target = context.host ?? context.appName
@@ -506,7 +516,8 @@ final class AppModel {
     // MARK: Permissions and system state
 
     private func observeActivation() {
-        NotificationCenter.default.addObserver(
+        guard activationObserver == nil else { return }
+        activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
             queue: .main

@@ -13,9 +13,10 @@ import SwiftUI
 ///    the question. There's no way back from an answer: it ends in closing the tab.
 /// 2. **The orb becomes the panel.** The breath and the question are one object changing
 ///    shape, so the moment it opens is felt rather than merely noticed.
-/// 3. **Neutral glass, coloured symbols.** Cards, panel and buttons are white glass; only
-///    the feeling symbols carry colour, so each is recognisable at a glance without the
-///    screen turning into a paint chart. The breathing light takes its colours from the
+/// 3. **Neutral glass, colour tiles.** Cards, panel and buttons are white glass; only the
+///    feeling icons carry colour, as solid tiles drawn exactly like the sidebar's
+///    (`SidebarIconTile`), so each is recognisable at a glance and the screen still feels
+///    like part of the app. The breathing light takes its colours from the
 ///    time of day, to match the photo behind it.
 /// 4. **Words arrive, they don't switch on.** Every line reveals letter by letter out of a
 ///    soft blur (`revealOnAppear`). Text that changes in place (`SwapText`) fully leaves
@@ -34,7 +35,7 @@ struct PauseView: View {
 
     @State private var phase: Phase = .breathing
     @State private var secondsLeft: Int
-    @State private var inhaling = false
+    @State private var breathStart: Date?
     @State private var cue = "Breathe in"
     @State private var hovered: UrgeReason?
     @State private var note = ""
@@ -133,13 +134,12 @@ struct PauseView: View {
 
     // MARK: 1. The breath
 
-    /// A glass orb with light drifting inside it, lit in the colours of the sky behind.
-    /// Breathing in, it swells, its halo blooms and the motes around it gather in; breathing
-    /// out, everything settles and drifts loose again. When the breath ends, the orb grows
-    /// into the question panel.
+    /// A living blob of light in the colours of the sky behind (`BreathBlob`). It swells and
+    /// brightens on the in-breath and settles on the out-breath, its edge always gently
+    /// shifting. When the breath ends, it grows into the question panel.
     private var orb: some View {
         VStack(spacing: Theme.Space.base) {
-            BreathLight(colors: period.glow, inhaling: inhaling, animates: !reduceMotion)
+            BreathBlob(colors: period.glow, start: breathStart, animates: !reduceMotion)
                 .frame(width: 300, height: 260)
                 .background {
                     Circle()
@@ -166,10 +166,11 @@ struct PauseView: View {
     private func breathe() async {
         // Let the header land before the first breath starts.
         try? await Task.sleep(for: .milliseconds(reduceMotion ? 0 : 600))
+        guard !Task.isCancelled else { return }
+        breathStart = Date()
         while secondsLeft > 0 {
             let step = (request.waitSeconds - secondsLeft) % 5
             if step == 0 || step == 3 {
-                inhaling = step == 0
                 cue = step == 0 ? "Breathe in" : "And let it go"
             }
             try? await Task.sleep(for: .seconds(1))
@@ -180,6 +181,7 @@ struct PauseView: View {
             phase = .asking
         }
         try? await Task.sleep(for: .milliseconds(reduceMotion ? 0 : 350))
+        guard !Task.isCancelled else { return }
         withAnimation(.easeOut(duration: 0.5)) { questionShown = true }
     }
 
@@ -321,16 +323,8 @@ struct PauseView: View {
     private func answer(for reason: UrgeReason) -> some View {
         let text = suggestion(for: reason)
         return VStack(spacing: Theme.Space.base) {
-            ZStack {
-                Circle()
-                    .fill(Color.tint(for: reason).opacity(0.18))
-                    .frame(width: 60, height: 60)
-                    .overlay { Circle().strokeBorder(Color.tint(for: reason).opacity(0.35)) }
-                Image(systemName: reason.symbol)
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundStyle(Color.tint(for: reason))
-                    .symbolEffect(.bounce, options: .nonRepeating, value: reason)
-            }
+            SidebarIconTile(systemName: reason.symbol, background: Color.tint(for: reason), size: 56)
+                .symbolEffect(.bounce, options: .nonRepeating, value: reason)
             .accessibilityHidden(true)
 
             Text(text.title)
@@ -452,8 +446,8 @@ struct PauseView: View {
 
 // MARK: - Pieces
 
-/// One feeling: a coloured symbol, one word, and its number key, on neutral glass. The
-/// card brightens and lifts under the pointer; only the symbol carries colour.
+/// One feeling: a sidebar-style colour tile, one word, and its number key, on neutral glass.
+/// The card brightens and lifts under the pointer; only the tile carries colour.
 private struct FeelingChip: View {
     let reason: UrgeReason
     let number: Int
@@ -461,15 +455,8 @@ private struct FeelingChip: View {
 
     var body: some View {
         HStack(spacing: Theme.Space.snug) {
-            ZStack {
-                Circle()
-                    .fill(Color.tint(for: reason).opacity(highlighted ? 0.28 : 0.16))
-                    .frame(width: 34, height: 34)
-                Image(systemName: reason.symbol)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.tint(for: reason))
-                    .symbolEffect(.bounce, value: highlighted)
-            }
+            SidebarIconTile(systemName: reason.symbol, background: Color.tint(for: reason), size: 32)
+                .symbolEffect(.bounce, value: highlighted)
             Text(reason.title)
                 .font(.system(.body, design: .rounded).weight(.semibold))
                 .foregroundStyle(.white)
@@ -500,80 +487,154 @@ private struct FeelingChip: View {
     }
 }
 
-/// The breathing visual: a glass orb with soft light drifting inside, a halo, and a ring of
-/// motes. Everything rides one clock, so the drift never stops; the breath itself is the
-/// slow swell layered on top.
-private struct BreathLight: View {
+/// The breathing visual: a living blob of light.
+///
+/// Three translucent layers in the colours of the sky behind, each a soft closed curve
+/// whose edge is slowly reshaped by a few overlapping waves, so it never holds one shape
+/// and never repeats exactly. Under them, a glow that brightens on the in-breath; over
+/// them, a glass sheen and a hairline rim, so it reads as an object rather than a smudge.
+///
+/// The breath itself is computed from the clock rather than animated: 3 s in, 2 s out,
+/// each eased, starting when the pause starts breathing. That keeps the swell in step with
+/// the cue to the frame, and means nothing ever snaps when SwiftUI re-renders.
+private struct BreathBlob: View {
     let colors: [Color]
-    let inhaling: Bool
+    let start: Date?
     let animates: Bool
 
-    private var swell: Animation { .easeInOut(duration: inhaling ? 3 : 2) }
+    /// 0 at the bottom of the out-breath, 1 at the top of the in-breath.
+    static func breath(at date: Date, start: Date?) -> Double {
+        guard let start else { return 0 }
+        let t = max(0, date.timeIntervalSince(start)).truncatingRemainder(dividingBy: 5)
+        func smooth(_ x: Double) -> Double { x * x * (3 - 2 * x) }
+        return t < 3 ? smooth(t / 3) : 1 - smooth((t - 3) / 2)
+    }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !animates)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !animates)) { timeline in
             let t = animates ? timeline.date.timeIntervalSinceReferenceDate : 0
+            let b = animates ? Self.breath(at: timeline.date, start: start) : 0.6
 
-            ZStack {
-                // Halo: the light the orb throws onto the sky around it.
-                Circle()
-                    .fill(RadialGradient(
-                        colors: [colors[0].opacity(0.5), colors[1].opacity(0.16), .clear],
-                        center: .center, startRadius: 30, endRadius: 160
-                    ))
-                    .frame(width: 320, height: 320)
-                    .scaleEffect(inhaling ? 1.08 : 0.76)
-                    .opacity(inhaling ? 1 : 0.55)
-                    .animation(swell, value: inhaling)
+            Canvas { context, size in
+                let center = CGPoint(x: size.width / 2, y: size.height / 2 + sin(t * 0.9) * 3)
+                let radius = 72 + 28 * b
+                // Calmer at the top of the breath, a little more alive at the bottom.
+                let wobble = 0.06 + 0.03 * (1 - b)
 
-                // Motes: gathered in on the in-breath, drifting loose on the out-breath.
-                ForEach(0..<14, id: \.self) { index in
-                    let angle = Double(index) / 14 * 2 * .pi + t * (index.isMultiple(of: 2) ? 0.07 : -0.05)
-                    let wobble = sin(t * 0.8 + Double(index) * 1.7) * 6
-                    let radius = (inhaling ? 104.0 : 136.0) + wobble + Double(index % 3) * 6
-                    Circle()
-                        .fill(colors[index % colors.count])
-                        .frame(width: index % 3 == 0 ? 4 : 3, height: index % 3 == 0 ? 4 : 3)
-                        .opacity((inhaling ? 0.85 : 0.4) * (0.6 + 0.4 * sin(t * 1.3 + Double(index))))
-                        .offset(x: cos(angle) * radius, y: sin(angle) * radius)
-                        .animation(swell, value: inhaling)
-                }
-
-                // The orb: frosted glass with coloured light moving inside it.
-                ZStack {
-                    Circle().fill(.ultraThinMaterial)
-                    ForEach(0..<3, id: \.self) { index in
-                        let phase = Double(index) * 2.1
-                        Circle()
-                            .fill(colors[index % colors.count])
-                            .frame(width: 118, height: 118)
-                            .offset(x: cos(t * 0.42 + phase) * 36, y: sin(t * 0.57 + phase * 1.3) * 32)
-                            .blur(radius: 24)
-                            .opacity(0.9)
-                    }
-                    // Soft specular highlight, top left, like light on glass.
-                    Circle()
-                        .fill(RadialGradient(
-                            colors: [.white.opacity(0.5), .clear],
-                            center: UnitPoint(x: 0.32, y: 0.24), startRadius: 2, endRadius: 72
-                        ))
-                }
-                .frame(width: 176, height: 176)
-                .clipShape(Circle())
-                .overlay {
-                    Circle().strokeBorder(
-                        LinearGradient(colors: [.white.opacity(0.65), .white.opacity(0.06)],
-                                       startPoint: .topLeading, endPoint: .bottomTrailing),
-                        lineWidth: 1.2
+                // Lift: a soft shadow so the light sits above even a bright sky.
+                context.drawLayer { layer in
+                    layer.addFilter(.blur(radius: 26))
+                    layer.opacity = 0.22
+                    layer.fill(
+                        Self.blob(CGPoint(x: center.x, y: center.y + 16), radius: radius * 0.92, t: t, seed: 0, wobble: wobble),
+                        with: .color(.black)
                     )
                 }
-                .shadow(color: colors[0].opacity(0.4), radius: 36)
-                .scaleEffect(inhaling ? 1.1 : 0.86)
-                .animation(swell, value: inhaling)
+
+                // Glow: the light the blob throws onto the sky around it.
+                context.drawLayer { layer in
+                    layer.addFilter(.blur(radius: 44))
+                    layer.opacity = 0.4 + 0.45 * b
+                    layer.fill(
+                        Self.blob(center, radius: radius * 1.35, t: t * 0.8, seed: 0.7, wobble: wobble),
+                        with: .radialGradient(
+                            Gradient(colors: [colors[0], colors[1].opacity(0.6)]),
+                            center: center, startRadius: 0, endRadius: radius * 1.35
+                        )
+                    )
+                }
+
+                let outline = Self.blob(center, radius: radius, t: t, seed: 0, wobble: wobble)
+
+                // The body: a clear, softly wobbling shape filled with translucent colour,
+                // with three pools of light drifting around inside it. The edge stays
+                // defined so it reads as one living thing; the inside keeps moving so it
+                // never looks like a sticker.
+                context.drawLayer { layer in
+                    layer.clip(to: outline)
+
+                    layer.fill(outline, with: .linearGradient(
+                        Gradient(colors: [colors[2].opacity(0.62), colors[0].opacity(0.7), colors[1].opacity(0.78)]),
+                        startPoint: CGPoint(x: center.x - radius, y: center.y - radius),
+                        endPoint: CGPoint(x: center.x + radius, y: center.y + radius)
+                    ))
+
+                    for index in 0..<3 {
+                        let seed = Double(index) * 2.1
+                        let pool = CGPoint(
+                            x: center.x + cos(t * (0.38 + Double(index) * 0.07) + seed) * radius * 0.42,
+                            y: center.y + sin(t * (0.47 + Double(index) * 0.05) + seed * 1.3) * radius * 0.38
+                        )
+                        let size = radius * (0.95 - Double(index) * 0.12)
+                        layer.drawLayer { light in
+                            light.addFilter(.blur(radius: 18))
+                            light.blendMode = .screen
+                            light.opacity = 0.85
+                            light.fill(Path(ellipseIn: CGRect(x: pool.x - size / 2, y: pool.y - size / 2,
+                                                              width: size, height: size)),
+                                       with: .color(colors[(index + 1) % colors.count]))
+                        }
+                    }
+
+                    // Depth: the edge darkens a touch, the way light falls off in a drop.
+                    layer.fill(outline, with: .radialGradient(
+                        Gradient(colors: [.clear, .clear, .black.opacity(0.2)]),
+                        center: center, startRadius: 0, endRadius: radius * 1.05
+                    ))
+                }
+
+                // A warm core that brightens as the breath fills.
+                context.drawLayer { layer in
+                    layer.clip(to: outline)
+                    layer.addFilter(.blur(radius: 22))
+                    layer.opacity = 0.18 + 0.32 * b
+                    layer.fill(Path(ellipseIn: CGRect(x: center.x - radius * 0.45, y: center.y - radius * 0.45,
+                                                      width: radius * 0.9, height: radius * 0.9)),
+                               with: .color(.white))
+                }
+
+                // A small glint, top left, like light catching a drop of water.
+                context.drawLayer { layer in
+                    layer.clip(to: outline)
+                    layer.addFilter(.blur(radius: 6))
+                    layer.fill(
+                        Path(ellipseIn: CGRect(x: center.x - radius * 0.62, y: center.y - radius * 0.72,
+                                               width: radius * 0.62, height: radius * 0.36)),
+                        with: .color(.white.opacity(0.38))
+                    )
+                }
+
+                // A faint rim, only where the light would catch it.
+                context.stroke(outline, with: .linearGradient(
+                    Gradient(colors: [.white.opacity(0.6), .white.opacity(0.08)]),
+                    startPoint: CGPoint(x: center.x - radius, y: center.y - radius),
+                    endPoint: CGPoint(x: center.x + radius * 0.3, y: center.y + radius * 0.3)
+                ), lineWidth: 1)
             }
-            .offset(y: animates ? sin(t * 0.9) * 4 : 0)
         }
         .accessibilityHidden(true)
+    }
+
+    /// A smooth closed curve around `center` whose radius is nudged by three slow waves.
+    static func blob(_ center: CGPoint, radius: Double, t: Double, seed: Double, wobble: Double) -> Path {
+        let count = 72
+        let points: [CGPoint] = (0..<count).map { index in
+            let angle = Double(index) / Double(count) * 2 * .pi
+            let wave = 0.55 * sin(2 * angle + t * 0.8 + seed)
+                + 0.30 * sin(3 * angle - t * 1.1 + seed * 1.7)
+                + 0.15 * sin(5 * angle + t * 1.6 + seed * 2.3)
+            let r = radius * (1 + wobble * wave)
+            return CGPoint(x: center.x + cos(angle) * r, y: center.y + sin(angle) * r)
+        }
+        func mid(_ a: CGPoint, _ b: CGPoint) -> CGPoint { CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2) }
+
+        var path = Path()
+        path.move(to: mid(points[count - 1], points[0]))
+        for index in 0..<count {
+            path.addQuadCurve(to: mid(points[index], points[(index + 1) % count]), control: points[index])
+        }
+        path.closeSubpath()
+        return path
     }
 }
 
@@ -586,16 +647,16 @@ private struct PressScaleStyle: ButtonStyle {
 }
 
 private extension Color {
-    /// Each feeling's symbol colour. Soft and slightly desaturated, so they sit together
-    /// as a set on dark glass rather than shouting.
+    /// Each feeling's tile colour: the same solid system colours the sidebar's icon tiles
+    /// use, so the pause speaks the same visual language as the rest of the app.
     static func tint(for reason: UrgeReason) -> Color {
         switch reason {
-        case .bored: Color(red: 0.98, green: 0.79, blue: 0.42)
-        case .tired: Color(red: 0.67, green: 0.71, blue: 1.0)
-        case .stuck: Color(red: 1.0, green: 0.64, blue: 0.50)
-        case .anxious: Color(red: 0.52, green: 0.86, blue: 0.84)
-        case .lonely: Color(red: 1.0, green: 0.64, blue: 0.76)
-        case .needed: Color(red: 0.64, green: 0.88, blue: 0.58)
+        case .bored: Color(nsColor: .systemYellow)
+        case .tired: Color(nsColor: .systemIndigo)
+        case .stuck: Color(nsColor: .systemOrange)
+        case .anxious: Color(nsColor: .systemTeal)
+        case .lonely: Color(nsColor: .systemPink)
+        case .needed: Color(nsColor: .systemGreen)
         }
     }
 }

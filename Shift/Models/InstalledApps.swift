@@ -3,10 +3,7 @@ import Observation
 
 /// Every app on this Mac, for the in-app picker.
 ///
-/// Scanning the application folders and pulling icons is slow enough to matter, so it
-/// happens once, off the main actor, and the result is cached for the session. The
-/// alternative was sending people to an open panel, which makes choosing three apps feel
-/// like three separate chores.
+/// Scans application folders on demand and loads icons as rows are rendered.
 @MainActor
 @Observable
 final class InstalledApps {
@@ -16,12 +13,17 @@ final class InstalledApps {
     private(set) var isLoading = false
 
     private var hasLoaded = false
+    @ObservationIgnored private let icons: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 64
+        return cache
+    }()
 
     func loadIfNeeded() {
         guard !hasLoaded, !isLoading else { return }
         isLoading = true
         Task {
-            let found = await Task.detached(priority: .userInitiated) { Self.scan() }.value
+            let found = await Task.detached(priority: .userInitiated) { autoreleasepool { Self.scan() } }.value
             apps = found
             isLoading = false
             hasLoaded = true
@@ -34,7 +36,23 @@ final class InstalledApps {
     }
 
     func icon(for bundleID: String) -> NSImage? {
-        apps.first { $0.bundleID == bundleID }?.icon
+        guard let app = apps.first(where: { $0.bundleID == bundleID }) else { return nil }
+        return icon(for: app)
+    }
+
+    func icon(for app: InstalledApp) -> NSImage {
+        let key = app.bundleID as NSString
+        if let cached = icons.object(forKey: key) { return cached }
+        let rasterSize = NSSize(width: 48, height: 48)
+        let icon = NSImage(size: rasterSize)
+        autoreleasepool {
+            icon.lockFocus()
+            defer { icon.unlockFocus() }
+            NSWorkspace.shared.icon(forFile: app.path).draw(in: NSRect(origin: .zero, size: rasterSize))
+        }
+        icon.size = NSSize(width: 24, height: 24)
+        icons.setObject(icon, forKey: key)
+        return icon
     }
 
     func matching(_ query: String) -> [InstalledApp] {
@@ -74,12 +92,7 @@ final class InstalledApps {
                     ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
                     ?? url.deletingPathExtension().lastPathComponent
 
-                // `icon(forFile:)` is the expensive call here. Ask for a small
-                // representation and let AppKit cache it.
-                let icon = NSWorkspace.shared.icon(forFile: url.path)
-                icon.size = NSSize(width: 24, height: 24)
-
-                results.append(InstalledApp(bundleID: bundleID, name: name, icon: icon))
+                results.append(InstalledApp(bundleID: bundleID, name: name, path: url.path))
             }
         }
 
@@ -87,22 +100,20 @@ final class InstalledApps {
     }
 }
 
-struct InstalledApp: Identifiable, Hashable, @unchecked Sendable {
+struct InstalledApp: Identifiable, Hashable, Sendable {
     let bundleID: String
     let name: String
     /// Lowercased once at scan time, so filtering doesn't re-fold case per keystroke.
     let searchName: String
-    /// `NSImage` isn't `Sendable`; these are created once during the scan and only ever
-    /// read afterwards, which is why the conformance is unchecked.
-    let icon: NSImage?
+    let path: String
 
     var id: String { bundleID }
 
-    init(bundleID: String, name: String, icon: NSImage?) {
+    init(bundleID: String, name: String, path: String) {
         self.bundleID = bundleID
         self.name = name
         self.searchName = name.lowercased()
-        self.icon = icon
+        self.path = path
     }
 
     static func == (lhs: InstalledApp, rhs: InstalledApp) -> Bool { lhs.bundleID == rhs.bundleID }

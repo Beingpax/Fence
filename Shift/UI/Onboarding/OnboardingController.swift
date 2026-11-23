@@ -39,7 +39,8 @@ final class OnboardingController {
     }
 
     private func close() {
-        window?.orderOut(nil)
+        window?.close()
+        window?.contentView = nil
         window = nil
     }
 }

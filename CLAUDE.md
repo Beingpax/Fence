@@ -290,12 +290,15 @@ relitigate them without asking:
   browser window with Flop on a frosted panel; the user rejected it because the page
   stayed visible around it. Flop appears only afterwards, in the reward card.
 - **One breath, then one honest question, one thing at a time.** During the breath there
-  is no panel: only `BreathLight`, a glass orb with soft light drifting inside it, a halo,
-  and a ring of motes. It swells and the motes gather in on the in-breath (3 s), and it
-  settles and they drift loose on the out-breath (2 s). Its colours come from
+  is no panel: only `BreathBlob`, a translucent drop of light drawn in one `Canvas`. Its
+  edge is a smooth closed curve nudged by three slow waves, so it always gently changes
+  shape; three pools of light drift inside it; it has a halo, a warm core, a small glint
+  and a faint rim. The breath is computed from the clock, not animated: it swells over 3 s
+  and settles over 2 s, in step with the cue to the frame. Colours come from
   `DayPeriod.glow`, the sky of the photo behind it. Under it, the cue and a small
-  countdown (5 s, 15 s on the second reach, 30 s from the third). An earlier ring-ripple
-  version was rejected as not beautiful enough. When it ends, the orb grows into the question panel
+  countdown (5 s, 15 s on the second reach, 30 s from the third). Rejected on the way:
+  rings that ripple out, and a glass orb with orbiting motes (both not beautiful enough),
+  an opaque balloon-like blob, and a fully blurred one that read as fog. When it ends, the orb grows into the question panel
   (`matchedGeometryEffect`), the question reveals, and six feeling chips arrive one after
   another. Each chip is one short word and a white symbol; the longer description shows
   only on hover, in a single helper line, and 1–6 on the keyboard pick them. Choosing one
@@ -303,9 +306,11 @@ relitigate them without asking:
   is the close button, which turns solid white as the obvious next step. The close button
   sits outside the panel, never waits, and answers to Return. Sources: GOV.UK's
   one-thing-per-page, Hick's law, one sec's breath-then-choice.
-- **Neutral glass, coloured symbols.** Cards, panel and buttons are white glass with a dark
-  wash under the frost so they read on every backdrop. Only the feeling symbols carry
-  colour (soft, slightly desaturated, one per feeling). The user rejected fully
+- **Neutral glass, sidebar-style icon tiles.** Cards, panel and buttons are white glass
+  with a dark wash under the frost so they read on every backdrop. Only the feeling icons
+  carry colour, as solid system-colour tiles drawn exactly like the sidebar's
+  (`SidebarIconTile`, which now takes a `size`): yellow, indigo, orange, teal, pink, green.
+  Tinted, semi-transparent circles were rejected. The user rejected fully
   colour-coded chips, and white-only symbols, and the teal/orange/purple tints in Settings
   and the week panel (as looking AI-generated). Settings and Dashboard panels stay neutral.
 - **Words arrive, they don't switch on.** Every line on the pause reveals letter by letter,

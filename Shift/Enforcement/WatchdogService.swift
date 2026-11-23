@@ -18,6 +18,7 @@ enum WatchdogService {
     static let label = "com.beingpax.Shift.watchdog"
     /// Argument that puts the binary into headless watchdog mode. See `main.swift`.
     static let modeFlag = "--watchdog"
+    static let backgroundLaunchFlag = "--background"
 
     private static let log = Logger(subsystem: "com.beingpax.Shift", category: "WatchdogService")
 

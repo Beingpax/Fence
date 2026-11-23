@@ -365,33 +365,38 @@ struct SidebarRow: View {
 
 /// The small coloured tile behind each sidebar glyph. The top highlight and hairline are
 /// what stop it reading as a flat square of colour.
+/// A solid system-colour tile with a white symbol, the way macOS draws Settings icons.
+/// Drawn at 24 pt in the sidebar; everything scales with `size`, so the pause's feeling
+/// icons can use the very same tile larger.
 struct SidebarIconTile: View {
     let systemName: String
     let background: Color
+    var size: CGFloat = 24
 
     var body: some View {
+        let scale = size / 24
         ZStack {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: 6 * scale, style: .continuous)
                 .fill(background)
                 .overlay(alignment: .top) {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    RoundedRectangle(cornerRadius: 6 * scale, style: .continuous)
                         .fill(Color.white.opacity(0.18))
-                        .frame(height: 11)
+                        .frame(height: 11 * scale)
                         .blendMode(.screen)
                 }
                 .overlay {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.24), lineWidth: 0.5)
+                    RoundedRectangle(cornerRadius: 6 * scale, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.24), lineWidth: 0.5 * max(1, scale * 0.8))
                 }
-                .shadow(color: Color.black.opacity(0.18), radius: 1.2, y: 1)
+                .shadow(color: Color.black.opacity(0.18), radius: 1.2 * scale, y: scale)
 
             Image(systemName: systemName)
-                .font(.system(size: 14.5, weight: .semibold))
+                .font(.system(size: 14.5 * scale, weight: .semibold))
                 .symbolRenderingMode(.monochrome)
                 .foregroundStyle(Color.white)
-                .shadow(color: Color.black.opacity(0.16), radius: 0.5, y: 0.5)
+                .shadow(color: Color.black.opacity(0.16), radius: 0.5 * scale, y: 0.5 * scale)
         }
-        .frame(width: 24, height: 24)
+        .frame(width: size, height: size)
     }
 }
 

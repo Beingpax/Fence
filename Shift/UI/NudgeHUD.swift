@@ -108,10 +108,16 @@ final class NudgeHUDController {
             transitionTask?.cancel()
             panel.alphaValue = 0
             panel.orderFrontRegardless()
-            transitionTask = Task { [panel] in await fade(panel, to: 1) }
+            transitionTask = Task { [weak self, panel] in
+                await Self.fade(panel, to: 1)
+                if !Task.isCancelled { self?.transitionTask = nil }
+            }
         } else if panel.alphaValue < 1 {
             transitionTask?.cancel()
-            transitionTask = Task { [panel] in await fade(panel, to: 1) }
+            transitionTask = Task { [weak self, panel] in
+                await Self.fade(panel, to: 1)
+                if !Task.isCancelled { self?.transitionTask = nil }
+            }
         }
 
         scheduleAutoDismiss(after: hintDuration)
@@ -119,14 +125,17 @@ final class NudgeHUDController {
 
     func hide() {
         cancelAutoDismiss()
-        transitionTask?.cancel()
         guard let panel, panel.isVisible else { return }
+        transitionTask?.cancel()
         transitionTask = Task { [panel, weak self] in
-            await self?.fade(panel, to: 0)
+            await Self.fade(panel, to: 0)
             // A `show` during the fade cancels this, so the panel stays up for the new card.
             guard !Task.isCancelled else { return }
             panel.orderOut(nil)
+            panel.contentView = nil
+            self?.cancelAutoDismiss()
             self?.current = nil
+            self?.transitionTask = nil
         }
     }
 
@@ -174,7 +183,8 @@ final class NudgeHUDController {
 
     /// Awaitable so callers can sequence work after the animation without passing a
     /// non-Sendable completion closure into AppKit's `@Sendable` handler.
-    private func fade(_ panel: NSPanel, to alpha: CGFloat) async {
+    private static func fade(_ panel: NSPanel, to alpha: CGFloat) async {
+        guard !Task.isCancelled else { return }
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             panel.alphaValue = alpha
             return
