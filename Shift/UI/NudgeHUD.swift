@@ -4,7 +4,7 @@ import SwiftUI
 /// What one card says, and how Flop looks saying it.
 struct NudgeContent: Equatable {
     enum Kind: Equatable {
-        /// A soft hint from the intent or feed-keyword checks. Never escalates.
+        /// A soft hint from the feed-keyword check. Never escalates.
         case hint
         /// Praise for turning back on your own. See `AppModel.reward`.
         case reward

@@ -2,7 +2,7 @@ import Foundation
 
 /// Judges one screen reading against every block that is currently active.
 ///
-/// Explicit block rules take precedence over focus and title-based nudges.
+/// Explicit block rules take precedence over the title-based drift hint.
 struct BlockEvaluator {
     /// Only blocks that are active right now. The caller does the schedule maths.
     var blocks: [Block]
@@ -33,16 +33,7 @@ struct BlockEvaluator {
         return nil
     }
 
-    func intentGoals() -> [IntentGoal] {
-        blocks.compactMap { block in
-            let goal = String(block.goal.prefix(400)).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !goal.isEmpty else { return nil }
-            return IntentGoal(id: block.id, text: goal)
-        }
-    }
-
-    func fallbackVerdict(for context: ScreenContext, hasIntentGoals: Bool) -> Verdict {
-        if hasIntentGoals { return .allow("No blocking rule matched. No clear distraction detected.") }
+    func fallbackVerdict(for context: ScreenContext) -> Verdict {
         if let title = context.windowTitle,
            let keyword = driftKeywords.first(where: { title.localizedCaseInsensitiveContains($0) }) {
             return .nudge("“\(keyword)” looks like a feed")

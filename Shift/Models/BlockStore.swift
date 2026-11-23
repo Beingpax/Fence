@@ -277,10 +277,10 @@ final class BlockStore {
     // MARK: Breaks
 
     @discardableResult
-    func startBreak(id: UUID, now: Date = Date(), minutes: Int = BreakPlan.minutes) -> Bool {
+    func spendBreak(id: UUID, now: Date = Date()) -> Bool {
         guard let index = blocks.firstIndex(where: { $0.id == id }) else { return false }
         var block = blocks[index]
-        guard block.isActive(at: now), block.breaks.start(at: now, minutes: minutes) else { return false }
+        guard block.isActive(at: now), block.breaks.spend(at: now) else { return false }
 
         blocks[index] = block
         saveNow()

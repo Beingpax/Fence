@@ -41,7 +41,6 @@ struct BlockInspector: View {
                 VStack(alignment: .leading, spacing: Theme.Space.snug) {
                     identity
                     blockedItems
-                    focusGoal
                     schedule
                     breaks
                     lock
@@ -153,17 +152,6 @@ struct BlockInspector: View {
         allowed.symbol = draft.symbol
         original = saved
         draft = allowed
-    }
-
-    private var focusGoal: some View {
-        Panel("Focus goal", icon: "scope") {
-            ShiftTextField(prompt: "Optional, e.g. Finish the thesis chapter", text: $draft.goal)
-                .accessibilityLabel("Focus goal")
-                .disabled(isLocked)
-            Text("Shift can use this goal for gentle reminders when no blocking rule matches.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
     }
 
     // MARK: Identity
@@ -355,7 +343,7 @@ struct BlockInspector: View {
                     .disabled(isLocked)
             }
             Text(draft.breaks.isEnabled
-                 ? "Up to \(BreakPlan.dailyAllowance) short breaks a day. When you tell the pause you need a site for something specific, this block steps aside for one or two minutes."
+                 ? "Up to \(BreakPlan.dailyAllowance) short breaks a day. When you tell the pause you need a site for something specific, just that site opens for one or two minutes. The block stays on."
                  : "Off: every reach is closed. Turn on to allow \(BreakPlan.dailyAllowance) short breaks a day, for when you really need a site.")
                 .font(.caption)
                 .foregroundStyle(.secondary)

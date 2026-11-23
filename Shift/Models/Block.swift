@@ -19,8 +19,6 @@ struct Block: Identifiable, Codable, Equatable {
     var lock: BlockLock = BlockLock()
     var breaks: BreakPlan = BreakPlan()
 
-    /// Optional goal that gives focus nudges context.
-    var goal: String = ""
 
     /// When a `.manual` block is running, the instant it stops. Runtime state, persisted
     /// so a relaunch mid-run doesn't hand out a free pass.
@@ -244,14 +242,16 @@ struct BreakPlan: Codable, Equatable {
         return max(0, Self.dailyAllowance - usedToday)
     }
 
-    /// Uses one of today's breaks. `minutes` is capped at `Self.minutes`: the pause offers
-    /// a shorter one-minute break, never a longer one.
-    mutating func start(at date: Date, minutes: Int = Self.minutes) -> Bool {
+    /// Uses one of today's breaks.
+    ///
+    /// A break no longer pauses the block. It's spent on one site for a minute or two (see
+    /// `AppModel.allow`), and everything else the block covers stays blocked. Only the
+    /// lock decides when a block can actually be switched off.
+    mutating func spend(at date: Date) -> Bool {
         let available = remaining(at: date)
-        guard available > 0, !isOnBreak(at: date) else { return false }
+        guard available > 0 else { return false }
         breaksTakenToday = Self.dailyAllowance - available + 1
         lastResetDay = date
-        currentBreakEndsAt = date.addingTimeInterval(TimeInterval(min(max(minutes, 1), Self.minutes)) * 60)
         return true
     }
 }

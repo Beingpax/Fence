@@ -7,7 +7,12 @@ Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (br
 ## Current status (read first)
 
 - **Blocking is built on habit psychology** as of 23 Nov 2026: a rule match gets a
-  full-screen pause, not a ladder of nudges. See "The pause" below; read it before
+  full-screen pause, not a ladder of nudges.
+- **There are no focus goals and no AI intent checks.** The user had them removed
+  entirely on 23 Nov 2026: the block's goal field, `IntentClassifier`,
+  `IntentNudgeMonitor`, `ScreenTextReader`, `AXTextReader` and the Screen Recording
+  permission are gone. Detection is the block lists plus the feed-keyword drift hint.
+  Don't bring any of it back without asking. See "The pause" below; read it before
   touching enforcement or any copy the user sees.
 - **The app is organised around blocks, not sessions** as of 22 Nov 2026. This replaced the
   original focus-session model. See "The block model" below; it is the most important
@@ -46,7 +51,8 @@ xcodebuild -project Shift.xcodeproj -scheme Shift -configuration Debug -destinat
    should cover every display almost at once. Choices unlock after 5 s (15 s on the
    second reach). Every answer except "I need it" closes only the tab, then shows the
    reward. "I need it" appears only when the block allows breaks: type a reason, pick 1 or
-   2 minutes, and the block steps aside. A third reach within an hour waits 30 s and plays
+   2 minutes, and only that site opens; the block stays on and still blocks everything
+   else. A third reach within an hour waits 30 s and plays
    the deeper chime. Check the wallpaper matches the time of day.
 4. **Schedules.** Set a window that starts a minute from now and confirm it self-activates.
 5. **Nudges.** With a block active and nudges enabled, open an unblocked window whose title contains a configured feed keyword.
@@ -97,8 +103,8 @@ Rules that are easy to get wrong, and are covered by the tests:
 
 - `AppModel`, `BlockStore` and the window controllers are `@MainActor`. SwiftUI reads them.
 - Anything that talks to another process runs off the main actor and is awaited:
-  Accessibility reads (`WindowInspector`, 0.5 s messaging timeout) and screen capture
-  (`ScreenTextReader`, an actor).
+  Accessibility reads (`WindowInspector`, 0.5 s messaging timeout) and observer
+  registration (`AddressObserver`).
 - `ContextMonitor` drops overlapping samples rather than queueing them, so a slow reading
   can't build a backlog behind it.
 - Block writes are debounced and encoded off the main actor. `saveNow()` is for the cases
@@ -216,11 +222,11 @@ Shift/
 ├── Models/         Block (+ BlockList, BlockSchedule, ScheduleWindow, BlockLock, BreakPlan,
 │                   BlockTint), BlockStore (persistence, locking, CRUD),
 │                   ScreenContext, Verdict, ActivityEvent, DistractionPreset,
-│                   Urge (UrgeReason, UrgeLog: every reach, plus if-then plans)
+│                   Urge (UrgeReason, UrgeLog: every reach, plus if-then plans),
+│                   PauseCopy (every line at the pause and on turning back, + CopyDeck)
 ├── Detection/      ContextMonitor (async sampling), AddressObserver (AX notifications),
 │                   WindowInspector (AX),
-│                   Browser (browser identities),
-│                   ScreenTextReader (ScreenCaptureKit + Vision, an actor)
+│                   Browser (browser identities)
 ├── Intelligence/   BlockEvaluator (tier 0), Hysteresis
 ├── Enforcement/    PauseController + PauseView + PauseBackdrop (DayPeriod), TabCloser,
 │                   NudgeSound, GuardState,
@@ -282,21 +288,35 @@ relitigate them without asking:
   and locks out the Dock, menu bar and Cmd+Tab. An earlier version covered only the
   browser window with Flop on a frosted panel; the user rejected it because the page
   stayed visible around it. Flop appears only afterwards, in the reward card.
-- **One breath, then one honest question.** "What were you hoping it would give you?"
-  The choices unlock after 5 s, 15 s on the second reach and 30 s from the third; the
-  close button never waits.
+- **One breath, then one honest question, one thing at a time.** During the breath there
+  is no panel: only a frosted orb that swells with the breath and a thin ring that empties
+  over 5 s (15 s on the second reach, 30 s from the third). When it ends, the orb grows
+  into the question panel (`matchedGeometryEffect`), the question comes into focus, and
+  six colour-coded feeling chips arrive one after another. Each chip is one short word
+  with its own colour and symbol; the longer description shows only on hover, in a single
+  helper line, and 1–6 on the keyboard pick them. Choosing one replaces the question with
+  its answer in the same panel. The close button sits outside the panel, never waits, and
+  answers to Return. These came from GOV.UK's one-thing-per-page, Hick's law, How We Feel's
+  colour-coded check-ins and one sec's breath-then-choice; the user asked for this section
+  specifically to be redesigned, so treat it as settled.
   Naming the craving weakens it. `UrgeReason` lists them in the person's own words:
   bored, drained, this is hard, anxious, alone, I need it.
 - **Every answer closes it, except one.** Each craving gets a line on what would meet it
   better than the feed (a stretch, rest, a tiny step, writing it down, a real person),
   and the only button closes the tab. The person does the better thing themselves; the
   user explicitly didn't want in-app timers or forms for these.
-- **"I need it" spends a block break.** It appears only when the block has breaks on
-  (`BreakPlan`, per block, 2 a day), asks what for, then offers 1 or 2 minutes via
-  `BlockStore.startBreak(id:minutes:)`. With none left it shows, disabled, as "No breaks
-  left today".
-- **Reward turning back, immediately.** Flop's happy face, a sparkle burst and the `reward` chime, with
-  copy picked at random from a pool so it never goes stale. This is the step that
+- **"I need it" opens one site, never the block.** It appears only when the block has
+  breaks on (`BreakPlan`, per block, 2 a day), asks what for, then offers 1 or 2 minutes.
+  It spends a break (`BlockStore.spendBreak`) but the block stays on and keeps blocking
+  everything else: only the chosen site is let through (`AppModel.allow`, keyed by
+  `reachKey`). When the time is up Shift reads the screen again, and if you're still
+  there the pause comes back. Only the lock decides when a block can be switched off.
+  With no breaks left it shows, disabled, as "No breaks left today".
+- **Never the same words twice in a row.** `PauseCopy` holds 48 pause headlines (by
+  visit) and about 125 turning-back lines (general, harder, and per craving), dealt by
+  `CopyDeck` so nothing repeats until the rest of its set has been seen. The user asked
+  for this explicitly; add lines rather than trimming them, in the voice described there.
+- **Reward turning back, immediately.** Flop's happy face, a sparkle burst and the `reward` chime. This is the step that
   builds the habit; before it, turning back got nothing.
 - **Repeats cost more.** Reaches are counted per block and target for an hour
   (`reaches`, keyed by `reachKey`, not the process), so switching tabs or relaunching the
@@ -327,8 +347,7 @@ The standalone semantic classifier and text readers are outside the active detec
 
 - **M0 Skeleton:** done. Builds clean, runs, shield preview wired.
 - **M1 Strict MVP:** done in code, **not yet verified by hand**. Reworked in v0.3 around blocks: main window, block editor, per-block schedules, locks and breaks, launch at login, headless watchdog, quit and Trash protection, onboarding, nudge HUD, settings, screen-text reading.
-- **M2 AI v1:** Accessibility and OCR are wired into `IntentClassifier` for active
-  blocks with a goal. Still to do: the bake-off in PRD §8.3, semantic calibration,
-  automatic screen changes without interaction, and rabbit-hole detection.
+- **M2 AI v1:** dropped on 23 Nov 2026. The user removed focus goals and intent checks;
+  the PRD's AI sections are out of date on this point.
 - **M3 Beta:** Network Extension hostname backstop (verify the non-MDM approval path first), weekly insights, Sparkle, notarized beta.
 - **M4 AI v2:** VLM tier (and the downloader it needs), doomscroll detection, on-device adapter from evaluation feedback.

@@ -5,6 +5,8 @@ import SwiftUI
 struct PauseRequest {
     var blockName: String
     var blockID: UUID?
+    /// The rule that matched, so "I need it" can let exactly this site through.
+    var ruleTarget: RuleTarget?
     /// The site or app, as the person would name it: "instagram.com", "Steam".
     var target: String
     var appName: String
@@ -15,6 +17,9 @@ struct PauseRequest {
     /// "I need it" spends one of these, so it only appears when the block allows breaks.
     var breaksLeft: Int?
     var plans: [UrgeReason: String]
+    /// The headline and line under it, dealt from `PauseCopy` for this visit.
+    var title: String
+    var subtitle: String
     var isPreview = false
 
     /// How long the choices stay out of reach. One slow breath the first time, three the
@@ -36,7 +41,7 @@ struct PauseRequest {
 enum PauseEvent {
     /// Close it, with the craving they named, if they named one.
     case close(UrgeReason?)
-    /// "I need it": a stated reason, then one of the block's breaks.
+    /// "I need it": a stated reason, then this one site for a minute or two.
     case takeBreak(minutes: Int, note: String)
 }
 

@@ -26,19 +26,12 @@ enum PermissionsManager {
     }
 
     /// Optional permission for reading the foreground window with OCR.
-    static var isScreenRecordingGranted: Bool { CGPreflightScreenCaptureAccess() }
-
-    static func requestScreenRecording() -> Bool { CGRequestScreenCaptureAccess() }
-
     // MARK: Settings deep links
 
     static func openAccessibilitySettings() {
         open("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
     }
 
-    static func openScreenRecordingSettings() {
-        open("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
-    }
 
     // MARK: Diagnostics
 

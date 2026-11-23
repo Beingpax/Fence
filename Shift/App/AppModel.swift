@@ -24,7 +24,6 @@ final class AppModel {
     private(set) var lastVerdict: Verdict?
     private(set) var activity: [ActivityEvent] = []
     private(set) var accessibilityGranted = PermissionsManager.isAccessibilityTrusted
-    private(set) var screenRecordingGranted = PermissionsManager.isScreenRecordingGranted
     private(set) var launchAtLoginEnabled = LaunchAtLogin.isEnabled
 
     /// Mirrors the engine so the UI can show whether Shift is actually watching.
@@ -39,7 +38,6 @@ final class AppModel {
     var showNudges: Bool {
         didSet {
             Preferences.showNudges = showNudges
-            intentNudges.reset()
             nudgeHysteresis.reset()
             if !showNudges { nudgeHUD.hideHint() }
         }
@@ -66,13 +64,15 @@ final class AppModel {
     // MARK: Engine
 
     @ObservationIgnored private let monitor = ContextMonitor()
-    @ObservationIgnored private let intentNudges = IntentNudgeMonitor()
     @ObservationIgnored private let nudgeHUD = NudgeHUDController()
     @ObservationIgnored private let pause = PauseController()
     /// When each site was last reached for, per block, for escalation.
     @ObservationIgnored private var reaches: [String: [Date]] = [:]
     /// The tab is being closed in this process; ignore it until then, or a sample landing
     /// before Command-W would open a second pause for the page that's on its way out.
+    /// "I need it": one site, let through until this time. The block itself stays on.
+    @ObservationIgnored private var allowances: [String: Date] = [:]
+    @ObservationIgnored private var allowanceTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var closingPID: pid_t?
     @ObservationIgnored private var closingUntil = Date.distantPast
     @ObservationIgnored private let onboarding = OnboardingController()
@@ -98,7 +98,6 @@ final class AppModel {
             self?.handle(context)
         }
         monitor.onInvalidation = { [weak self] in
-            self?.intentNudges.reset()
             self?.nudgeHUD.hideHint()
         }
     }
@@ -172,6 +171,9 @@ final class AppModel {
                 lastContext = nil
                 lastVerdict = nil
                 pause.dismiss()
+                allowanceTasks.values.forEach { $0.cancel() }
+                allowanceTasks.removeAll()
+                allowances.removeAll()
                 nudgeHUD.hideHint()
                 hysteresis.reset()
                 log("Nothing active", symbol: "eye.slash")
@@ -199,42 +201,11 @@ final class AppModel {
 
         let evaluator = BlockEvaluator(blocks: store.activeBlocks, driftKeywords: driftKeywords)
         if let verdict = evaluator.ruleVerdict(for: context) {
-            intentNudges.reset()
             apply(verdict, to: context)
             return
         }
         hysteresis.reset()
-
-        let goals = evaluator.intentGoals()
-        let fallback = evaluator.fallbackVerdict(for: context, hasIntentGoals: !goals.isEmpty)
-        guard let request = intentRequest(for: context, goals: goals) else {
-            intentNudges.reset()
-            apply(fallback, to: context)
-            return
-        }
-        if lastVerdict == nil { apply(fallback, to: context) }
-
-        intentNudges.observe(request) { [weak self] source in
-            guard let self, !self.pause.isShowing, self.monitor.isRunning, self.lastContext == context,
-                  NSWorkspace.shared.frontmostApplication?.processIdentifier == context.processID else { return false }
-            let current = BlockEvaluator(blocks: self.store.activeBlocks, driftKeywords: self.driftKeywords)
-            guard current.ruleVerdict(for: context) == nil,
-                  self.intentRequest(for: context, goals: current.intentGoals()) == request else { return false }
-            switch source {
-            case .accessibility: return PermissionsManager.isAccessibilityTrusted
-            case .screenOCR: return PermissionsManager.isScreenRecordingGranted
-            default: return true
-            }
-        } onVerdict: { [weak self] verdict in
-            self?.apply(verdict ?? fallback, to: context)
-        }
-    }
-
-    private func intentRequest(for context: ScreenContext, goals: [IntentGoal]) -> IntentRequest? {
-        guard showNudges, !goals.isEmpty, context.windowID != nil,
-              accessibilityGranted || screenRecordingGranted, IntentClassifier.isModelAvailable else { return nil }
-        return IntentRequest(context: context, goals: goals, accessibilityGranted: accessibilityGranted,
-                             screenRecordingGranted: screenRecordingGranted)
+        apply(evaluator.fallbackVerdict(for: context), to: context)
     }
 
     private func apply(_ verdict: Verdict, to context: ScreenContext) {
@@ -251,8 +222,9 @@ final class AppModel {
             nudgeHysteresis.reset()
             guard let key = encounterKey(for: verdict, context: context),
                   let reachKey = reachKey(for: verdict) else { return }
-            // Already pausing, or closing the page this came from.
+            // Already pausing, closing the page this came from, or let through for a minute.
             if pause.isShowing { return }
+            if let until = allowances[reachKey], until > Date() { return }
             if context.processID == closingPID, Date() < closingUntil { return }
             // A new encounter has to read the same twice, so a stray frame can't trigger
             // anything. The second reading is requested straight away instead of waiting
@@ -286,15 +258,19 @@ final class AppModel {
         guard let blockID = verdict.blockID else { return }
         store.recordTrigger(id: blockID, now: now)
         let breaks = store.block(id: blockID)?.breaks
+        let copy = PauseCopy.pause(visit: recent.count, target: target)
         let request = PauseRequest(
             blockName: verdict.blockName ?? "Shift",
             blockID: blockID,
+            ruleTarget: verdict.ruleTarget,
             target: target,
             appName: context.appName,
             isBrowser: Browser(bundleID: context.bundleID) != nil,
             visit: recent.count,
             breaksLeft: breaks.flatMap { $0.isEnabled ? $0.remaining(at: now) : nil },
-            plans: urges.plans
+            plans: urges.plans,
+            title: copy.title,
+            subtitle: copy.subtitle
         )
         nudgeHUD.hide()
         if playNudgeSounds { request.visit >= 3 ? NudgeSound.playDeep() : NudgeSound.playPause() }
@@ -316,7 +292,7 @@ final class AppModel {
                 urges.record(UrgeEvent(date: Date(), blockName: request.blockName, target: request.target,
                                        reason: reason, outcome: .closed))
             }
-            reward(Self.reward(for: reason, visit: request.visit))
+            reward(PauseCopy.reward(for: reason, visit: request.visit))
             log("Turned back · \(request.target)\(reason.map { " · \($0.shortLabel)" } ?? "")",
                 symbol: "arrow.uturn.backward")
 
@@ -326,9 +302,9 @@ final class AppModel {
                 nudgeHUD.status(headline: headline, detail: note)
                 return
             }
-            guard let blockID = request.blockID, store.startBreak(id: blockID, minutes: minutes) else {
-                // The break couldn't start (none left, or the block went quiet meanwhile),
-                // so this is a close after all.
+            guard let blockID = request.blockID, store.spendBreak(id: blockID) else {
+                // No break left after all (or the block went quiet meanwhile), so this is
+                // a close.
                 closeTarget(context, isPreview: false)
                 nudgeHUD.status(headline: "No breaks left today.", detail: "Closed it for you. Back to \(request.blockName).")
                 return
@@ -336,8 +312,33 @@ final class AppModel {
             urges.record(UrgeEvent(date: Date(), blockName: request.blockName, target: request.target,
                                    reason: .needed, outcome: .allowed, note: note))
             nudgeHUD.status(headline: headline, detail: note)
-            log("Break · \(minutes) min · \(note)", symbol: "cup.and.saucer")
+            log("\(minutes) min on \(request.target) · \(note)", symbol: "cup.and.saucer")
+            if let reachKey = reachKey(for: request) {
+                allow(reachKey: reachKey, minutes: minutes)
+            }
         }
+    }
+
+    /// Lets one site through for `minutes`. The block stays on and keeps blocking
+    /// everything else. When the time is up, Shift reads the screen again: still there means
+    /// a new reach, so the pause comes back.
+    private func allow(reachKey: String, minutes: Int) {
+        allowances[reachKey] = Date().addingTimeInterval(TimeInterval(minutes) * 60)
+        allowanceTasks[reachKey]?.cancel()
+        allowanceTasks[reachKey] = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(minutes * 60))
+            guard !Task.isCancelled, let self else { return }
+            self.allowances[reachKey] = nil
+            self.allowanceTasks[reachKey] = nil
+            self.hysteresis.reset()
+            self.monitor.resampleSoon()
+        }
+    }
+
+    /// The same key `reachKey(for: Verdict)` builds, from what the pause was shown for.
+    private func reachKey(for request: PauseRequest) -> String? {
+        guard let blockID = request.blockID, let target = request.ruleTarget else { return nil }
+        return "\(blockID.uuidString)|\(target.identifier)"
     }
 
     private func closeTarget(_ context: ScreenContext, isPreview: Bool) {
@@ -358,34 +359,11 @@ final class AppModel {
     /// behaviour that's rewarded straight away repeats, and before this, turning back got
     /// nothing at all.
     ///
-    /// Specific to what they named where possible, and otherwise picked at random from a
-    /// pool, because the same line every time stops being heard.
-    private func reward(_ message: (headline: String, detail: String)) {
-        nudgeHUD.reward(headline: message.headline, detail: message.detail)
+    /// Over a hundred lines in `PauseCopy`, specific to what they named where possible and
+    /// dealt so none repeats soon, because the same line every time stops being heard.
+    private func reward(_ message: PauseCopy.Line) {
+        nudgeHUD.reward(headline: message.title, detail: message.subtitle)
         if playNudgeSounds { NudgeSound.playReward() }
-    }
-
-    private static let closedRewards: [(headline: String, detail: String)] = [
-        ("That’s the one that counts.", "You chose your work over the feed."),
-        ("Nice save.", "Every time you do this, the next one gets easier."),
-        ("Back to it.", "Future you just said thank you."),
-        ("Look at you.", "Walking away is a muscle. You just used it."),
-    ]
-
-    private static let harderReward = (
-        headline: "That one was harder.",
-        detail: "You turned back anyway. That’s exactly how habits change."
-    )
-
-    private static func reward(for reason: UrgeReason?, visit: Int) -> (headline: String, detail: String) {
-        switch reason {
-        case .bored?: ("Nice save.", "Go find something real. Even a stretch beats the feed.")
-        case .tired?: ("Good call.", "Close your eyes for a minute. You’ve earned it.")
-        case .stuck?: ("Now make it smaller.", "One tiny step. That’s all the next two minutes need.")
-        case .anxious?: ("That took strength.", "Write it down. It gets lighter out of your head.")
-        case .lonely?: ("Go reach someone real.", "One message to someone you like beats any feed.")
-        default: visit > 1 ? harderReward : closedRewards.randomElement() ?? harderReward
-        }
     }
 
     // MARK: Encounters
@@ -466,20 +444,22 @@ final class AppModel {
 
     /// The pause as it looks on a first, second or third reach within the hour.
     func previewPause(visit: Int = 1) {
+        let copy = PauseCopy.pause(visit: visit, target: "instagram.com")
         let request = PauseRequest(
-            blockName: "Deep work", blockID: nil, target: "instagram.com", appName: "Safari",
+            blockName: "Deep work", blockID: nil, ruleTarget: nil, target: "instagram.com", appName: "Safari",
             isBrowser: true, visit: visit, breaksLeft: BreakPlan.dailyAllowance,
-            plans: urges.plans, isPreview: true
+            plans: urges.plans,
+            title: copy.title, subtitle: copy.subtitle, isPreview: true
         )
         let context = ScreenContext(bundleID: "com.apple.Safari", appName: "Safari", processID: 0)
-        if playNudgeSounds { NudgeSound.playPause() }
+        if playNudgeSounds { visit >= 3 ? NudgeSound.playDeep() : NudgeSound.playPause() }
         pause.present(request, key: Self.previewKey) { [weak self] event in
             self?.handlePause(event, key: Self.previewKey, request: request, context: context)
         }
     }
 
     func previewReward() {
-        reward(Self.closedRewards.randomElement() ?? Self.harderReward)
+        reward(PauseCopy.reward(for: nil, visit: 1))
     }
 
     func previewHint() {
@@ -541,10 +521,8 @@ final class AppModel {
 
     func refreshPermissions() {
         let accessibility = PermissionsManager.isAccessibilityTrusted
-        let screenRecording = PermissionsManager.isScreenRecordingGranted
-        guard accessibility != accessibilityGranted || screenRecording != screenRecordingGranted else { return }
+        guard accessibility != accessibilityGranted else { return }
         accessibilityGranted = accessibility
-        screenRecordingGranted = screenRecording
         monitor.invalidate()
     }
 
@@ -553,13 +531,6 @@ final class AppModel {
         guard !accessibilityGranted else { return }
         PermissionsManager.requestAccessibility()
         PermissionsManager.openAccessibilitySettings()
-    }
-
-    func requestScreenRecordingPermission() {
-        if !PermissionsManager.requestScreenRecording() {
-            PermissionsManager.openScreenRecordingSettings()
-        }
-        refreshPermissions()
     }
 
     func refreshSystemState() {
