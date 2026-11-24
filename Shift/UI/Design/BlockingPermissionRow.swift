@@ -1,0 +1,92 @@
+import ServiceManagement
+import SwiftUI
+
+struct BlockingPermissionRow: View {
+    enum Permission {
+        case browserAccess, backgroundBlocking, openAtLogin
+    }
+
+    @Environment(AppModel.self) private var model
+    private let permission: Permission
+    private let inPanel: Bool
+
+    init(_ permission: Permission, inPanel: Bool = false) {
+        self.permission = permission
+        self.inPanel = inPanel
+    }
+
+    var body: some View {
+        let feedback = self.feedback
+        let tint: Color = feedback.action == nil ? .green : .orange
+        let content = row(detail: feedback.detail, action: feedback.action, tint: tint)
+        if inPanel {
+            content.padding(.vertical, 2)
+        } else {
+            content.glassSurface(padding: Theme.Space.snug, tint: tint)
+        }
+    }
+
+    private func row(detail: String, action: (title: String, perform: () -> Void)?, tint: Color) -> some View {
+        HStack(alignment: .top, spacing: Theme.Space.snug) {
+            Image(systemName: action == nil ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(tint)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.callout.weight(.semibold))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: Theme.Space.tight)
+            if let action {
+                Button(action.title, action: action.perform)
+                    .buttonStyle(.shiftSoft)
+                    .fixedSize()
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var title: String {
+        switch permission {
+        case .browserAccess: PermissionsManager.BrowserAccessPane.current.rawValue
+        case .backgroundBlocking: "Background blocking"
+        case .openAtLogin: "Open Shift at login"
+        }
+    }
+
+    private var feedback: (detail: String, action: (title: String, perform: () -> Void)?) {
+        switch permission {
+        case .browserAccess:
+            if !model.browserAccessNeedsAttention {
+                return ("Shift can request browser addresses and send the Close Tab shortcut. Browser-specific limits set by macOS still apply.", nil)
+            }
+            let pane = PermissionsManager.BrowserAccessPane.current
+            let detail = model.accessibilityGranted
+                ? "Shift can check browser addresses. Automatic tab closing needs keyboard control. "
+                : "Shift uses browser access to read addresses and close blocked tabs. "
+            return (detail + pane.setupInstructions, ("Open Settings", model.requestBrowserAccess))
+        case .backgroundBlocking:
+            switch model.backgroundServiceStatus {
+            case .enabled where model.backgroundServiceOffline:
+                return ("Allowed, but the helper is offline. Keep Shift open for your blocks to work.",
+                        ("Open Login Items", LaunchAtLogin.openLoginItemsSettings))
+            case .enabled:
+                return ("Allowed. Keeps your blocks active if you Force Quit Shift.", nil)
+            case .requiresApproval:
+                return ("Turn on Shift under App Background Activity to keep your blocks active after Force Quit.",
+                        ("Open Login Items", model.enableBackgroundBlocking))
+            case .notRegistered where !model.backgroundRegistrationFailed:
+                return ("Enable this to keep your blocks active if you Force Quit Shift.",
+                        ("Enable background blocking", model.enableBackgroundBlocking))
+            default:
+                return ("The background helper couldn’t start. Try again to set it up.",
+                        ("Try again", model.enableBackgroundBlocking))
+            }
+        case .openAtLogin:
+            return ("Allow Shift under Open at Login to start it when you sign in.",
+                    ("Open Login Items", LaunchAtLogin.openLoginItemsSettings))
+        }
+    }
+}

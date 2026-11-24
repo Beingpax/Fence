@@ -44,7 +44,10 @@ struct PauseRequest {
     }
 
     /// Closing the tab is the whole point in a browser; the other tabs are probably work.
-    var closeTitle: String { isBrowser ? "Close the tab" : "Quit \(appName)" }
+    var closeTitle: String {
+        if isPreview { return "Dismiss preview" }
+        return isBrowser ? "Close the tab" : "Quit \(appName)"
+    }
 }
 
 /// What the person chose in the pause.

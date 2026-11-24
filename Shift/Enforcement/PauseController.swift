@@ -87,8 +87,8 @@ final class PauseController {
         }
     }
 
-    /// Gives the system back straight away and lets the windows fade out on their own time.
-    func dismiss() {
+    /// Gives the system back straight away. Closing a tab also releases the key window immediately.
+    func dismiss(animated: Bool = true) {
         guard isShowing else { return }
         NSApp.presentationOptions = savedPresentationOptions
         let leaving = windows
@@ -96,7 +96,7 @@ final class PauseController {
         presentationID = nil
         blockID = nil
 
-        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+        guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             Self.releaseWindows(leaving)
             return
         }

@@ -11,6 +11,7 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Space.base) {
                 PageHeader("Settings")
+                permissions
                 startup
                 nudges
                 previews
@@ -27,23 +28,24 @@ struct SettingsView: View {
 
     // MARK: Sections
 
+    private var permissions: some View {
+        Panel("Permissions", icon: "hand.raised") {
+            BlockingPermissionRow(.browserAccess, inPanel: true)
+            BlockingPermissionRow(.backgroundBlocking, inPanel: true)
+        }
+    }
+
     private var startup: some View {
         @Bindable var model = model
         return Panel("Startup", icon: "power") {
-            PanelRow(
-                title: "Open Shift at login",
-                detail: "Show the Shift menu bar at sign-in. Enabled blocks also start the background service at login."
-            ) {
-                ShiftSwitch(
-                    isOn: .constant(model.launchAtLoginEnabled),
-                    action: { model.setLaunchAtLogin($0) }
-                )
-            }
-
-            if LaunchAtLogin.requiresApproval {
-                PanelRow(title: "Needs approval in System Settings") {
-                    Button("Open") { LaunchAtLogin.openLoginItemsSettings() }
-                        .buttonStyle(.shiftSoft)
+            if model.launchAtLoginNeedsApproval {
+                BlockingPermissionRow(.openAtLogin, inPanel: true)
+            } else {
+                PanelRow(title: "Open Shift at login", detail: "Show the Shift menu bar at sign-in.") {
+                    ShiftSwitch(
+                        isOn: .constant(model.launchAtLoginEnabled),
+                        action: { model.setLaunchAtLogin($0) }
+                    )
                 }
             }
 

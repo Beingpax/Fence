@@ -55,7 +55,9 @@ Detection depends on a supported foreground browser exposing the address through
 
 ## Permissions
 
-Accessibility lets Shift read window titles and browser addresses and enforce the shield. When the permission is missing, the Dashboard shows how to grant it.
+Onboarding requires **Background blocking**. Shift registers its helper directly. If macOS asks for approval, **Open Login Items** takes you to **Login Items & Extensions**, where you can enable Shift under **App Background Activity**. Once set up, the helper stays registered even when all blocks are off.
+
+Shift uses browser access to read the active page and send the shortcut that closes a blocked tab. You can set it up in Shift under **Settings → Permissions** or during onboarding. In **System Settings → Privacy & Security**, the permission appears as **Accessibility** on macOS 26, **Device Control and Data Access** on 27.0–27.2, and **System & App Protection Override** on 27.3 and later. If macOS offers **Choose Apps**, select the browsers you want Shift to block. Reading a page and sending a shortcut are separate system checks.
 
 ## Code-only verification
 

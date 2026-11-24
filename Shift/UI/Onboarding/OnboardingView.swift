@@ -29,7 +29,7 @@ struct OnboardingView: View {
             switch self {
             case .welcome: "Make room for focus"
             case .distractions: "What steals your time?"
-            case .permissions: "One permission to grant"
+            case .permissions: "Set up blocking"
             case .demo: "This is what a block feels like"
             case .ready: "You're set"
             }
@@ -39,7 +39,7 @@ struct OnboardingView: View {
             switch self {
             case .welcome: "Choose which apps, sites, and parts of sites to block. Everything Shift reads stays on this Mac."
             case .distractions: "Pick the ones you recognise. You can change any of this later."
-            case .permissions: "Accessibility lets Shift see which window is in front and what page it's on."
+            case .permissions: "Enable background blocking to continue."
             case .demo: "Try it once now, so the first real block isn't a surprise. Nothing will be closed."
             case .ready: "Start your first session whenever you're ready."
             }
@@ -108,7 +108,7 @@ struct OnboardingView: View {
             Button(primaryTitle, action: goForward)
                 .buttonStyle(.shiftProminent(step.appearance.tint.color))
                 .keyboardShortcut(.defaultAction)
-                .disabled(step == .ready && isFindingApps)
+                .disabled((step == .permissions && !model.backgroundBlockingAllowed) || (step == .ready && isFindingApps))
         }
         .controlSize(.large)
         .padding(.horizontal, Theme.Space.wide)
@@ -120,7 +120,7 @@ struct OnboardingView: View {
         switch step {
         case .welcome: "Get started"
         case .distractions: selected.isEmpty && customList.isEmpty ? "Skip for now" : "Use these rules"
-        case .permissions: model.accessibilityGranted ? "Continue" : "Skip for now"
+        case .permissions: model.backgroundBlockingAllowed && model.browserAccessNeedsAttention ? "Skip for now" : "Continue"
         case .demo: hasSeenDemo ? "Continue" : "Show me"
         case .ready: "Create this block"
         }
@@ -181,13 +181,8 @@ struct OnboardingView: View {
 
     private var permissionsStep: some View {
         VStack(alignment: .leading, spacing: Theme.Space.base) {
-            PermissionCard(
-                title: "Accessibility",
-                detail: "Reads the frontmost window's title and the current page address. This is how Shift knows where you are.",
-                state: model.accessibilityGranted ? .granted : .needed,
-                actionTitle: "Grant…",
-                action: { model.requestAccessibilityPermission() }
-            )
+            BlockingPermissionRow(.backgroundBlocking)
+            BlockingPermissionRow(.browserAccess)
 
             Label(
                 "Nothing Shift reads is written to disk, and nothing leaves this Mac.",
@@ -199,7 +194,7 @@ struct OnboardingView: View {
         // Permission changes happen in System Settings, so poll while this step is visible.
         .task {
             while !Task.isCancelled {
-                model.refreshPermissions()
+                model.refreshSystemState()
                 try? await Task.sleep(for: .seconds(1))
             }
         }
@@ -250,11 +245,15 @@ struct OnboardingView: View {
                 LockMethodPicker(selection: $lockChoice)
             }
 
-            Toggle("Open Shift at login", isOn: Binding(
-                get: { model.launchAtLoginEnabled },
-                set: { model.setLaunchAtLogin($0) }
-            ))
-            .toggleStyle(.checkbox)
+            if model.launchAtLoginNeedsApproval {
+                BlockingPermissionRow(.openAtLogin)
+            } else {
+                Toggle("Open Shift at login", isOn: Binding(
+                    get: { model.launchAtLoginEnabled },
+                    set: { model.setLaunchAtLogin($0) }
+                ))
+                .toggleStyle(.checkbox)
+            }
 
             Label("It starts switched off. Turn it on from the menu bar when you want it.", systemImage: "power")
                 .font(.callout)
@@ -346,6 +345,9 @@ struct OnboardingView: View {
 
     private func goForward() {
         switch step {
+        case .permissions:
+            model.refreshBackgroundServiceStatus()
+            guard model.backgroundBlockingAllowed else { return }
         case .demo:
             if !hasSeenDemo {
                 model.previewPause()
@@ -373,9 +375,10 @@ struct OnboardingView: View {
         let apps = suggestedApps.map(\.bundleID).filter { !excludedApps.contains($0) }
         block.list = BlockList.from(presets: selectedPresets, custom: customList, apps: apps)
         block.lock.method = lockChoice
-        model.store.add(block)
-        model.log("Created “\(block.name)”", symbol: "plus.circle")
-        model.completeOnboarding()
+        guard model.completeOnboarding(with: block) else {
+            step = .permissions
+            return
+        }
 
         onFinish()
         model.presentMainWindow()
@@ -470,67 +473,6 @@ private struct WrappingTags: View {
                 .help("Remove \(tag)")
                 .accessibilityLabel("Remove \(tag)")
             }
-        }
-    }
-}
-
-private struct PermissionCard: View {
-    enum State {
-        case granted, needed
-    }
-
-    let title: String
-    let detail: String
-    let state: State
-    let actionTitle: String?
-    let action: (() -> Void)?
-
-    var body: some View {
-        HStack(alignment: .top, spacing: Theme.Space.snug) {
-            Image(systemName: symbol)
-                .font(.title2)
-                .foregroundStyle(color)
-                .frame(width: 26)
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: Theme.Space.hair) {
-                Text(title).font(.headline)
-                Text(detail)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: Theme.Space.tight)
-
-            if let actionTitle, let action, state != .granted {
-                Button(actionTitle, action: action)
-                    .buttonStyle(.shiftSoft)
-            }
-        }
-        .glassSurface(tint: color)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(title), \(stateDescription)")
-    }
-
-    private var symbol: String {
-        switch state {
-        case .granted: "checkmark.circle.fill"
-        case .needed: "exclamationmark.circle.fill"
-        }
-    }
-
-    private var color: Color {
-        switch state {
-        case .granted: .green
-        case .needed: .orange
-        }
-    }
-
-    private var stateDescription: String {
-        switch state {
-        case .granted: "granted"
-        case .needed: "not granted"
         }
     }
 }

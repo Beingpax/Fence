@@ -13,10 +13,16 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: Theme.Space.base) {
                 header
 
-                if !permissionIssues.isEmpty {
+                if model.browserAccessNeedsAttention || backgroundNeedsAttention || model.launchAtLoginNeedsApproval {
                     VStack(spacing: Theme.Space.tight) {
-                        ForEach(permissionIssues) { issue in
-                            PermissionRow(issue: issue)
+                        if model.browserAccessNeedsAttention {
+                            BlockingPermissionRow(.browserAccess)
+                        }
+                        if backgroundNeedsAttention {
+                            BlockingPermissionRow(.backgroundBlocking)
+                        }
+                        if model.launchAtLoginNeedsApproval {
+                            BlockingPermissionRow(.openAtLogin)
                         }
                     }
                 }
@@ -33,6 +39,10 @@ struct DashboardView: View {
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .scrollBounceBehavior(.basedOnSize)
+    }
+
+    private var backgroundNeedsAttention: Bool {
+        !model.backgroundBlockingAllowed || model.backgroundServiceOffline
     }
 
     // MARK: Header
@@ -118,60 +128,9 @@ struct DashboardView: View {
             }
         }
     }
-
-    private var permissionIssues: [PermissionIssue] {
-        var issues: [PermissionIssue] = []
-        if !model.accessibilityGranted {
-            issues.append(PermissionIssue(
-                title: "Accessibility is off",
-                detail: "Allow Shift to read window titles and browser addresses for your blocks.",
-                symbol: "exclamationmark.triangle.fill",
-                tint: .orange,
-                action: { model.requestAccessibilityPermission() }
-            ))
-        }
-        if let notice = model.backgroundServiceNotice {
-            issues.append(PermissionIssue(title: "Background blocking needs attention", detail: notice,
-                symbol: "exclamationmark.triangle.fill", tint: .orange, action: { LaunchAtLogin.openLoginItemsSettings() }))
-        }
-        return issues
-    }
 }
 
 // MARK: - Pieces
-
-struct PermissionIssue: Identifiable {
-    let title: String
-    let detail: String
-    let symbol: String
-    let tint: Color
-    let action: () -> Void
-
-    var id: String { title }
-}
-
-struct PermissionRow: View {
-    let issue: PermissionIssue
-
-    var body: some View {
-        HStack(alignment: .top, spacing: Theme.Space.snug) {
-            Image(systemName: issue.symbol)
-                .foregroundStyle(issue.tint)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(issue.title).font(.callout.weight(.semibold))
-                Text(issue.detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: Theme.Space.tight)
-            Button("Grant", action: issue.action)
-                .buttonStyle(.shiftSoft)
-        }
-        .glassSurface(padding: Theme.Space.snug, tint: issue.tint)
-    }
-}
 
 struct StatTile: View {
     let value: String

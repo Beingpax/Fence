@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import ServiceManagement
 import os.log
 
 /// Wires blocks → detection → classification → enforcement.
@@ -22,10 +23,17 @@ final class AppModel {
     private(set) var lastVerdict: Verdict?
     private(set) var activity: [ActivityEvent] = []
     private(set) var accessibilityGranted = PermissionsManager.isAccessibilityTrusted
+    private(set) var keyboardEventsGranted = PermissionsManager.canPostKeyboardEvents
+    var browserAccessNeedsAttention: Bool { !accessibilityGranted || !keyboardEventsGranted }
     private(set) var launchAtLoginEnabled = LaunchAtLogin.isEnabled
+    private(set) var launchAtLoginNeedsApproval = LaunchAtLogin.requiresApproval
+    private(set) var backgroundServiceStatus = EnforcementService.service.status
+    private(set) var backgroundRegistrationFailed = false
+    private(set) var backgroundServiceOffline = false
+
+    var backgroundBlockingAllowed: Bool { backgroundServiceStatus == .enabled }
 
     private(set) var canQuitApp = true
-    private(set) var backgroundServiceNotice: String?
     @ObservationIgnored private var registerAgent: @MainActor (Bool) throws -> Bool = EnforcementService.registerIfNeeded
     @ObservationIgnored private var quittingForRemoval = false
     @ObservationIgnored private var serviceWanted: Bool?
@@ -76,14 +84,14 @@ final class AppModel {
     @ObservationIgnored private let pause = PauseController()
     /// When each site was last reached for, per block, for escalation.
     @ObservationIgnored private var reaches: [String: [Date]] = [:]
-    /// The tab is being closed in this process; ignore it until then, or a sample landing
-    /// before Command-W would open a second pause for the page that's on its way out.
     /// "I need it": one site, let through until this time. The block itself stays on.
     @ObservationIgnored private var allowances: [String: Date] = [:]
     @ObservationIgnored private var allowanceTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var confirmingTabClose = false
     @ObservationIgnored private var lastFilteredTab: ScreenContext?
     @ObservationIgnored private var lastFilteredAt = Date.distantPast
+    /// Ignore samples while handing focus back to the browser to close a tab.
+    @ObservationIgnored private var closingBrowserPIDs: Set<pid_t> = []
     @ObservationIgnored private var closingPID: pid_t?
     @ObservationIgnored private var closingUntil = Date.distantPast
     @ObservationIgnored private let onboarding = OnboardingController()
@@ -127,6 +135,7 @@ final class AppModel {
     }
 
     func startAgent() {
+        PermissionsManager.logDiagnostics()
         observeRuleChanges()
         startEngine()
     }
@@ -228,7 +237,13 @@ final class AppModel {
         }
 
         reconcileMonitoring()
-        if tickCount % 5 == 0, isWatching || NSApp.isActive { refreshPermissions() }
+        if tickCount % 5 == 0 {
+            if !EnforcementService.isAgent && NSApp.isActive {
+                refreshSystemState()
+            } else if isWatching {
+                refreshPermissions()
+            }
+        }
     }
 
     private func reconcileMonitoring() {
@@ -258,7 +273,10 @@ final class AppModel {
             if shouldWatch {
                 monitor.start()
                 refreshPermissions()
-                if !agent, !accessibilityGranted, hasCompletedOnboarding { PermissionsManager.requestAccessibility() }
+                if !agent, !accessibilityGranted, hasCompletedOnboarding,
+                   PermissionsManager.BrowserAccessPane.current != .appProtectionOverride {
+                    PermissionsManager.requestAccessibility()
+                }
                 log("Watching · \(active.count) active block\(active.count == 1 ? "" : "s")", symbol: "eye")
             } else {
                 monitor.stop()
@@ -292,24 +310,22 @@ final class AppModel {
     }
 
     private func syncBackgroundService(agentReady: Bool) {
-        let wanted = store.blocks.contains { $0.isEnabled || $0.isLocked() }
+        let wanted = Preferences.keepBackgroundBlockingEnabled || store.blocks.contains { $0.isEnabled || $0.isLocked() }
+        if backgroundServiceOffline && (agentReady || !wanted) { backgroundServiceOffline = false }
         guard serviceWanted != wanted || Date() >= nextServiceCheck else { return }
         let firstAttempt = serviceWanted != wanted
         serviceWanted = wanted
         nextServiceCheck = Date().addingTimeInterval(15)
         do {
             let enabled = try registerAgent(wanted)
-            if wanted && !enabled {
-                backgroundServiceNotice = "Allow Shift in Login Items & Extensions to keep blocks active after Force Quit."
-            } else if wanted && !agentReady && !firstAttempt {
-                backgroundServiceNotice = "The background service is offline. Shift is enforcing blocks in the dashboard."
-            } else {
-                backgroundServiceNotice = nil
-            }
+            backgroundRegistrationFailed = false
+            backgroundServiceOffline = wanted && enabled && !agentReady && !firstAttempt
         } catch {
-            backgroundServiceNotice = wanted ? "Background blocking could not start. Open Login Items & Extensions to check Shift." : nil
+            backgroundRegistrationFailed = wanted
+            backgroundServiceOffline = false
             Self.log.error("Background registration: \(error.localizedDescription, privacy: .public)")
         }
+        refreshBackgroundServiceStatus()
     }
 
     // MARK: Detection → enforcement
@@ -349,6 +365,7 @@ final class AppModel {
             considerNudge(verdict, on: context)
         case .block:
             nudgeHysteresis.reset()
+            if closingBrowserPIDs.contains(context.processID) { return }
             if context.processID == closingPID, Date() < closingUntil { return }
             if verdict.closesTab {
                 hysteresis.reset()
@@ -375,7 +392,7 @@ final class AppModel {
         guard !confirmingTabClose, let observedURL = context.url else { return }
         if let lastFilteredTab, lastFilteredTab.processID == context.processID,
            lastFilteredTab.windowID == context.windowID, lastFilteredTab.url == observedURL,
-           Date().timeIntervalSince(lastFilteredAt) < 0.5 { return }
+           Date().timeIntervalSince(lastFilteredAt) < (PermissionsManager.canPostKeyboardEvents ? 0.5 : 5) { return }
 
         confirmingTabClose = true
         Task {
@@ -385,12 +402,17 @@ final class AppModel {
                   lastContext?.processID == live.processID, lastContext?.url == observedURL,
                   lastContext?.windowID == live.windowID,
                   let current = currentEvaluator.ruleVerdict(for: live),
-                  current.closesTab, let blockID = current.blockID, blockID == verdict.blockID,
-                  TabCloser.closeIfFrontmost(pid: live.processID) else { return }
+                  current.closesTab, let blockID = current.blockID, blockID == verdict.blockID else { return }
+            let result = TabCloser.closeIfFrontmost(pid: live.processID)
+            guard result != .targetUnavailable else { return }
             lastFilteredTab = live
             lastFilteredAt = Date()
+            guard result == .posted else {
+                showManualTabClose()
+                return
+            }
             store.recordTrigger(id: blockID)
-            log("Closed matching tab · \(current.blockName ?? "Block")", symbol: "xmark.circle")
+            log("Sent close shortcut · \(current.blockName ?? "Block")", symbol: "xmark.circle")
         }
     }
 
@@ -434,17 +456,39 @@ final class AppModel {
     }
 
     private func handlePause(_ event: PauseEvent, request: PauseRequest, context: ScreenContext) {
-        pause.dismiss()
         hysteresis.reset()
 
         switch event {
         case .close(let reason):
-            closeTarget(context, isPreview: request.isPreview)
-            reward(PauseCopy.reward(for: reason, visit: request.visit))
-            log("Turned back · \(request.target)\(reason.map { " · \($0.shortLabel)" } ?? "")",
-                symbol: "arrow.uturn.backward")
+            let closesBrowserTab = request.isBrowser && !request.isPreview
+            pause.dismiss(animated: !closesBrowserTab)
+            if closesBrowserTab {
+                let pid = context.processID
+                closingBrowserPIDs.insert(pid)
+                Task {
+                    defer { closingBrowserPIDs.remove(pid) }
+                    switch await TabCloser.closeFrontTab(for: context, monitor: monitor) {
+                    case .posted:
+                        pauseBlockingAfterCloseAttempt(pid: pid)
+                        recordTurnBack(reason, request: request)
+                    case .keyboardAccessUnavailable:
+                        pauseBlockingAfterCloseAttempt(pid: pid, seconds: 5)
+                        showManualTabClose()
+                    case .targetUnavailable:
+                        nudgeHUD.status(headline: "Couldn’t close the tab.", detail: "Shift couldn’t confirm the blocked tab was active.")
+                        monitor.resampleSoon()
+                    }
+                }
+            } else {
+                if !request.isPreview {
+                    pauseBlockingAfterCloseAttempt(pid: context.processID)
+                    TabCloser.quit(pid: context.processID)
+                }
+                recordTurnBack(reason, request: request)
+            }
 
         case .takeBreak(let minutes, let note):
+            pause.dismiss()
             let headline = "\(minutes) minutes of access."
             guard !request.isPreview else {
                 nudgeHUD.status(headline: headline, detail: note)
@@ -488,19 +532,23 @@ final class AppModel {
         }
     }
 
-    private func closeTarget(_ context: ScreenContext, isPreview: Bool) {
-        guard !isPreview else { return }
-        hysteresis.reset()
-        closingPID = context.processID
-        closingUntil = Date().addingTimeInterval(1.5)
-        if Browser(bundleID: context.bundleID) != nil {
-            Task { await TabCloser.closeFrontTab(for: context, monitor: monitor) }
-        } else {
-            TabCloser.quit(pid: context.processID)
-        }
+    private func showManualTabClose() {
+        let path = PermissionsManager.BrowserAccessPane.current.settingsPath
+        nudgeHUD.status(headline: "Close the tab manually.", detail: "Review Shift’s browser access in \(path).")
+    }
+
+    private func pauseBlockingAfterCloseAttempt(pid: pid_t, seconds: TimeInterval = 1.5) {
+        closingPID = pid
+        closingUntil = Date().addingTimeInterval(seconds)
     }
 
     // MARK: Reward
+
+    private func recordTurnBack(_ reason: UrgeReason?, request: PauseRequest) {
+        reward(PauseCopy.reward(for: reason, visit: request.visit))
+        log("Turned back · \(request.target)\(reason.map { " · \($0.shortLabel)" } ?? "")",
+            symbol: "arrow.uturn.backward")
+    }
 
     /// Praise, the moment someone turns back. This is the step that builds the habit:
     /// behaviour that's rewarded straight away repeats, and before this, turning back got
@@ -632,19 +680,25 @@ final class AppModel {
     }
 
     func presentMainWindow(section: MainSection? = nil) {
-        refreshPermissions()
+        refreshSystemState()
         if let section { mainSection = section }
         mainWindow.present(model: self)
     }
 
     func presentOnboarding() {
-        refreshPermissions()
+        refreshSystemState()
         onboarding.present(model: self)
     }
 
-    func completeOnboarding() {
+    func completeOnboarding(with block: Block) -> Bool {
+        refreshBackgroundServiceStatus()
+        guard backgroundBlockingAllowed else { return false }
+        Preferences.keepBackgroundBlockingEnabled = true
+        store.add(block)
+        log("Created “\(block.name)”", symbol: "plus.circle")
         hasCompletedOnboarding = true
         Preferences.hasCompletedOnboarding = true
+        return true
     }
 
     // MARK: Permissions and system state
@@ -665,27 +719,54 @@ final class AppModel {
     }
 
     func refreshPermissions() {
+        let postEvents = PermissionsManager.canPostKeyboardEvents
+        if postEvents != keyboardEventsGranted { keyboardEventsGranted = postEvents }
         let accessibility = PermissionsManager.isAccessibilityTrusted
-        guard accessibility != accessibilityGranted else { return }
-        accessibilityGranted = accessibility
-        monitor.invalidate()
+        if accessibility != accessibilityGranted {
+            accessibilityGranted = accessibility
+            monitor.invalidate()
+            monitor.resampleSoon()
+        }
     }
 
-    func requestAccessibilityPermission() {
-        refreshPermissions()
-        guard !accessibilityGranted else { return }
-        PermissionsManager.requestAccessibility()
-        PermissionsManager.openAccessibilitySettings()
+    func requestBrowserAccess() {
+        PermissionsManager.requestBrowserAccess()
     }
 
     func refreshSystemState() {
         refreshPermissions()
-        launchAtLoginEnabled = LaunchAtLogin.isEnabled
+        refreshBackgroundServiceStatus()
+        let status = LaunchAtLogin.status
+        let enabled = status == .enabled
+        let needsApproval = status == .requiresApproval
+        if launchAtLoginEnabled != enabled { launchAtLoginEnabled = enabled }
+        if launchAtLoginNeedsApproval != needsApproval { launchAtLoginNeedsApproval = needsApproval }
+    }
+
+    func refreshBackgroundServiceStatus() {
+        let status = EnforcementService.service.status
+        if backgroundServiceStatus != status { backgroundServiceStatus = status }
+    }
+
+    func enableBackgroundBlocking() {
+        refreshBackgroundServiceStatus()
+        Preferences.keepBackgroundBlockingEnabled = true
+        if backgroundServiceStatus == .requiresApproval {
+            LaunchAtLogin.openLoginItemsSettings()
+        } else {
+            // Give launchd time to start the helper after an explicit retry.
+            serviceWanted = nil
+            reconcileMonitoring()
+        }
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
-        LaunchAtLogin.setEnabled(enabled)
-        launchAtLoginEnabled = LaunchAtLogin.isEnabled
+        if enabled && LaunchAtLogin.requiresApproval {
+            LaunchAtLogin.openLoginItemsSettings()
+        } else {
+            LaunchAtLogin.setEnabled(enabled)
+        }
+        refreshSystemState()
     }
 
     // MARK: Activity log
@@ -706,6 +787,7 @@ enum Preferences {
         static let playNudgeSounds = "Shift.playNudgeSounds"
         static let driftKeywords = "Shift.driftKeywords"
         static let hasCompletedOnboarding = "Shift.hasCompletedOnboarding.v1"
+        static let keepBackgroundBlockingEnabled = "Shift.keepBackgroundBlockingEnabled"
     }
 
     static var showNudges: Bool {
@@ -731,5 +813,10 @@ enum Preferences {
     static var hasCompletedOnboarding: Bool {
         get { UserDefaults.standard.bool(forKey: Key.hasCompletedOnboarding) }
         set { UserDefaults.standard.set(newValue, forKey: Key.hasCompletedOnboarding) }
+    }
+
+    static var keepBackgroundBlockingEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: Key.keepBackgroundBlockingEnabled) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.keepBackgroundBlockingEnabled) }
     }
 }

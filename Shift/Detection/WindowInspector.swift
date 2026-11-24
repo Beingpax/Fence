@@ -127,7 +127,7 @@ enum WindowInspector {
     }
 
     static func focusedWindow(pid: pid_t, browser: Browser?, enableWebAccessibility: Bool = false) -> AXUIElement? {
-        guard !Task.isCancelled, AXIsProcessTrusted() else { return nil }
+        guard !Task.isCancelled, PermissionsManager.canInspectApp else { return nil }
         let application = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(application, 0.15)
         if enableWebAccessibility, browser == .dia {

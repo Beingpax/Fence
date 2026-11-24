@@ -20,7 +20,7 @@ struct MenuBarView: View {
                 blockList
             }
 
-            if !model.accessibilityGranted {
+            if model.browserAccessNeedsAttention {
                 permissionWarning
             }
 
@@ -79,16 +79,16 @@ struct MenuBarView: View {
 
     private var permissionWarning: some View {
         Button {
-            model.requestAccessibilityPermission()
+            model.requestBrowserAccess()
         } label: {
             HStack(alignment: .top, spacing: Theme.Space.tight) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Accessibility is off")
+                    Text("Review browser access")
                         .font(.caption.weight(.semibold))
-                    Text("Website rules and accessible page text need this permission.")
+                    Text(PermissionsManager.BrowserAccessPane.current.setupInstructions)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

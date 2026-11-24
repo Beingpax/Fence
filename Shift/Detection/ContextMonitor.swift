@@ -89,7 +89,7 @@ final class ContextMonitor {
     /// Follows the front app with the address observer. Shift itself is skipped, so a
     /// Shift panel taking focus never unhooks the browser underneath it.
     private func observeFrontmost() {
-        guard PermissionsManager.isAccessibilityTrusted else {
+        guard PermissionsManager.canInspectApp else {
             if addressObserver.pid != nil { addressObserver.stop() }
             return
         }
@@ -139,7 +139,7 @@ final class ContextMonitor {
         let pid = app.processIdentifier
         let browser = Browser(bundleID: bundleID)
         let prepareAccessibility = browser?.isChromium == true && accessibilityPreparedPID != pid
-            && PermissionsManager.isAccessibilityTrusted
+            && PermissionsManager.canInspectApp
 
         let sampleRevision = revision
         samplingTask = Task { [weak self] in
