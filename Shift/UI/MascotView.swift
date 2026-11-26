@@ -110,6 +110,9 @@ struct MascotView: View {
     let animates: Bool
     let start: Date
 
+    /// Holds the idle still while its window is closed, minimised or covered.
+    @Environment(\.windowIsVisible) private var windowIsVisible
+
     /// Points per design unit.
     static let scale: CGFloat = 1.2
     /// The drawable area in design units, with the body's centre at the origin. Wide enough
@@ -123,7 +126,7 @@ struct MascotView: View {
     static var cardEdgeOffset: CGFloat { (cardEdge - box.minY) * scale }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !animates)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !animates || !windowIsVisible)) { timeline in
             let t = animates ? timeline.date.timeIntervalSince(start) : 0.7
             Canvas(rendersAsynchronously: false) { context, _ in
                 context.translateBy(x: -Self.box.minX * Self.scale, y: -Self.box.minY * Self.scale)

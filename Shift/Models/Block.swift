@@ -89,7 +89,7 @@ struct Block: Identifiable, Codable, Equatable {
             parts.append("\(list.textRules.count) keyword\(list.textRules.count == 1 ? "" : "s")")
         }
         if !list.categoryNames.isEmpty {
-            parts.append("\(list.categoryNames.count) pre-made list\(list.categoryNames.count == 1 ? "" : "s")")
+            parts.append("\(list.categoryNames.count) list\(list.categoryNames.count == 1 ? "" : "s")")
         }
         if parts.isEmpty { return "Nothing blocked yet" }
         return parts.joined(separator: " · ")
@@ -107,10 +107,12 @@ struct BlockList: Codable, Equatable {
     var apps: [String] = []
 
     var textRules: [WebTextRule] = []
-    static let adultSitesCategory = "Adult sites"
+    static let adultSitesCategory = PreMadeList.adult.rawValue
+    /// Pre-made lists by their saved key (`PreMadeList.rawValue`).
     var categoryNames: Set<String> = []
+    /// Single pages and patterns let through. Pre-made lists can't be allowed: an
+    /// `exceptionCategoryNames` key from older saves is ignored.
     var websiteExceptions: [WebsiteException] = []
-    var exceptionCategoryNames: Set<String> = []
 
     var isEmpty: Bool { hosts.isEmpty && paths.isEmpty && apps.isEmpty && textRules.isEmpty && categoryNames.isEmpty }
 
@@ -125,6 +127,27 @@ struct BlockList: Codable, Equatable {
                 textRules.append(rule)
             }
         }
+    }
+
+    /// Adds many rules in one pass, as an import does, and returns how many were new.
+    /// `addWebsiteRule` re-parses every entry per call, too slow for a file of thousands.
+    @discardableResult
+    mutating func addWebsiteRules(_ rules: [WebsiteRuleEntry]) -> Int {
+        var seen = Set((hosts + paths).compactMap { WebsiteAddress(entry: $0)?.matchKey })
+        var added = 0
+        for rule in rules {
+            switch rule {
+            case .address(let address):
+                guard seen.insert(address.matchKey).inserted else { continue }
+                if address.isDomainOnly { hosts.append(address.entry) } else { paths.append(address.entry) }
+                added += 1
+            case .text:
+                let before = textRules.count
+                addWebsiteRule(rule)
+                added += textRules.count - before
+            }
+        }
+        return added
     }
 
     private mutating func addWebsite(_ address: WebsiteAddress) {
@@ -147,9 +170,8 @@ extension BlockList {
         paths = try data.decode([String].self, forKey: .paths)
         apps = try data.decode([String].self, forKey: .apps)
         textRules = try data.decodeIfPresent([WebTextRule].self, forKey: .textRules) ?? []
-        categoryNames = try data.decodeIfPresent(Set<String>.self, forKey: .categoryNames) ?? []
+        categoryNames = try PreMadeList.migrate(data.decodeIfPresent(Set<String>.self, forKey: .categoryNames) ?? [])
         websiteExceptions = try data.decodeIfPresent([WebsiteException].self, forKey: .websiteExceptions) ?? []
-        exceptionCategoryNames = try data.decodeIfPresent(Set<String>.self, forKey: .exceptionCategoryNames) ?? []
         let legacy = try decoder.container(keyedBy: LegacyKey.self)
         let wasEnabled: Bool
         if let enabled = try legacy.decodeIfPresent(Bool.self, forKey: .blocksAdultSites) {
@@ -368,12 +390,14 @@ enum AccessPlan {
 
 // MARK: - Locking
 
+/// Declared in the order the pickers show them (26 Nov 2026, the user's call). Saves use the
+/// raw values, so reordering is safe. New blocks default to `.restart`.
 enum LockMethod: String, Codable, CaseIterable, Identifiable {
     case none
+    case restart
     case duration
     case untilTime
     case randomString
-    case restart
 
     var id: String { rawValue }
 
@@ -393,7 +417,7 @@ enum LockMethod: String, Codable, CaseIterable, Identifiable {
         case .duration: "The countdown starts when the block is switched on. You can turn it off when the timer ends."
         case .untilTime: "Choose the next time the block can be turned off. If that time has passed today, the lock ends tomorrow."
         case .randomString: "Enter a generated code exactly as shown to turn off the block early."
-        case .restart: "The block stays locked until this Mac restarts. At restart, Shift switches the block off."
+        case .restart: "The block stays locked until this Mac restarts. After a restart it’s still on, but you can switch it off."
         }
     }
 

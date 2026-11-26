@@ -27,6 +27,10 @@ final class AddressObserver {
     private(set) var pid: pid_t?
     private var generation = 0
     private var pending: Task<Void, Never>?
+    /// The pending sample was held back as part of a title-change flood. See `fire`.
+    private var pendingIsThrottled = false
+    /// When the last sample this observer asked for went out.
+    private var lastFired: ContinuousClock.Instant?
     private var registration: Task<ObserverBox?, Never>?
 
     /// Starts listening to `pid`, replacing whatever was observed before.
@@ -66,6 +70,8 @@ final class AddressObserver {
         registration?.cancel()
         pending?.cancel()
         pending = nil
+        pendingIsThrottled = false
+        lastFired = nil
         if let observer {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer.observer), .defaultMode)
         }
@@ -74,12 +80,28 @@ final class AddressObserver {
     }
 
     /// Coalesces a burst of notifications (a page load posts several) into one sample.
-    fileprivate func fire() {
-        guard pending == nil else { return }
+    ///
+    /// Title changes that keep coming are held to about two samples a second. Some windows
+    /// retitle themselves constantly (a terminal with a spinner in its title, a player
+    /// showing the time), and each one cost a full Accessibility read plus a window-list
+    /// copy, around ten a second for as long as that app was in front. Navigation still
+    /// lands at once: Return moves focus, and a page's first title change after a quiet
+    /// second isn't held back.
+    fileprivate func fire(titleOnly: Bool) {
+        let now = ContinuousClock.now
+        let throttled = titleOnly && lastFired.map { now - $0 < .seconds(1) } == true
+        if pending != nil {
+            // Already coming soon enough, unless a quick signal arrives behind a held one.
+            guard pendingIsThrottled, !throttled else { return }
+            pending?.cancel()
+        }
+        pendingIsThrottled = throttled
         pending = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(90))
+            try? await Task.sleep(for: .milliseconds(throttled ? 500 : 90))
             guard let self, !Task.isCancelled else { return }
             self.pending = nil
+            self.pendingIsThrottled = false
+            self.lastFired = .now
             self.onChange?()
         }
     }
@@ -132,8 +154,9 @@ private final class ObserverBox: @unchecked Sendable {
 }
 
 /// Runs on the main run loop, which is where the observer's source was added.
-private let addressObserverCallback: AXObserverCallback = { _, _, _, refcon in
+private let addressObserverCallback: AXObserverCallback = { _, _, notification, refcon in
     guard let refcon else { return }
     let context = Unmanaged<ObserverContext>.fromOpaque(refcon).takeUnretainedValue()
-    MainActor.assumeIsolated { context.owner?.fire() }
+    let titleOnly = CFEqual(notification, kAXTitleChangedNotification as CFString)
+    MainActor.assumeIsolated { context.owner?.fire(titleOnly: titleOnly) }
 }

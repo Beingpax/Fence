@@ -18,8 +18,8 @@ struct DistractionPreset: Identifiable, Hashable, Codable {
     var effect: String
 
     static let adultContent = DistractionPreset(
-        id: "adult-content", title: BlockList.adultSitesCategory, symbol: "eye.slash",
-        effect: "Closes known adult sites and exact explicit searches while this block is active."
+        id: "adult-content", title: PreMadeList.adult.title, symbol: "eye.slash",
+        effect: "Closes known 18+ sites and exact explicit searches while this block is active."
     )
 
     static let all: [DistractionPreset] = [

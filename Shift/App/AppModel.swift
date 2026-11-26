@@ -293,12 +293,18 @@ final class AppModel {
         tickCount += 1
         store.refreshFromDisk()
         store.tick()
-        if tickCount % 60 == 0, !reaches.isEmpty {
+        if tickCount % 60 == 0, !reaches.isEmpty || !warnings.isEmpty {
+            // Both only matter for an hour. `warnings` used to be trimmed only when the same
+            // rule came up again, so every rule ever warned about stayed for the helper's life.
             let cutoff = Date().addingTimeInterval(-Self.reachWindow)
-            reaches = reaches.compactMapValues { dates in
-                let recent = dates.filter { $0 > cutoff }
-                return recent.isEmpty ? nil : recent
+            let prune = { (history: [String: [Date]]) in
+                history.compactMapValues { dates -> [Date]? in
+                    let recent = dates.filter { $0 > cutoff }
+                    return recent.isEmpty ? nil : recent
+                }
             }
+            reaches = prune(reaches)
+            warnings = prune(warnings)
         }
 
         reconcileMonitoring()
@@ -1123,7 +1129,13 @@ final class AppModel {
     }
 
     func presentNewBlock() {
-        if newBlock == nil { newBlock = Block(name: "") }
+        if newBlock == nil {
+            // Until restart is the default lock (26 Nov 2026, the user's call). It only
+            // engages when the block is switched on; new blocks start off.
+            var block = Block(name: "")
+            block.lock.method = .restart
+            newBlock = block
+        }
         presentMainWindow()
     }
 

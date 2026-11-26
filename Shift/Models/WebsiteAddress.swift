@@ -10,6 +10,9 @@ struct WebsiteAddress: Equatable {
 
     var isDomainOnly: Bool { segments.isEmpty }
 
+    /// Equal for two addresses exactly when `==` is, so imports can de-duplicate with a set.
+    var matchKey: String { ([host] + segments).joined(separator: "/") }
+
     init?(entry: String) {
         let entry = entry.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !entry.isEmpty, entry.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else { return nil }

@@ -25,6 +25,9 @@ final class MainWindowController {
 
         let root = MainWindowView()
             .environment(model)
+            // The Dashboard's mascot idles at 30 fps; hold it still while the window is
+            // covered, minimised or on another Space.
+            .tracksWindowVisibility()
 
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: Theme.mainWindowSize),
@@ -43,11 +46,22 @@ final class MainWindowController {
         window.contentView = NSHostingView(rootView: root)
         window.isReleasedWhenClosed = false
         window.setFrameAutosaveName("ShiftMainWindow")
-        window.minSize = NSSize(width: 820, height: 520)
+        // One minimum, shared with the SwiftUI root, so the window can never be smaller
+        // than its content. When they disagreed (820 here, 900 there) the hosting view
+        // centred the overflow and clipped the sidebar and the Dashboard's switches.
+        window.contentMinSize = Theme.mainWindowMinSize
         if let lastFrame {
             window.setFrame(lastFrame, display: false)
         } else {
             window.center()
+        }
+        // A frame saved by an older build may be smaller than today's minimum.
+        let content = window.contentRect(forFrameRect: window.frame).size
+        if content.width < Theme.mainWindowMinSize.width || content.height < Theme.mainWindowMinSize.height {
+            window.setContentSize(NSSize(
+                width: max(content.width, Theme.mainWindowMinSize.width),
+                height: max(content.height, Theme.mainWindowMinSize.height)
+            ))
         }
 
         closeObserver = NotificationCenter.default.addObserver(

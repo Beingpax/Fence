@@ -19,6 +19,9 @@ final class OnboardingController {
         let root = OnboardingView(onFinish: { [weak self] in self?.close() })
             .environment(model)
             .frame(width: Theme.onboardingSize.width, height: Theme.onboardingSize.height)
+            // Closing setup only orders the window out and keeps its views, so without this
+            // the mascot, stars and loading dots would keep animating in a window nobody sees.
+            .tracksWindowVisibility()
 
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: Theme.onboardingSize),

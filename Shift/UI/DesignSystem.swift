@@ -33,6 +33,11 @@ enum Theme {
     static let onboardingSize = CGSize(width: 880, height: 720)
 
     static let mainWindowSize = CGSize(width: 1040, height: 680)
+    /// The smallest the main window goes. Worked out from the Dashboard, the widest fixed
+    /// layout: sidebar 220, page margins 56, the ribbon card's inset 36, lane label 176,
+    /// switch 52 and gaps 24 leave about 300 pt of ribbon, about 75 pt per six hours, enough
+    /// for an "until midnight" label. The height fits the header, the mascot and two lanes.
+    static let mainWindowMinSize = CGSize(width: 860, height: 580)
 
     /// Behind the whole window, including under the sidebar's rounded trailing corners.
     static let workspaceBackground = Paper.background

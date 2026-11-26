@@ -236,6 +236,44 @@ func checkEnforcement() throws {
 }
 do { try checkEnforcement() } catch { check("isolated process checks: \(error)", false) }
 
+print("Restart lock")
+func checkRestartLock() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = directory.appending(path: "blocks.json")
+
+    // Engaged on this boot: a relaunch of Shift must not release it.
+    var thisBoot = Block(name: "This boot")
+    thisBoot.lock.method = .restart
+    let first = BlockStore(fileURL: file)
+    first.add(thisBoot)
+    _ = first.setEnabled(true, for: thisBoot.id)
+    let relaunched = BlockStore(fileURL: file)
+    check("a relaunch keeps the restart lock", relaunched.block(id: thisBoot.id)?.isLocked() == true)
+    check("a locked block can't be switched off",
+          relaunched.setEnabled(false, for: thisBoot.id) != .changed)
+
+    // Engaged on an earlier boot: the lock ends, the block stays on.
+    var earlier = Block(name: "Earlier boot")
+    earlier.isEnabled = true
+    earlier.lock.method = .restart
+    earlier.lock.engagedUntilRestart = true
+    earlier.lock.engagedBootSessionID = "an-earlier-boot"
+    earlier.lock.engagedAtBootTime = Date(timeIntervalSince1970: 0)
+    var saved = relaunched.blocks
+    saved.append(earlier)
+    try JSONEncoder().encode(saved).write(to: file, options: .atomic)
+    let afterReboot = BlockStore(fileURL: file)
+    let released = afterReboot.block(id: earlier.id)
+    check("a restart releases the lock", released?.isLocked() == false)
+    check("a restart leaves the block on", released?.isEnabled == true && released?.isActive() == true)
+    check("a released block can be switched off", afterReboot.setEnabled(false, for: earlier.id) == .changed)
+    check("a lock from this boot survives another block's release",
+          afterReboot.block(id: thisBoot.id)?.isLocked() == true)
+}
+do { try checkRestartLock() } catch { check("restart lock checks: \(error)", false) }
+
 print("")
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILURE(S)")
 exit(failures == 0 ? 0 : 1)

@@ -153,23 +153,42 @@ struct DashboardView: View {
         if !blocks.isEmpty {
             let paused = blocks.reduce(0) { $0 + $1.stats.timesTriggered }
             let last = blocks.compactMap(\.stats.lastTriggered).max()
-            HStack(spacing: PlayRhythm.tile) {
-                FactPill(symbol: "wind", text: paused == 1 ? "Paused once" : "Paused \(paused) times")
-                if let last {
-                    FactPill(symbol: "clock", text: "Last pause \(last.formatted(.relative(presentation: .named, unitsStyle: .wide)))")
+            let next = active.isEmpty ? nil : DayPlan.nextStart(in: blocks, now: now)
+            // One row when it fits; in a narrow window the legend drops below and the pills
+            // wrap, rather than truncating.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: PlayRhythm.tile) {
+                    factPills(paused: paused, last: last, next: next)
+                    Spacer(minLength: PlayRhythm.inner)
+                    legend
                 }
-                if !active.isEmpty, let next = DayPlan.nextStart(in: blocks, now: now) {
-                    FactPill(symbol: "calendar", text: "Next: \(next.block.name) at \(next.time)")
+                VStack(alignment: .leading, spacing: PlayRhythm.inner) {
+                    WrappingRow(spacing: PlayRhythm.tile) { factPills(paused: paused, last: last, next: next) }
+                    legend
                 }
-                Spacer(minLength: PlayRhythm.inner)
-                HStack(spacing: 12) {
-                    LegendKey(kind: .on, text: "On now")
-                    LegendKey(kind: .later, text: "Later")
-                    LegendKey(kind: .off, text: "Off")
-                }
-                .accessibilityHidden(true)
             }
         }
+    }
+
+    @ViewBuilder
+    private func factPills(paused: Int, last: Date?, next: (block: Block, time: String)?) -> some View {
+        FactPill(symbol: "wind", text: paused == 1 ? "Paused once" : "Paused \(paused) times")
+        if let last {
+            FactPill(symbol: "clock", text: "Last pause \(last.formatted(.relative(presentation: .named, unitsStyle: .wide)))")
+        }
+        if let next {
+            FactPill(symbol: "calendar", text: "Next: \(next.block.name) at \(next.time)")
+        }
+    }
+
+    private var legend: some View {
+        HStack(spacing: 12) {
+            LegendKey(kind: .on, text: "On now")
+            LegendKey(kind: .later, text: "Later")
+            LegendKey(kind: .off, text: "Off")
+        }
+        .fixedSize()
+        .accessibilityHidden(true)
     }
 }
 
@@ -310,6 +329,10 @@ private struct DayStage: View {
                 .offset(x: mascotX, y: risen ? 0 : 6)
                 .allowsHitTesting(false)
         }
+        // Measure the width we're given, never the width the contents ask for. Without
+        // `minWidth: 0` the frame grows to fit its child, and the lanes were sized from the
+        // last measurement, so the card could widen with the window but never shrink back.
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .topLeading)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .animation(reduceMotion ? nil : .spring(response: 0.8, dampingFraction: 0.85), value: mascotX)
         .onAppear {
@@ -379,11 +402,14 @@ private struct DayStage: View {
             .accessibilityHidden(true)
     }
 
+    /// The rule stretches with the card; the labels are placed by offset, which never
+    /// changes the card's size.
     private var axis: some View {
         ZStack(alignment: .topLeading) {
             Rectangle()
                 .fill(Paper.hairline)
-                .frame(width: trackWidth, height: 1)
+                .frame(height: 1)
+                .frame(maxWidth: .infinity)
             ForEach([0.0, 6, 12, 18, 24], id: \.self) { hour in
                 // The hour alone, in the system's own format: "6 AM", or "06" where the
                 // clock is 24-hour.
@@ -403,8 +429,9 @@ private struct DayStage: View {
                 .frame(width: 80)
                 .offset(x: trackWidth * nowFraction - 40, y: 2)
         }
-        .frame(height: 22, alignment: .top)
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 22, maxHeight: 22, alignment: .topLeading)
         .padding(.leading, Self.labelWidth + Self.gap)
+        .padding(.trailing, Self.switchWidth + Self.gap)
         .accessibilityHidden(true)
     }
 
@@ -449,8 +476,10 @@ private struct DayLane: View {
                 .contentShape(Rectangle())
                 .onTapGesture(perform: onSelect)
 
+            // Flexible, so the lane always fills the card; `trackWidth` only places the
+            // segments inside it.
             track
-                .frame(width: trackWidth, height: 26, alignment: .leading)
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 26, maxHeight: 26)
                 .contentShape(Rectangle())
                 .onTapGesture(perform: onSelect)
 
@@ -531,19 +560,22 @@ private struct DayLane: View {
 
     private var track: some View {
         let spans = DayPlan.spans(for: block, now: now)
-        return ZStack(alignment: .leading) {
-            // The rail every lane runs along, so empty hours still read as time.
-            Capsule(style: .continuous)
-                .fill(Paper.tile)
-                .frame(height: 6)
-
-            ForEach(spans, id: \.self) { span in
-                segments(for: span)
+        // The rail every lane runs along, so empty hours still read as time. The segments
+        // ride in an overlay so they can never push the lane wider than the card.
+        return Capsule(style: .continuous)
+            .fill(Paper.tile)
+            .frame(height: 6)
+            .frame(maxWidth: .infinity)
+            .overlay(alignment: .leading) {
+                ZStack(alignment: .leading) {
+                    ForEach(spans, id: \.self) { span in
+                        segments(for: span)
+                    }
+                }
             }
-        }
-        .scaleEffect(x: drawn ? 1 : 0.02, anchor: .leading)
-        .opacity(drawn ? 1 : 0)
-        .help(spanHelp(spans))
+            .scaleEffect(x: drawn ? 1 : 0.02, anchor: .leading)
+            .opacity(drawn ? 1 : 0)
+            .help(spanHelp(spans))
     }
 
     /// One span, split at now: what's behind you fades, what's ahead stays bright.

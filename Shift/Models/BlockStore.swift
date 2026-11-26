@@ -183,7 +183,6 @@ final class BlockStore {
               grew(existing.list.apps, proposed.list.apps),
               Set(existing.list.textRules).isSubset(of: Set(proposed.list.textRules)),
               existing.list.categoryNames.isSubset(of: proposed.list.categoryNames),
-              proposed.list.exceptionCategoryNames.isSubset(of: existing.list.exceptionCategoryNames),
               grew(proposed.list.websiteExceptions.map(\.entry), existing.list.websiteExceptions.map(\.entry))
         else { return false }
         return true
@@ -306,7 +305,13 @@ final class BlockStore {
     // MARK: Housekeeping
 
     /// A `.restart` lock is released only when the machine has genuinely rebooted.
-    /// The boot session ID survives app relaunches and wall-clock changes.
+    /// The boot session ID survives app relaunches, sleep and wall-clock changes.
+    ///
+    /// A restart ends the lock, not the block (26 Nov 2026, the user's call): the block
+    /// stays switched on, unlocked, the way a duration lock leaves it when its time is up.
+    /// Until then a restart also switched the block off, and with Until restart now the
+    /// default lock, every reboot would have quietly turned every block off. A timed run
+    /// that ended while the Mac was off is retired next, by `expireFinishedRuns`.
     private func resolveRestartLocks() {
         let currentBoot = Self.bootTime()
         let bootSessionID = Self.bootSessionID
@@ -322,7 +327,7 @@ final class BlockStore {
             }
 
             if restarted {
-                endRun(&block)
+                clearEngagement(&block.lock)
             } else if let bootSessionID, block.lock.engagedBootSessionID == nil {
                 block.lock.engagedBootSessionID = bootSessionID
             }
@@ -391,9 +396,18 @@ final class BlockStore {
         }
     }()
 
-    /// Boot time, derived from uptime. Stable across samples on the same boot.
+    /// When this Mac booted, from `kern.boottime`. Only the fallback for saves without a
+    /// boot session ID. It used to be now minus `systemUptime`, but uptime stops while the
+    /// Mac sleeps, so that "boot time" crept later after every sleep and a sleep of over a
+    /// minute looked like a restart, releasing the lock.
     static func bootTime() -> Date {
-        Date(timeIntervalSinceNow: -ProcessInfo.processInfo.systemUptime)
+        var boot = timeval()
+        var size = MemoryLayout<timeval>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_BOOTTIME]
+        if sysctl(&mib, 2, &boot, &size, nil, 0) == 0, boot.tv_sec > 0 {
+            return Date(timeIntervalSince1970: TimeInterval(boot.tv_sec) + TimeInterval(boot.tv_usec) / 1_000_000)
+        }
+        return Date(timeIntervalSinceNow: -ProcessInfo.processInfo.systemUptime)
     }
 
     /// The challenge string for a random-string unlock.

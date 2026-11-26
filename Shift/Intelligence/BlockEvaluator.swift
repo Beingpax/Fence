@@ -27,17 +27,20 @@ struct BlockEvaluator {
         // A blocked app outranks every page inside it, in any active block. Arc on x.com,
         // with both Arc and x.com blocked, quits Arc: closing the one tab would leave a
         // blocked app open, only to pause again on whatever tab came next.
+        // Pre-made lists carry apps too, with the user's edits.
+        let lists = PreMadeLists.shared
         for block in blocks {
-            if let verdict = appMatch(context, in: block) { return verdict }
+            if let verdict = appMatch(context, in: block, listApps: lists.blockedApps(for: block.list.categoryNames)) {
+                return verdict
+            }
         }
 
         let address = context.websiteAddress
         let input = context.url.flatMap(WebRuleInput.init(url:))
         var categories: Set<String> = []
-        if let input, blocks.contains(where: { !$0.list.categoryNames.isEmpty || !$0.list.exceptionCategoryNames.isEmpty }) {
-            let catalog = WebsiteCategoryCatalog.shared
-            categories = catalog.categories(forHost: input.host)
-            if input.matchesAdultSearch(in: catalog) { categories.insert(BlockList.adultSitesCategory) }
+        if let input, blocks.contains(where: { !$0.list.categoryNames.isEmpty }) {
+            categories = lists.categories(forHost: input.host)
+            if input.matchesAdultSearch(in: lists.catalog) { categories.insert(BlockList.adultSitesCategory) }
         }
         var firstPause: Verdict?
 
@@ -46,7 +49,7 @@ struct BlockEvaluator {
             var website = address
             if let address, let input {
                 // An exception waives only this block's website rules. Its app rules still apply.
-                if list.exempts(address, input: input, categories: categories) {
+                if list.exempts(address, input: input) {
                     website = nil
                 } else {
                     let reason: String?
@@ -101,10 +104,13 @@ struct BlockEvaluator {
         )
     }
 
-    /// The app itself is on this block's list. Website exceptions never waive it.
-    private func appMatch(_ context: ScreenContext, in block: Block) -> Verdict? {
+    /// The app itself is on this block's list, or on a pre-made list the block includes.
+    /// Website exceptions never waive it.
+    private func appMatch(_ context: ScreenContext, in block: Block, listApps: Set<String>) -> Verdict? {
         let bundleID = context.bundleID.lowercased()
-        guard block.list.apps.contains(where: { bundleID == $0.lowercased() }) else { return nil }
+        guard listApps.contains(bundleID) || block.list.apps.contains(where: { bundleID == $0.lowercased() }) else {
+            return nil
+        }
         return Verdict(
             kind: .block,
             reason: "\(context.appName) is blocked",
@@ -129,9 +135,9 @@ struct BlockEvaluator {
 }
 
 private extension BlockList {
-    func exempts(_ address: WebsiteAddress, input: WebRuleInput, categories: Set<String>) -> Bool {
-        if !exceptionCategoryNames.isDisjoint(with: categories) { return true }
-        return websiteExceptions.contains { exception in
+    /// Only single pages and patterns can be allowed. Pre-made lists never can (26 Nov 2026).
+    func exempts(_ address: WebsiteAddress, input: WebRuleInput) -> Bool {
+        websiteExceptions.contains { exception in
             switch exception.rule {
             case .address(let allowed): allowed.matches(address)
             case .text(let allowed): input.matches(allowed)

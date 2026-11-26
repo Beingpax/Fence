@@ -242,10 +242,11 @@ private struct TrendCard: View {
 
 // MARK: - A day
 
-/// One day at a glance: when the pulls came, where to and why. Every pull, with its time
-/// and the words written about it, stays in the journal database for later analysis; the
-/// page only summarises. A list of every pull was replaced on 26 Nov 2026 at the user's
-/// request: it read like a log file.
+/// One day at a glance: only where the pulls went and why (26 Nov 2026, the user's call).
+/// No counts anywhere on the card, not even on the pills, and no hour strip: how many
+/// pulls and how many turned back read as a score. Most frequent comes first. Every pull,
+/// with its time and the words written about it, stays in the journal database for later
+/// analysis. A list of every pull was replaced the same day: it read like a log file.
 private struct DayCard: View {
     let day: Date
     let entries: [ReachEntry]
@@ -253,22 +254,14 @@ private struct DayCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: PlayRhythm.inner) {
-            HStack(alignment: .firstTextBaseline, spacing: PlayRhythm.inner) {
-                Text(title)
-                    .font(PlayType.rounded(16, .bold))
-                    .foregroundStyle(Paper.ink)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: PlayRhythm.inner)
-                Text(tally)
-                    .font(PlayType.rounded(12, .semibold))
-                    .foregroundStyle(.secondary)
-            }
+            Text(title)
+                .font(PlayType.rounded(16, .bold))
+                .foregroundStyle(Paper.ink)
+                .accessibilityAddTraits(.isHeader)
 
-            HourStrip(entries: entries)
-
-            SummaryLine(label: "Where", items: sites.map { Tally(text: $0.name, symbol: nil, count: $0.count) })
+            SummaryLine(label: "Where", items: sites.map { Tally(text: $0, symbol: nil) })
             if !feelings.isEmpty {
-                SummaryLine(label: "Why", items: feelings.map { Tally(text: $0.feeling.shortLabel, symbol: $0.feeling.symbol, count: $0.count) })
+                SummaryLine(label: "Why", items: feelings.map { Tally(text: $0.shortLabel, symbol: $0.symbol) })
             }
         }
         .padding(PlayRhythm.card)
@@ -285,88 +278,44 @@ private struct DayCard: View {
         return day.formatted(.dateTime.weekday(.wide).day().month(.wide))
     }
 
-    private var tally: String {
-        let back = entries.filter(\.turnedBack).count
-        let pulls = entries.count == 1 ? "1 pull" : "\(entries.count) pulls"
-        return "\(pulls) · \(back) turned back"
-    }
-
     /// Each site or app once, most pulled first.
-    private var sites: [(name: String, count: Int)] {
-        let grouped = Dictionary(grouping: entries) { $0.rule.isEmpty ? $0.target : $0.rule }
-        return grouped.map { (name: $0.key, count: $0.value.count) }.sorted { $0.count != $1.count ? $0.count > $1.count : $0.name < $1.name }
+    private var sites: [String] {
+        var counts: [String: Int] = [:]
+        for entry in entries {
+            let name: String = entry.rule.isEmpty ? entry.target : entry.rule
+            counts[name, default: 0] += 1
+        }
+        let names: [String] = Array(counts.keys)
+        return names.sorted { (a: String, b: String) -> Bool in
+            let countA = counts[a] ?? 0
+            let countB = counts[b] ?? 0
+            return countA != countB ? countA > countB : a < b
+        }
     }
 
     /// Each feeling named once, most often first.
-    private var feelings: [(feeling: UrgeReason, count: Int)] {
-        let grouped = Dictionary(grouping: entries.compactMap(\.feeling)) { $0 }
-        return grouped.map { (feeling: $0.key, count: $0.value.count) }.sorted {
-            $0.count != $1.count
-                ? $0.count > $1.count
-                : (UrgeReason.allCases.firstIndex(of: $0.feeling) ?? 0) < (UrgeReason.allCases.firstIndex(of: $1.feeling) ?? 0)
+    private var feelings: [UrgeReason] {
+        var counts: [UrgeReason: Int] = [:]
+        for entry in entries {
+            if let feeling = entry.feeling { counts[feeling, default: 0] += 1 }
         }
-    }
-}
-
-/// The day from midnight to midnight, one slot an hour: a coral bar where pulls came,
-/// taller for more, and a faint dot where none did.
-private struct HourStrip: View {
-    let entries: [ReachEntry]
-
-    private let height: CGFloat = 22
-
-    var body: some View {
-        let counts = hourlyCounts
-        let peak = max(counts.max() ?? 0, 1)
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .bottom, spacing: 3) {
-                ForEach(0..<24, id: \.self) { hour in
-                    let count = counts[hour]
-                    RoundedRectangle(cornerRadius: count == 0 ? 1 : 2, style: .continuous)
-                        .fill(count == 0 ? Paper.tile : Paper.coral)
-                        .frame(height: count == 0 ? 3 : max(6, height * CGFloat(count) / CGFloat(peak)))
-                        .frame(maxWidth: .infinity, maxHeight: height, alignment: .bottom)
-                        .help(count == 0 ? "" : "\(Self.hourLabel(hour)): \(count == 1 ? "1 pull" : "\(count) pulls")")
-                }
-            }
-            HStack(spacing: 0) {
-                ForEach([0, 6, 12, 18], id: \.self) { hour in
-                    Text(Self.hourLabel(hour))
-                        .font(PlayType.rounded(10, .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
+        let order: [UrgeReason] = UrgeReason.allCases
+        let named: [UrgeReason] = order.filter { counts[$0] != nil }
+        return named.sorted { (a: UrgeReason, b: UrgeReason) -> Bool in
+            let countA = counts[a] ?? 0
+            let countB = counts[b] ?? 0
+            if countA != countB { return countA > countB }
+            return (order.firstIndex(of: a) ?? 0) < (order.firstIndex(of: b) ?? 0)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilitySummary(counts))
-    }
-
-    private var hourlyCounts: [Int] {
-        var counts = Array(repeating: 0, count: 24)
-        let calendar = Calendar.current
-        for entry in entries { counts[calendar.component(.hour, from: entry.startedAt)] += 1 }
-        return counts
-    }
-
-    private static func hourLabel(_ hour: Int) -> String {
-        let date = Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: .now) ?? .now
-        return date.formatted(.dateTime.hour())
-    }
-
-    private func accessibilitySummary(_ counts: [Int]) -> String {
-        let busy = counts.enumerated().filter { $0.element > 0 }.map { "\(Self.hourLabel($0.offset)): \($0.element)" }
-        return "Pulls by hour. " + busy.joined(separator: ", ")
     }
 }
 
 private struct Tally: Hashable {
     let text: String
     let symbol: String?
-    let count: Int
 }
 
-/// A small-caps label and a row of pills, each a name and a count. Wraps onto a second row
+/// A small-caps label and a row of pills, each a name. Wraps onto a second row
 /// rather than squeezing.
 private struct SummaryLine: View {
     let label: String
@@ -388,10 +337,6 @@ private struct SummaryLine: View {
                             .font(PlayType.rounded(12, .semibold))
                             .foregroundStyle(Paper.ink.opacity(0.85))
                             .lineLimit(1)
-                        Text("\(item.count)")
-                            .font(PlayType.rounded(12, .bold))
-                            .monospacedDigit()
-                            .foregroundStyle(Paper.coralText)
                     }
                     .padding(.horizontal, 9)
                     .padding(.vertical, 4)
@@ -402,8 +347,9 @@ private struct SummaryLine: View {
     }
 }
 
-/// Lays pills out left to right and wraps onto new rows.
-private struct WrappingRow: Layout {
+/// Lays pills out left to right and wraps onto new rows. Shared by the Journal and the
+/// Dashboard.
+struct WrappingRow: Layout {
     var spacing: CGFloat
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {

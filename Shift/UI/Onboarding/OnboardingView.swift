@@ -25,7 +25,7 @@ struct OnboardingView: View {
     @State private var customList: [String] = []
     @State private var showsInvalidWebsite = false
     @State private var blockName = "Distractions"
-    @State private var lockChoice = LockMethod.none
+    @State private var lockChoice = LockMethod.restart
     @State private var lockDuration: TimeInterval = 60 * 60
     @State private var lockUntil = TimeOfDay(hour: 17, minute: 0)
     @State private var lockLength = BlockLock.challengeLengths[0]
@@ -984,6 +984,7 @@ private struct MiniChip: View {
 
 private struct StarField: View {
     let animates: Bool
+    @Environment(\.windowIsVisible) private var windowIsVisible
 
     private struct Star: Sendable {
         let x: CGFloat
@@ -1012,7 +1013,7 @@ private struct StarField: View {
     }()
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: !animates)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: !animates || !windowIsVisible)) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
             Canvas { context, size in
                 for star in Self.stars {
@@ -1383,9 +1384,11 @@ private struct SwitchRow: View {
 private struct LoadingDots: View {
     let label: String
     let animates: Bool
+    @Environment(\.windowIsVisible) private var windowIsVisible
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: nil, paused: !animates)) { timeline in
+        // 60 fps is plenty for three bouncing dots; uncapped, ProMotion ran it at 120.
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !animates || !windowIsVisible)) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
             HStack(spacing: 10) {
                 HStack(spacing: 5) {

@@ -56,6 +56,14 @@ Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (br
   above the ribbon, and the mascot turns curious. `DayPlan` works out today's spans
   (overnight windows split across days). Redraws once a minute (`TimelineView(.everyMinute)`).
   The user has seen it running and loves it.
+  **It must shrink as well as grow** (fixed 26 Nov 2026): `DayStage` measures its own
+  width, so nothing inside it may take a width worked out from that measurement. Lanes and
+  the axis are flexible frames, segments ride in an overlay, and the stage's frame has
+  `minWidth: 0`. Before this the card widened with the window and then held that width,
+  clipping the switches. The fact pills wrap below the legend when one row doesn't fit.
+- **The main window's minimum is 860 × 580** (`Theme.mainWindowMinSize`), set once as the
+  window's `contentMinSize` and the SwiftUI root's min frame. The two used to disagree
+  (820 vs 900), and the hosting view clipped the sidebar and content on both sides.
 - **The Blocks page is one calm list** (26 Nov 2026, `UI/Main/BlocksView.swift`). Same
   header voice as the Dashboard (coral small caps such as "1 OF 3 ON RIGHT NOW", then
   "Your blocks", New block). Every block is a row in a single paper card, **in the user's
@@ -79,8 +87,9 @@ Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (br
   an answer is picked and `UrgeReason.minimumWords` are written, 10 for a feeling and 20
   for "I need it". The **Journal** sidebar
   section (`UI/Main/JournalView.swift`, teal tile) shows two weeks of "pulls" as bars, a few
-  fact pills and one summary card per day: the tally, a 24-hour strip of when the pulls
-  came, and pills for where (each site once, with a count) and why (each feeling once). No
+  fact pills and one summary card per day showing **only where and why** (pills, most
+  frequent first): no pull count, no turned-back count, no counts on the pills and no hour
+  strip (26 Nov 2026, the user's call). No
   per-pull list: the user found it read like a log file (26 Nov 2026); every pull, its time
   and its words stay in `journal.sqlite` for analysis. Information, never a grade:
   no streaks or scores. Researched in `Research/habit-science-review.md`. The user rejected
@@ -93,24 +102,67 @@ Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (br
   orange, indigo, teal (Journal) and gray; the count badge is the accent colour. It is an exception to the
   palette rules. Don't flatten it to cream, swap it for `NSVisualEffectView` materials, or
   float it inset like the system sidebar.
-- **The block editor keeps its `main` look; only its buttons float** (26 Nov 2026, the
-  user's call). The sliding panel is the original glass (tinted 28% window background,
-  pinned to the trailing edge, leading corners rounded), the editor sits on the `.sidebar`
-  material, and its cards use the original frosted glass with a whisper of the block's
-  colour: `GlassSurface` switches to that look when `\.usesGlassCards` is set, which only the
-  editor does. Save and Unlock float as `FloatingButtonStyle(compact: true)` capsules with
-  no footer bar: the same size as `main`'s buttons (13 pt semibold, 14 by 8 padding,
-  text only), not onboarding's larger Continue.
+- **The block editor was redesigned on 26 Nov 2026** (the user found it "too bad" and asked
+  for a complete redesign: bold, playful, clean, easy, macOS 26 glass). Still the trailing
+  sliding panel (now 440 wide), one column in the order people think: a 60 pt badge (click
+  it for a colour and icon popover) beside a big name field with a coral small-caps eyebrow
+  (focused for a new block); a lock banner with Unlock when locked; then titled sections on
+  frosted white cards (`EditorSection`, `editorCard()`): **Websites** (the add field, then
+  the pre-made lists as pills, then the block's own sites as chips, then Import and an
+  "Always allow" disclosure for single pages), **Apps** (chips with icons, "Choose apps"),
+  **When it's on** and **Lock**. Since 26 Nov 2026 at the user's request: **no Quick add**;
+  **sites and apps are chips** (`ChipCloud`, `EntryChip`), several to a line, never one per
+  row; When is a wrapping row of `ModePill`s **drawn exactly like the pre-made list pills**
+  (solid coral once chosen, soft tile otherwise); **Lock is one row that opens Shift's own
+  picker** (`LockPicker`, a popover of five `LockOptionRow`s, each a tile, a title and one
+  short line), not every method laid out at once. Their settings follow as solid
+  `ChoicePill`s on one line (`InlineChoices`, a compact `UntilTimeChooser`), with **no
+  description lines** in the card: When's tooltips explain each choice. Schedule windows sit
+  on one line of small day letters and time pills, with a "+1" badge for overnight.
+  **Import** (`ListImport`) reads a .txt (one entry per line, `#` comments, hosts files) or a
+  .json (`["a.com"]` or `{"sites": [...], "apps": [...]}`), up to 5,000 entries; the ? beside
+  it shows both formats as examples. **Glass only on
+  controls**: the floating close circle and the Cancel / Create Block (Save) buttons
+  (`.glass`, `.glassProminent` tinted coral, ⌘S, Esc). Coral marks selection; the block's
+  colour appears only on its badge. The app picker sheet matches. `usesGlassCards` and
+  `LockMethodPicker` were removed with the old editor. The add field's leading button is
+  the same coral circle as "Choose apps" (`RuleInput`). **Help popovers are examples first**
+  (`HelpCard`, `HelpExample`, `HelpFile`): "youtube.com → The whole site", a sample file,
+  a few plain words each, never paragraphs of rules; tooltips likewise name examples
+  ("Instagram, TikTok, YouTube, Netflix and other feeds"). The until-time lock reads in
+  order: "Until", the time in a stepper with today/tomorrow beside it, then smaller
+  outlined `QuickPick`s under it. **The typing-code unlock**
+  (`RandomStringUnlockView`) was redesigned the same day, after the user rejected the tile
+  grid: the code is one card of text in groups of four that you type straight into (done
+  characters fade, the next is underlined in coral, a wrong one turns red at once), a bar
+  that turns mint when it's right, and Unlock only then. Not yet built or seen running.
+- **Pre-made lists are their own thing** (26 Nov 2026, the user's call), labelled **Common
+  distractions** in the editor (the code still says pre-made). Four lists,
+  `PreMadeList` in `Intelligence/WebsiteCategoryCatalog.swift`: Social media (social, chat,
+  YouTube and every video and streaming site: **feeds only, never chat apps**, so no
+  Discord, WhatsApp, Telegram, Messenger or Viber), News (about 270 big sites, weighted to
+  the US and Germany, plus Nepal, India, the UK, Canada, Australia and more), Email, and
+  **18+ sites** (never "adult
+  sites" in the UI; saved as "Adult sites", the old key). Search engines, proxies, games,
+  gambling, shopping, dating, videos and "Distractions" were removed; old saves fold Videos
+  and Distractions into Social media and drop the rest (`PreMadeList.migrate`). **Each list
+  carries Mac apps too** (`builtInApps`, iOS bundle IDs for iPhone apps on the Mac), blocked
+  when installed. In the Websites card each list is a `ListPill`: the name puts it in the
+  block, the sliders open `PreMadeListEditor`: a search field, Websites / Apps, an add field
+  and Import, and everything as chips (the user's additions in soft coral). **Edits are to the
+  list itself**, saved as differences from the bundle in `Application Support/Shift/lists.json`
+  by `PreMadeLists`, which the helper rereads within a second. While a locked block uses a
+  list, it can only grow. **Lists can never be allowed**: "Always allow" takes single pages
+  and patterns only, and `exceptionCategoryNames` is gone (ignored when decoding). Not yet
+  built or seen running.
 - **No description lines under titles** in Settings and the Dashboard (26 Nov 2026, the
   user's call). Rows, sections and tiles show their title only; any explanation moves to a
   hover tooltip (`.help`). Exceptions: a permission that still needs fixing keeps its one
   instruction line; the How blocking works steps are the content itself; the Dashboard's
   live status line under the greeting stays. Onboarding keeps its subtitles; it's a
   guided first run.
-- **The block editor's Save floats** over the panel as the same capsule as onboarding's
-  Continue (`FloatingButtonStyle`, in `UI/Design/Playful.swift`), with no footer bar. Shared page pieces (`PlayHero`, `PlaySection`, `PlayRhythm`,
-  `RowDivider`, `SwitchLine`, `ActionLine`, `PermissionLine`, `SoftPillButtonStyle`) are in
-  `UI/Design/Playful.swift`. Not yet built or seen running.
+- Shared page pieces (`PlayHero`, `PlaySection`, `PlayRhythm`, `RowDivider`, `SwitchLine`,
+  `ActionLine`, `PermissionLine`, `SoftPillButtonStyle`) are in `UI/Design/Playful.swift`.
 - **The nudge mascot is new** as of 25 Nov 2026 (see "The mascot" under product
   decisions). The card moved to the bottom right. Not yet watched in the running app.
 - Built: main window (Dashboard, Blocks, Activity), block editor, menu bar popover,
@@ -205,8 +257,14 @@ Rules that are easy to get wrong, and are covered by the tests:
 
 - Schedule windows may run past midnight; the window belongs to the day it started on.
 - An `untilTime` lock set to a time already past today rolls to tomorrow.
-- A `restart` lock releases after the boot session changes. Saves from older builds
-  use their stored boot time during migration.
+- A `restart` lock releases after the boot session changes (`kern.bootsessionuuid`), and
+  **the block stays on, unlocked** (26 Nov 2026, the user's call; before that a restart
+  also switched it off, which with Until restart as the default would have turned every
+  block off on every reboot). Saves without a session ID fall back to `kern.boottime`,
+  never `now - systemUptime`: uptime stops during sleep, so a nap looked like a restart.
+- **Lock order is No lock, Until restart, For a while, Until a time, Typing code**
+  (`LockMethod`'s declaration order), and **new blocks default to Until restart**
+  (`presentNewBlock`, onboarding's `lockChoice`). It engages only when switched on.
 - While locked, a block may be edited only to become stricter. Entries can be added,
   and the schedule and lock method are frozen.
 - **A blocked app outranks every page inside it**, across all active blocks: Arc on
@@ -228,6 +286,14 @@ Rules that are easy to get wrong, and are covered by the tests:
   can't build a backlog behind it.
 - Block writes are debounced and encoded off the main actor. `saveNow()` is for the cases
   where losing the write would hand the user a way out.
+- `AddressObserver` holds repeated title changes to about two samples a second (26 Nov 2026):
+  a terminal with a spinner in its title drove about ten full Accessibility reads a second.
+  Focus, window and load-complete notifications still sample after 90 ms.
+- Looping `TimelineView` animations (the mascot, onboarding's stars and dots) pause on
+  `\.windowIsVisible` (`UI/Design/WindowVisibility.swift`), set by
+  `.tracksWindowVisibility()` at the root of the main and onboarding windows. Onboarding's
+  window is only ordered out on close, so before this its animations ran for the life of the
+  process. Any new looping animation in a window should read it too.
 
 ## Product decisions (don't relitigate without asking)
 
