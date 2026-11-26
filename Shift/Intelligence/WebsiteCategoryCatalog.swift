@@ -11,7 +11,10 @@ struct WebsiteCategoryCatalog {
     private let byHost: [String: Set<String>]
     private let exclusions: [String: Set<String>]
 
-    init(url: URL? = Bundle.main.url(forResource: "WebsiteCategories", withExtension: "json")) {
+    /// `lists` keeps only those lists (by saved name); nil keeps them all. Page checks pass
+    /// the lists their blocks use, so the 18+ list (29,261 of the 29,631 hosts, 6.6 MB once
+    /// indexed) is only held while a block includes it.
+    init(url: URL? = Bundle.main.url(forResource: "WebsiteCategories", withExtension: "json"), only lists: Set<String>? = nil) {
         var groups: [String: [String]] = [:]
         do {
             guard let url else { throw CocoaError(.fileNoSuchFile) }
@@ -19,6 +22,7 @@ struct WebsiteCategoryCatalog {
         } catch {
             Logger(subsystem: "com.beingpax.Shift", category: "WebsiteCategories").error("Cannot load website lists: \(error.localizedDescription)")
         }
+        if let lists { groups = groups.filter { lists.contains($0.key) } }
         var index: [String: Set<String>] = [:]
         var excluded: [String: Set<String>] = [:]
         for (name, hosts) in groups {
@@ -197,7 +201,21 @@ final class PreMadeLists {
 
     private(set) var edits: [String: PreMadeListEdits] = [:]
 
-    @ObservationIgnored let catalog: WebsiteCategoryCatalog
+    /// Every bundled list, decoded the first time something asks for it: the list editor,
+    /// which shows each list's sites and counts. Page checks use `catalog(for:)` instead.
+    /// Until 26 Nov 2026 the helper loaded all of it (29,631 hosts, 6.6 MB, nearly all the
+    /// 18+ list) on its first page check, even when no active block included any list.
+    var catalog: WebsiteCategoryCatalog {
+        if let loadedCatalog { return loadedCatalog }
+        let catalog = makeCatalog()
+        loadedCatalog = catalog
+        return catalog
+    }
+    @ObservationIgnored private var loadedCatalog: WebsiteCategoryCatalog?
+    @ObservationIgnored private let makeCatalog: () -> WebsiteCategoryCatalog
+    /// What page checks read: only the bundled lists that active blocks use. See `catalog(for:)`.
+    @ObservationIgnored private var lookup: (lists: Set<String>, catalog: WebsiteCategoryCatalog)?
+    @ObservationIgnored private let makeLookup: (Set<String>) -> WebsiteCategoryCatalog
     /// Added sites by list, kept as sets so a big import doesn't slow every page check.
     @ObservationIgnored private var addedIndex: [String: Set<String>] = [:]
     @ObservationIgnored private let fileURL: URL?
@@ -207,19 +225,32 @@ final class PreMadeLists {
 
     init(
         fileURL: URL? = ShiftInstallation.supportDirectory.appending(path: "lists.json"),
-        catalog: WebsiteCategoryCatalog = .shared
+        catalog: @autoclosure @escaping () -> WebsiteCategoryCatalog = .shared,
+        lookup: @escaping (Set<String>) -> WebsiteCategoryCatalog = { WebsiteCategoryCatalog(only: $0) }
     ) {
         self.fileURL = fileURL
-        self.catalog = catalog
+        makeCatalog = catalog
+        makeLookup = lookup
         reload()
     }
 
     // MARK: Reading
 
-    /// Every list a host belongs to. Takes a lowercase hostname with its www prefix intact.
-    func categories(forHost host: String) -> Set<String> {
+    /// The bundled lists named, indexed for page checks. Rebuilt only when the set of lists in
+    /// use changes; while the editor has the full catalog open, that one serves.
+    func catalog(for lists: Set<String>) -> WebsiteCategoryCatalog {
+        if let loadedCatalog { return loadedCatalog }
+        if let lookup, lookup.lists == lists { return lookup.catalog }
+        let catalog = makeLookup(lists)
+        lookup = (lists, catalog)
+        return catalog
+    }
+
+    /// Every list a host belongs to, among `lists` (the ones active blocks use). Takes a
+    /// lowercase hostname with its www prefix intact.
+    func categories(forHost host: String, among lists: Set<String>) -> Set<String> {
         refreshIfDue()
-        var matches = catalog.categories(forHost: host)
+        var matches = catalog(for: lists).categories(forHost: host)
         guard !edits.isEmpty else { return matches }
         let bare = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
         for (name, edit) in edits where edit.removedSites.contains(bare) { matches.remove(name) }

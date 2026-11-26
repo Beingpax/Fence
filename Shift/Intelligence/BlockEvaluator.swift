@@ -39,8 +39,13 @@ struct BlockEvaluator {
         let input = context.url.flatMap(WebRuleInput.init(url:))
         var categories: Set<String> = []
         if let input, blocks.contains(where: { !$0.list.categoryNames.isEmpty }) {
-            categories = lists.categories(forHost: input.host)
-            if input.matchesAdultSearch(in: lists.catalog) { categories.insert(BlockList.adultSitesCategory) }
+            // Only the lists these blocks use are loaded and searched.
+            let inUse = blocks.reduce(into: Set<String>()) { $0.formUnion($1.list.categoryNames) }
+            categories = lists.categories(forHost: input.host, among: inUse)
+            if inUse.contains(BlockList.adultSitesCategory),
+               input.matchesAdultSearch(in: lists.catalog(for: inUse)) {
+                categories.insert(BlockList.adultSitesCategory)
+            }
         }
         var firstPause: Verdict?
 
