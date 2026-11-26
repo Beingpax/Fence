@@ -43,7 +43,12 @@ final class MainWindowController {
         window.isOpaque = false
         window.backgroundColor = .clear
         window.toolbarStyle = .unified
-        window.contentView = NSHostingView(rootView: root)
+        let hosting = NSHostingView(rootView: root)
+        // The window's size limits are set once below (`contentMinSize`), so the hosting view
+        // needn't work them out again from the whole view tree after every update. With the
+        // Dashboard's mascot that measuring ran 30 times a second (Instruments, 26 Nov 2026).
+        hosting.sizingOptions = []
+        window.contentView = hosting
         window.isReleasedWhenClosed = false
         window.setFrameAutosaveName("ShiftMainWindow")
         // One minimum, shared with the SwiftUI root, so the window can never be smaller

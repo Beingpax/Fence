@@ -126,20 +126,36 @@ struct MascotView: View {
     static var cardEdgeOffset: CGFloat { (cardEdge - box.minY) * scale }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !animates || !windowIsVisible)) { timeline in
-            let t = animates ? timeline.date.timeIntervalSince(start) : 0.7
+        // Drawn in a hosting view of its own, on its own 30 fps clock, so a frame redraws
+        // only the canvas and not the window around it (`OwnRenderLoop`).
+        OwnRenderLoop(running: animates && windowIsVisible) { [mood, layer, animates, start] date in
+            MascotFrame(mood: mood, layer: layer, animates: animates, t: animates ? date.timeIntervalSince(start) : 0.7)
+        }
+        .frame(width: Self.size.width, height: Self.size.height)
+        .accessibilityHidden(true)
+    }
+
+    /// One frame of the idle, `t` seconds in.
+    fileprivate struct MascotFrame: View {
+        let mood: MascotMood
+        let layer: Layer
+        let animates: Bool
+        let t: TimeInterval
+
+        var body: some View {
             Canvas(rendersAsynchronously: false) { context, _ in
-                context.translateBy(x: -Self.box.minX * Self.scale, y: -Self.box.minY * Self.scale)
-                context.scaleBy(x: Self.scale, y: Self.scale)
-                let rig = MascotRig(pose: mood.pose, t: animates ? t : 0.7, moving: animates, cardEdge: Self.cardEdge)
+                context.translateBy(x: -MascotView.box.minX * MascotView.scale, y: -MascotView.box.minY * MascotView.scale)
+                context.scaleBy(x: MascotView.scale, y: MascotView.scale)
+                let rig = MascotRig(pose: mood.pose, t: t, moving: animates, cardEdge: MascotView.cardEdge)
                 switch layer {
                 case .body: rig.drawBody(in: &context)
                 case .hands: rig.drawHands(in: &context)
                 }
             }
+            .frame(width: MascotView.size.width, height: MascotView.size.height)
+            .ignoresSafeArea()
+            .accessibilityHidden(true)
         }
-        .frame(width: Self.size.width, height: Self.size.height)
-        .accessibilityHidden(true)
     }
 }
 
