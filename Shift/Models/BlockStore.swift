@@ -53,9 +53,11 @@ final class BlockStore {
         do { try reload(fileURL) } catch {
             Self.log.error("Could not read blocks: \(error.localizedDescription, privacy: .public)")
         }
+        refreshActivity()
     }
 
     private func transaction<T>(or failure: T, _ edit: () -> T) -> T {
+        defer { refreshActivity() }
         guard let fileURL else { return edit() }
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -77,7 +79,10 @@ final class BlockStore {
                     blocks = previous
                     throw error
                 }
-                revision = nil
+                // Still under the lock, so this is the version just written. Remembering it
+                // spares the next refresh from decoding what is already in memory.
+                var written = stat()
+                revision = stat(fileURL.path, &written) == 0 ? written.st_ino : nil
             }
             onCommit?()
             return result
@@ -96,6 +101,18 @@ final class BlockStore {
     }
 
     var activeBlocks: [Block] { blocks.filter { $0.isActive() } }
+
+    /// Which blocks were active at the last change or engine tick. A schedule opens and
+    /// closes without editing anything, so a view reading only `blocks` never hears about
+    /// it: the menu bar count stayed stale until the next edit. Views read these instead;
+    /// the engine keeps asking the clock directly through `activeBlocks`.
+    private(set) var activeBlockIDs: Set<Block.ID> = []
+    var displayedActiveBlocks: [Block] { blocks.filter { activeBlockIDs.contains($0.id) } }
+
+    private func refreshActivity(at date: Date = Date()) {
+        let ids = Set(blocks.lazy.filter { $0.isActive(at: date) }.map(\.id))
+        if ids != activeBlockIDs { activeBlockIDs = ids }
+    }
 
     var lockedBlocks: [Block] { blocks.filter { $0.isLocked() } }
     var hasLockedBlock: Bool { blocks.contains { $0.isLocked() } }
@@ -346,6 +363,7 @@ final class BlockStore {
 
     /// Called on the engine's tick to retire finished runs, breaks and locks.
     func tick(now: Date = Date()) {
+        refreshActivity(at: now)
         guard blocks.contains(where: { block in
             block.schedule.isManual && block.isEnabled && !block.lock.isLocked(at: now) && (block.manualRunEndsAt ?? .distantPast) <= now
                 || block.breaks.currentBreakEndsAt.map { $0 <= now } == true

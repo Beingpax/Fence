@@ -33,7 +33,7 @@ private struct MenuBarLabel: View {
     let model: AppModel
 
     var body: some View {
-        let active = model.store.activeBlocks.count
+        let active = model.store.activeBlockIDs.count
         HStack(spacing: 3) {
             Image(systemName: symbol(activeCount: active))
                 .symbolRenderingMode(.monochrome)

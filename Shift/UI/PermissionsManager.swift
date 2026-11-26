@@ -31,7 +31,11 @@ enum PermissionsManager {
     private static let log = Logger(subsystem: "com.beingpax.Shift", category: "Permissions")
 
     static var isAccessibilityTrusted: Bool { AXIsProcessTrusted() }
-    static var canPostKeyboardEvents: Bool { CGPreflightPostEventAccess() }
+    /// Posting events is granted by the same Accessibility list (macOS 27 calls the pane
+    /// Device Control and Data Access). `CGPreflightPostEventAccess` can keep answering
+    /// false until the process relaunches, which left the row stuck after the user had
+    /// already switched Shift on, so a trusted process counts as able to post.
+    static var canPostKeyboardEvents: Bool { CGPreflightPostEventAccess() || isAccessibilityTrusted }
 
     /// Scoped app grants on 27.3 are checked by macOS when we query the target app.
     /// Process-wide trust alone cannot tell us whether a specific browser is available.

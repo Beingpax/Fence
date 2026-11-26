@@ -56,7 +56,7 @@ struct SegmentedSelector<Value: Hashable>: View {
                     .background {
                         if isSelected {
                             Capsule(style: .continuous)
-                                .fill(tint.gradient)
+                                .fill(tint)
                                 .matchedGeometryEffect(id: "segment", in: namespace)
                         }
                     }
@@ -105,17 +105,7 @@ struct ShiftSwitch: View {
         } label: {
             ZStack(alignment: isOn ? .trailing : .leading) {
                 Capsule(style: .continuous)
-                    .fill(
-                        isOn
-                            ? AnyShapeStyle(
-                                LinearGradient(
-                                    colors: [tint.opacity(0.92), tint],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                            : AnyShapeStyle(Color.primary.opacity(0.14))
-                    )
+                    .fill(isOn ? tint : Color.primary.opacity(0.14))
                     .frame(width: width, height: height)
                     .shadow(color: isOn ? tint.opacity(0.35) : .clear, radius: 4, y: 1)
 
@@ -298,7 +288,7 @@ struct DayPicker: View {
                         .foregroundStyle(isOn ? .white : .secondary)
                         .background {
                             RoundedRectangle(cornerRadius: Theme.Radius.control)
-                                .fill(isOn ? AnyShapeStyle(tint.gradient) : AnyShapeStyle(Color.primary.opacity(0.07)))
+                                .fill(isOn ? tint : Color.primary.opacity(0.07))
                         }
                         .contentShape(Rectangle())
                 }
@@ -476,16 +466,17 @@ struct ShiftTextField: View {
 
 /// The app's primary button. Bolder and rounder than the stock one.
 struct ProminentButtonStyle: ButtonStyle {
-    var tint: Color = .accentColor
+    /// Coral by default. A flat fill, never a gradient.
+    var tint: Color?
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.callout.weight(.semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(tint == nil ? Paper.onCoral : .white)
             .padding(.horizontal, Theme.Space.base)
             .padding(.vertical, 8)
             .background {
-                Capsule(style: .continuous).fill(tint.gradient)
+                Capsule(style: .continuous).fill(tint ?? Paper.coral)
             }
             .opacity(configuration.isPressed ? 0.8 : 1)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)

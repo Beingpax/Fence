@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shift · Playful palettes</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #ececec; color: #1d1f1f; padding: 28px 32px 80px; -webkit-font-smoothing: antialiased;
+  }
+  body.dark { background: #0c0c0d; color: #ececec; }
+
+  /* ---------- Controls ---------- */
+  .bar {
+    position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+    padding: 12px 18px; margin: -28px -32px 28px; background: rgba(236,236,236,.88);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid rgba(0,0,0,.08);
+  }
+  body.dark .bar { background: rgba(12,12,13,.88); border-color: rgba(255,255,255,.08); }
+  .bar h1 { font-size: 15px; font-weight: 800; margin-right: 6px; }
+  .grp { display: flex; align-items: center; gap: 8px; }
+  .seg { display: inline-flex; background: rgba(0,0,0,.06); border-radius: 999px; padding: 3px; gap: 2px; }
+  body.dark .seg { background: rgba(255,255,255,.08); }
+  .seg button { font: inherit; font-size: 12px; font-weight: 700; border: 0; background: transparent; color: inherit; padding: 6px 12px; border-radius: 999px; cursor: pointer; opacity: .62; }
+  .seg button.on { background: #fff; opacity: 1; box-shadow: 0 1px 3px rgba(0,0,0,.14); color: #1d1f1f; }
+  body.dark .seg button.on { background: #2c2c2e; color: #f2f2f2; }
+  .label { font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; opacity: .5; }
+
+  /* ---------- Palette rows ---------- */
+  .row { margin-bottom: 46px; }
+  .row header { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
+  .row h2 { font-size: 21px; font-weight: 800; }
+  .chips { display: flex; gap: 5px; }
+  .chips span { width: 18px; height: 18px; border-radius: 6px; border: 1px solid rgba(0,0,0,.12); }
+  .row p.why { font-size: 13px; opacity: .72; max-width: 960px; margin-bottom: 14px; line-height: 1.45; }
+  .pick { margin-left: auto; font: inherit; font-size: 12px; font-weight: 800; border-radius: 999px; padding: 6px 14px; border: 1.5px solid currentColor; background: transparent; color: inherit; cursor: pointer; opacity: .7; }
+  .row.chosen .pick { opacity: 1; background: var(--accent); color: var(--on); border-color: var(--accent); }
+  .screens { display: grid; grid-template-columns: repeat(3, minmax(360px, 1fr)); gap: 18px; overflow-x: auto; padding-bottom: 6px; }
+
+  /* ---------- A window ---------- */
+  .win {
+    position: relative; height: 480px; border-radius: 16px; overflow: hidden; color: var(--ink);
+    background-color: var(--bg);
+    background-image: radial-gradient(var(--dot) 1px, transparent 1.2px); background-size: 16px 16px;
+    box-shadow: 0 20px 50px rgba(0,0,0,.16), 0 0 0 1px rgba(0,0,0,.1);
+  }
+  .lights { position: absolute; top: 11px; left: 12px; display: flex; gap: 6px; }
+  .lights i { width: 10px; height: 10px; border-radius: 50%; background: #ff5f57; }
+  .lights i:nth-child(2) { background: #febc2e; } .lights i:nth-child(3) { background: #28c840; }
+  .page { padding: 36px 26px 0; position: relative; }
+  .mascot { position: absolute; right: 20px; top: 22px; width: 58px; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 5px; font-size: 8.5px; font-weight: 800; letter-spacing: .1em; color: var(--accent-text); background: var(--soft); padding: 4px 9px; border-radius: 999px; text-transform: uppercase; }
+  .eyebrow svg { width: 9px; height: 9px; }
+  .title { font-size: 21px; font-weight: 800; margin: 8px 0 3px; letter-spacing: -.015em; }
+  .sub { font-size: 11px; color: var(--sub); margin-bottom: 14px; max-width: 250px; }
+  .card { background: var(--card); border: 1px solid var(--hair); border-radius: 15px; box-shadow: 0 3px 8px rgba(0,0,0,.035); }
+
+  /* distraction tiles */
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .tile { padding: 9px; min-height: 70px; display: flex; flex-direction: column; gap: 7px; position: relative; }
+  .tile .ic { width: 27px; height: 27px; border-radius: 50%; display: grid; place-items: center; background: var(--tile); color: var(--ink); }
+  .tile .ic svg { width: 13px; height: 13px; opacity: .8; }
+  .tile .name { font-size: 10.5px; font-weight: 700; }
+  .tile .chk { position: absolute; top: 9px; right: 9px; width: 15px; height: 15px; border-radius: 50%; border: 1.3px solid var(--hair2); }
+  .tile.sel .ic { background: var(--accent); color: var(--on); }
+  .tile.sel .ic svg { opacity: 1; }
+  .tile.sel .chk { border: 0; background: var(--accent); display: grid; place-items: center; }
+  .tile.sel .chk::after { content: ""; width: 6px; height: 3px; border-left: 1.7px solid var(--on); border-bottom: 1.7px solid var(--on); transform: rotate(-45deg) translate(1px, -1px); }
+  .s-outline .tile.sel { border: 2px solid var(--accent); padding: 8px; }
+  .s-soft .tile.sel { background: color-mix(in srgb, var(--accent) 12%, var(--card)); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+  /* rainbow: each distraction keeps its own colour */
+  .rainbow .tile .ic { background: color-mix(in srgb, var(--hue) 17%, var(--card)); color: var(--hue); }
+  .rainbow .tile .ic svg { opacity: 1; }
+  .rainbow .tile.sel .ic { background: var(--hue); color: #fff; }
+
+  /* permissions */
+  .perm { display: flex; align-items: center; gap: 11px; padding: 12px; margin-bottom: 8px; }
+  .perm .ptile { width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; background: var(--tile); color: var(--ink); flex: none; }
+  .perm .ptile svg { width: 16px; height: 16px; opacity: .78; }
+  .perm.done { border-color: color-mix(in srgb, var(--pop) 60%, transparent); }
+  .perm.done .ptile { background: var(--pop); color: var(--onpop); }
+  .perm.done .ptile svg { opacity: 1; }
+  .perm .t { font-size: 11.5px; font-weight: 800; }
+  .perm .d { font-size: 9.5px; color: var(--sub); margin-top: 2px; line-height: 1.35; }
+  .pill { margin-left: auto; flex: none; font-size: 9.5px; font-weight: 800; background: var(--accent); color: var(--on); padding: 6px 11px; border-radius: 999px; }
+  .note { display: flex; gap: 8px; align-items: center; font-size: 9.5px; color: var(--sub); margin-top: 10px; }
+  .note b { width: 22px; height: 22px; border-radius: 50%; background: var(--tile); display: grid; place-items: center; flex: none; }
+  .note b svg { width: 10px; height: 10px; opacity: .7; color: var(--ink); }
+
+  /* preview */
+  .night { position: relative; height: 136px; border-radius: 16px; overflow: hidden; display: grid; place-items: center; text-align: center; background: #1b1a18; border: 1px solid rgba(255,255,255,.1); color: #fff; }
+  .night::before { content: ""; position: absolute; inset: 0; opacity: .85;
+    background-image:
+      radial-gradient(1px 1px at 12% 22%, #fff6e8 50%, transparent 51%), radial-gradient(1px 1px at 30% 70%, #fff6e8 50%, transparent 51%),
+      radial-gradient(1.4px 1.4px at 48% 18%, #fff6e8 50%, transparent 51%), radial-gradient(1px 1px at 66% 80%, #fff6e8 50%, transparent 51%),
+      radial-gradient(1.2px 1.2px at 82% 30%, #fff6e8 50%, transparent 51%), radial-gradient(1px 1px at 90% 64%, #fff6e8 50%, transparent 51%),
+      radial-gradient(1px 1px at 20% 50%, #fff6e8 50%, transparent 51%), radial-gradient(1.3px 1.3px at 58% 52%, #fff6e8 50%, transparent 51%),
+      radial-gradient(1px 1px at 74% 12%, #fff6e8 50%, transparent 51%), radial-gradient(1px 1px at 6% 84%, #fff6e8 50%, transparent 51%); }
+  .night > div { position: relative; }
+  .night .q { font-size: 12.5px; font-weight: 700; margin-bottom: 8px; }
+  .mini { display: flex; gap: 4px; justify-content: center; margin-bottom: 9px; }
+  .mini span { font-size: 8.5px; font-weight: 700; padding: 4px 7px; border-radius: 999px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.16); }
+  .play { display: inline-block; font-size: 9.5px; font-weight: 800; background: #fff; color: #1a1c1c; padding: 6px 12px; border-radius: 999px; }
+  .journey { display: grid; grid-template-columns: 1fr 10px 1fr 10px 1fr; gap: 5px; margin-top: 12px; align-items: stretch; }
+  .journey .arrow { display: grid; place-items: center; font-size: 9px; color: var(--sub); opacity: .6; }
+  .step { padding: 10px; }
+  .step .n { width: 18px; height: 18px; border-radius: 50%; color: #fff; font-size: 9px; font-weight: 900; display: grid; place-items: center; background: var(--accent); color: var(--on); }
+  .rainbow .step:nth-of-type(1) .n { background: var(--h1); color: #fff; }
+  .rainbow .step:nth-of-type(2) .n { background: var(--h2); color: #fff; }
+  .rainbow .step:nth-of-type(3) .n { background: var(--h3); color: #fff; }
+  .step .t { font-size: 11px; font-weight: 800; margin: 7px 0 2px; }
+  .step .d { font-size: 9px; color: var(--sub); line-height: 1.35; }
+
+  /* footer */
+  .foot { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 8px; padding: 26px 22px 16px; background: linear-gradient(to bottom, transparent, var(--bg) 55%); }
+  .peb { display: flex; align-items: center; }
+  .peb i { width: 7px; height: 7px; border-radius: 50%; border: 1.3px solid var(--hair2); }
+  .peb i.d { background: var(--accent); border-color: var(--accent); }
+  .peb i.c { width: 11px; height: 11px; background: var(--accent); border-color: var(--accent); }
+  .peb u { width: 10px; height: 1.6px; background: var(--hair2); }
+  .peb u.d { background: var(--accent); }
+  .btn { font-size: 11px; font-weight: 800; padding: 8px 15px; border-radius: 999px; box-shadow: 0 6px 14px rgba(0,0,0,.14); }
+  .btn.p { background: var(--accent); color: var(--on); }
+  .btn.s { background: var(--card); color: var(--ink); border: 1px solid var(--hair); margin-left: auto; }
+  /* chunky: a soft 3D edge under every button */
+  .chunky .btn.p, .chunky .pill { box-shadow: 0 3px 0 var(--edge), 0 6px 14px rgba(0,0,0,.12); }
+  .chunky .btn.s { box-shadow: 0 3px 0 var(--hair2), 0 6px 14px rgba(0,0,0,.08); }
+  .chunky .tile.sel { box-shadow: 0 3px 0 color-mix(in srgb, var(--accent) 35%, transparent); }
+</style>
+</head>
+<body class="s-soft">
+  <div class="bar">
+    <h1>Shift · playful palettes</h1>
+    <div class="grp"><span class="label">Mode</span>
+      <div class="seg" id="mode"><button class="on" data-v="light">Light</button><button data-v="dark">Dark</button></div></div>
+    <div class="grp"><span class="label">Chosen tile</span>
+      <div class="seg" id="sel"><button data-v="s-outline">Outline</button><button class="on" data-v="s-soft">Soft fill</button><button data-v="s-quiet">Quiet</button></div></div>
+    <div class="grp"><span class="label">Icons</span>
+      <div class="seg" id="icons"><button class="on" data-v="mono">One colour</button><button data-v="rainbow">Rainbow</button></div></div>
+    <div class="grp"><span class="label">Buttons</span>
+      <div class="seg" id="buttons"><button class="on" data-v="flat">Flat</button><button data-v="chunky">Chunky</button></div></div>
+  </div>
+  <div id="rows"></div>
+
+<script>
+// Five playful directions. Each: a main colour (buttons, selection, progress), a "pop"
+// for done states, and six bright hues for rainbow icons. Marigold stays the mascot's.
+const palettes = [
+  { id: "sorbet", name: "Sorbet",
+    why: "Coral and mint on warm cream. Friendly and sunny, like a summer drink: coral leads, mint says “done”. Sits beside the mascot like family.",
+    light: { bg:"#FFF6EE", card:"#FFFFFF", ink:"#2B211E", sub:"#8B7A72", accent:"#FF6A55", on:"#FFFFFF", text:"#E2503C", pop:"#20BF8B", onpop:"#FFFFFF" },
+    dark:  { bg:"#1D1614", card:"#2B2220", ink:"#F8EDE7", sub:"#B9A79F", accent:"#FF8574", on:"#2B0C06", text:"#FF8F80", pop:"#45D9A6", onpop:"#06291C" },
+    hues: ["#FF6A55","#3AA0FF","#20BF8B","#F05A9D","#14B8C4","#FF8A3D"] },
+  { id: "berry", name: "Berry & Mint",
+    why: "A juicy raspberry pink with fresh mint. The boldest and most joyful; feels like a sticker sheet. Very un-corporate.",
+    light: { bg:"#FDF4F7", card:"#FFFFFF", ink:"#2A1820", sub:"#8D7380", accent:"#E5397A", on:"#FFFFFF", text:"#D02A69", pop:"#17B890", onpop:"#FFFFFF" },
+    dark:  { bg:"#1B1117", card:"#2A1C24", ink:"#FCEAF1", sub:"#BCA0AD", accent:"#FF6EA4", on:"#3A0820", text:"#FF86B3", pop:"#43DDB2", onpop:"#05291F" },
+    hues: ["#E5397A","#3A8DFF","#17B890","#FF7A45","#12B5C8","#F5A524"] },
+  { id: "lagoon", name: "Lagoon",
+    why: "A bright aqua with a peach pop on a cool, airy background. Fresh and clean like a swimming pool; the mascot's marigold stands out against it.",
+    light: { bg:"#EFF9F9", card:"#FFFFFF", ink:"#10292B", sub:"#5D7A7C", accent:"#00A3A3", on:"#FFFFFF", text:"#008585", pop:"#FF7F57", onpop:"#FFFFFF" },
+    dark:  { bg:"#0F1A1B", card:"#1C2A2B", ink:"#E3F4F4", sub:"#90AAAB", accent:"#33D1CC", on:"#022B2A", text:"#4ADAD5", pop:"#FF9A78", onpop:"#2E0E04" },
+    hues: ["#00A3A3","#FF7F57","#3A8DFF","#F05A9D","#20BF8B","#F5A524"] },
+  { id: "bubble", name: "Bubble Sky",
+    why: "A cheerful sky blue with a pink pop. Light and bouncy like a balloon; blue is the colour of calm, pink keeps it from feeling like a bank.",
+    light: { bg:"#EEF5FF", card:"#FFFFFF", ink:"#16203A", sub:"#66728C", accent:"#2F8CFF", on:"#FFFFFF", text:"#1F74E0", pop:"#FF5D9E", onpop:"#FFFFFF" },
+    dark:  { bg:"#0F1524", card:"#1B2336", ink:"#EAF1FF", sub:"#97A3BD", accent:"#5EA8FF", on:"#071A36", text:"#78B6FF", pop:"#FF7EB2", onpop:"#3A0820" },
+    hues: ["#2F8CFF","#FF5D9E","#20BF8B","#FF7A45","#14B8C4","#FF6A55"] },
+  { id: "tomato", name: "Tomato & Ink",
+    why: "One punchy tomato red-orange on crisp off-white with near-black type. Modern and graphic, like a print poster; the most confident of the five.",
+    light: { bg:"#FAF8F5", card:"#FFFFFF", ink:"#1A1A1A", sub:"#7A7570", accent:"#FF4F2E", on:"#FFFFFF", text:"#E83F1F", pop:"#1FB57A", onpop:"#FFFFFF" },
+    dark:  { bg:"#141312", card:"#232120", ink:"#F5F2EE", sub:"#AAA49E", accent:"#FF6B4D", on:"#2E0800", text:"#FF8066", pop:"#3FD497", onpop:"#03261A" },
+    hues: ["#FF4F2E","#2F8CFF","#1FB57A","#F05A9D","#14B8C4","#F5A524"] },
+];
+
+const icon = {
+  grid:'<svg viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5"/></svg>',
+  hand:'<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5a1 1 0 0 1 1 1V7h.5V3a1 1 0 0 1 2 0v5h.5V5a1 1 0 0 1 2 0v5.5A4.5 4.5 0 0 1 9.5 15h-1A5 5 0 0 1 4 12L2.2 8.6a1 1 0 0 1 1.7-1L5 9V3a1 1 0 0 1 2 0v4h.1V2.5a1 1 0 0 1 .9-1z"/></svg>',
+  spark:'<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1l1.6 4.4L14 7l-4.4 1.6L8 13l-1.6-4.4L2 7l4.4-1.6z"/></svg>',
+  cam:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2" y="4" width="12" height="9" rx="2"/><circle cx="8" cy="8.5" r="2.4"/><path d="M6 4l1-1.5h2L10 4"/></svg>',
+  note:'<svg viewBox="0 0 16 16" fill="currentColor"><path d="M11 1.5v8.3a2.3 2.3 0 1 1-1.5-2.1V4.2L6 5v6.3a2.3 2.3 0 1 1-1.5-2.1V3.5z"/></svg>',
+  chat:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 3h10v7H7l-3 3v-3H3z" stroke-linejoin="round"/></svg>',
+  play:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M7 6l3 2-3 2z" fill="currentColor"/></svg>',
+  case:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2" y="5" width="12" height="8" rx="1.5"/><path d="M6 5V3.5h4V5"/></svg>',
+  paper:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M5 6h6M5 9h6M5 11h3"/></svg>',
+  tv:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2" y="3.5" width="12" height="8" rx="1.5"/><path d="M6 14h4"/></svg>',
+  game:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="1.5" y="5" width="13" height="7" rx="3.5"/><path d="M5 7.2v2.6M3.7 8.5h2.6"/></svg>',
+  check:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-6.5"/></svg>',
+  safari:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8" cy="8" r="6"/><path d="M10.5 5.5L9 9 5.5 10.5 7 7z" fill="currentColor"/></svg>',
+  lock:'<svg viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="7" width="10" height="7" rx="1.6"/><path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>',
+};
+
+// A small flat stand-in for the mascot, in its real colours, so each palette is judged
+// beside it.
+const mascot = `<svg class="mascot" viewBox="0 0 80 74">
+  <line x1="40" y1="16" x2="40" y2="5" stroke="#3B1F11" stroke-width="2.4" stroke-linecap="round"/>
+  <circle cx="40" cy="5" r="6" fill="#FFD25A" opacity=".45"/><circle cx="40" cy="5" r="3.4" fill="#FFD25A" stroke="#3B1F11" stroke-width="1.6"/>
+  <circle cx="17" cy="24" r="7" fill="#FF9A8A" stroke="#3B1F11" stroke-width="2.4"/><circle cx="63" cy="24" r="7" fill="#FF9A8A" stroke="#3B1F11" stroke-width="2.4"/>
+  <rect x="12" y="15" width="56" height="54" rx="20" fill="#FFAD33" stroke="#3B1F11" stroke-width="2.6"/>
+  <ellipse cx="40" cy="55" rx="16" ry="10" fill="#FCE4C1" opacity=".9"/>
+  <ellipse cx="31" cy="36" rx="3.2" ry="4.2" fill="#3B1F11"/><ellipse cx="49" cy="36" rx="3.2" ry="4.2" fill="#3B1F11"/>
+  <circle cx="32" cy="34.6" r="1.1" fill="#fff"/><circle cx="50" cy="34.6" r="1.1" fill="#fff"/>
+  <ellipse cx="24" cy="44" rx="4" ry="2.4" fill="#FF8F8F" opacity=".55"/><ellipse cx="56" cy="44" rx="4" ry="2.4" fill="#FF8F8F" opacity=".55"/>
+  <path d="M34 44 Q40 50 46 44" fill="none" stroke="#3B1F11" stroke-width="2.2" stroke-linecap="round"/>
+</svg>`;
+
+function rgba(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`; }
+
+function vars(p, c, dark) {
+  return [
+    `--bg:${c.bg}`, `--card:${c.card}`, `--ink:${c.ink}`, `--sub:${c.sub}`,
+    `--accent:${c.accent}`, `--on:${c.on}`, `--accent-text:${c.text}`, `--pop:${c.pop}`, `--onpop:${c.onpop}`,
+    `--soft:${rgba(c.accent, dark ? .18 : .12)}`,
+    `--edge:color-mix(in srgb, ${c.accent} 68%, black)`,
+    `--hair:${dark ? "rgba(255,255,255,.13)" : "rgba(0,0,0,.08)"}`,
+    `--hair2:${dark ? "rgba(255,255,255,.22)" : "rgba(0,0,0,.18)"}`,
+    `--tile:${dark ? "rgba(255,255,255,.10)" : "rgba(0,0,0,.05)"}`,
+    `--dot:${dark ? "rgba(255,255,255,.05)" : "rgba(0,0,0,.05)"}`,
+    `--h1:${p.hues[0]}`, `--h2:${p.hues[1]}`, `--h3:${p.hues[2]}`,
+  ].join(";");
+}
+
+const foot = (at) => {
+  let p = "";
+  for (let i = 0; i < 5; i++) {
+    if (i) p += `<u class="${i <= at ? "d" : ""}"></u>`;
+    p += `<i class="${i < at ? "d" : i === at ? "c" : ""}"></i>`;
+  }
+  return `<div class="foot"><div class="peb">${p}</div><span class="btn s">‹ Back</span><span class="btn p">Continue →</span></div>`;
+};
+
+const tiles = [
+  ["Instagram","cam",1],["TikTok","note",1],["X / Twitter","chat",0],
+  ["YouTube Shorts","play",1],["The LinkedIn feed","case",0],["News and Hacker News","paper",0],
+  ["Netflix and streaming","tv",1],["Discord","chat",0],["Game launchers","game",0],
+];
+
+function screens(p) {
+  const grid = tiles.map(([n, i, s], k) =>
+    `<div class="card tile ${s ? "sel" : ""}" style="--hue:${p.hues[k % 6]}"><span class="chk"></span><span class="ic">${icon[i]}</span><span class="name">${n}</span></div>`).join("");
+  const top = `<div class="lights"><i></i><i></i><i></i></div>`;
+  const s1 = `<div class="win">${top}<div class="page">${mascot}
+      <span class="eyebrow">${icon.grid}Your distractions</span>
+      <div class="title">What steals your time?</div>
+      <div class="sub">Tap the ones you recognise. You can change any of this later.</div>
+      <div class="grid">${grid}</div></div>${foot(1)}</div>`;
+  const s2 = `<div class="win">${top}<div class="page">${mascot}
+      <span class="eyebrow">${icon.hand}Permissions</span>
+      <div class="title">Let Shift do its job</div>
+      <div class="sub">Two quick switches in System Settings. Nothing leaves this Mac.</div>
+      <div class="card perm done"><span class="ptile">${icon.check}</span><div><div class="t">Background blocking</div><div class="d">Allowed. Keeps your blocks active if you Force Quit Shift.</div></div></div>
+      <div class="card perm"><span class="ptile">${icon.safari}</span><div><div class="t">Device Control and Data Access</div><div class="d">Shift uses browser access to read addresses and close blocked tabs.</div></div><span class="pill">Open Settings</span></div>
+      <div class="note"><b>${icon.lock}</b>Nothing Shift reads is written to disk, and nothing leaves this Mac.</div>
+      </div>${foot(2)}</div>`;
+  const s3 = `<div class="win">${top}<div class="page">${mascot}
+      <span class="eyebrow">${icon.spark}Preview</span>
+      <div class="title">Here’s what a pause feels like</div>
+      <div class="sub">Try it once now, so the first real one isn’t a surprise.</div>
+      <div class="night"><div><div class="q">What’s pulling you here?</div>
+        <div class="mini"><span>I’m bored</span><span>This is hard</span><span>I’m drained</span></div>
+        <span class="play">▶ Preview the pause</span></div></div>
+      <div class="journey">
+        <div class="card step"><span class="n">1</span><div class="t">Breathe</div><div class="d">A short pause, before the page has loaded.</div></div><span class="arrow">→</span>
+        <div class="card step"><span class="n">2</span><div class="t">Name it</div><div class="d">One honest question about the pull.</div></div><span class="arrow">→</span>
+        <div class="card step"><span class="n">3</span><div class="t">Walk away</div><div class="d">Shift cheers. That’s the new habit forming.</div></div>
+      </div></div>${foot(3)}</div>`;
+  return s1 + s2 + s3;
+}
+
+let mode = "light", chosen = localStorage.getItem("shift.palette.playful") || "";
+
+function render() {
+  const dark = mode === "dark";
+  document.body.classList.toggle("dark", dark);
+  document.getElementById("rows").innerHTML = palettes.map(p => {
+    const c = dark ? p.dark : p.light;
+    return `<section class="row ${chosen === p.id ? "chosen" : ""}" style="${vars(p, c, dark)}">
+      <header><h2>${p.name}</h2>
+        <div class="chips"><span style="background:${c.bg}"></span><span style="background:${c.accent}"></span><span style="background:${c.pop}"></span>${p.hues.map(h => `<span style="background:${h};width:10px"></span>`).join("")}</div>
+        <button class="pick" data-id="${p.id}">${chosen === p.id ? "✓ Chosen" : "Choose this"}</button></header>
+      <p class="why">${p.why} <b>Main ${c.accent}</b> · pop ${c.pop} · background ${c.bg}</p>
+      <div class="screens">${screens(p)}</div></section>`;
+  }).join("");
+  document.querySelectorAll(".pick").forEach(b => b.onclick = () => {
+    chosen = b.dataset.id; localStorage.setItem("shift.palette.playful", chosen); render();
+  });
+}
+
+function seg(id, classes) {
+  const el = document.getElementById(id);
+  el.querySelectorAll("button").forEach(b => b.onclick = () => {
+    el.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+    if (id === "mode") { mode = b.dataset.v; render(); return; }
+    document.body.classList.remove(...classes);
+    document.body.classList.add(b.dataset.v);
+  });
+}
+seg("mode", []);
+seg("sel", ["s-outline", "s-soft", "s-quiet"]);
+seg("icons", ["mono", "rainbow"]);
+seg("buttons", ["flat", "chunky"]);
+render();
+</script>
+</body>
+</html>

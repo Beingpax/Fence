@@ -171,215 +171,6 @@ private struct Sidebar: View {
     }
 }
 
-// MARK: - Blocks
-
-struct BlocksView: View {
-    @Environment(AppModel.self) private var model
-    let onSelect: (Block) -> Void
-    let onAddBlock: () -> Void
-
-    private var subtitle: String {
-        let active = model.store.activeBlocks.count
-        let total = model.store.blocks.count
-        if active == 0 { return "\(total) block\(total == 1 ? "" : "s"), none active" }
-        return "\(active) of \(total) active right now"
-    }
-
-    var body: some View {
-        Group {
-            if model.store.blocks.isEmpty {
-                VStack(spacing: Theme.Space.base) {
-                    PageHeader("Blocks")
-                    EmptyBlocksView(onAddBlock: onAddBlock)
-                }
-                .mainPageInsets()
-            } else {
-                list
-            }
-        }
-    }
-
-    private var list: some View {
-        ScrollView {
-            LazyVStack(spacing: Theme.Space.snug) {
-                PageHeader("Blocks", subtitle: subtitle) {
-                    Button(action: onAddBlock) {
-                        Label("New block", systemImage: "plus")
-                            .font(.caption.weight(.semibold))
-                    }
-                    .buttonStyle(.shiftProminent)
-                }
-                .padding(.bottom, Theme.Space.tight)
-
-                ForEach(model.store.blocks) { block in
-                    BlockCard(
-                        block: block,
-                        onSelect: { onSelect(block) }
-                    )
-                }
-
-                Button(action: onAddBlock) {
-                    Label("Add a block", systemImage: "plus")
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, Theme.Space.base)
-                        // The whole dashed card is the button, not just its label.
-                        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
-                        .background {
-                            RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                                .strokeBorder(
-                                    Color.primary.opacity(0.14),
-                                    style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])
-                                )
-                        }
-                }
-                .buttonStyle(.plain)
-                .padding(.top, Theme.Space.tight)
-            }
-            .mainPageInsets()
-        }
-        .scrollBounceBehavior(.basedOnSize)
-    }
-}
-
-/// One block as a card: badge, name, what and when, lock state, and the switch.
-struct BlockCard: View {
-    @Environment(AppModel.self) private var model
-    let block: Block
-    let onSelect: () -> Void
-
-    @State private var showingLockedNotice = false
-
-    private var isActive: Bool { block.isActive() }
-    private var isLocked: Bool { block.isLocked() }
-
-    var body: some View {
-        HStack(spacing: Theme.Space.base) {
-            BlockBadge(symbol: block.symbol, tint: block.tint, size: 40)
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: Theme.Space.tight) {
-                    Text(block.name)
-                        .font(.system(.headline, design: .rounded))
-                    if isActive {
-                        StatusTag(text: "Active", tint: .green)
-                    }
-                    if block.breaks.isOnBreak() {
-                        StatusTag(text: "On a break", tint: .orange)
-                    }
-                }
-
-                Text(block.contentsSummary)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                HStack(spacing: Theme.Space.tight) {
-                    Label(block.scheduleSummary, systemImage: scheduleSymbol)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                    if isLocked, !block.requiresUnlockChallenge() {
-                        Label(block.lockStatus(), systemImage: "lock.fill")
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.orange)
-                    }
-                }
-                .labelStyle(.titleAndIcon)
-            }
-
-            Spacer(minLength: Theme.Space.snug)
-
-            ShiftSwitch(
-                isOn: .constant(block.isEnabled),
-                isLocked: isLocked,
-                action: { toggle(to: $0) }
-            )
-            .accessibilityLabel("\(block.name) enabled")
-            .disabled(block.canStartTimedRun)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
-        .glassSurface()
-        .contextMenu {
-            Button("Edit", action: onSelect)
-            Divider()
-            Button("Delete", role: .destructive) {
-                if !model.store.delete(id: block.id) { showingLockedNotice = true }
-            }
-            .disabled(isLocked)
-        }
-        .alert("“\(block.name)” is locked", isPresented: $showingLockedNotice) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(block.lockStatus())
-        }
-    }
-
-    private var scheduleSymbol: String {
-        switch block.schedule {
-        case .always: "infinity"
-        case .scheduled: "calendar"
-        case .manual: "play.circle"
-        }
-    }
-
-    private func toggle(to enabled: Bool) {
-        switch model.store.setEnabled(enabled, for: block.id) {
-        case .changed:
-            model.log("\(block.name) \(enabled ? "on" : "off")", symbol: enabled ? "shield.fill" : "shield.slash")
-        case .refusedLocked:
-            showingLockedNotice = true
-        case .needsRandomString:
-            model.requestBlockUnlock(id: block.id)
-        case .needsTimedStart:
-            break
-        }
-    }
-}
-
-struct StatusTag: View {
-    let text: String
-    let tint: Color
-
-    var body: some View {
-        Text(text)
-            .font(.caption2.weight(.bold))
-            .padding(.horizontal, 7)
-            .padding(.vertical, 2)
-            .background(tint.opacity(0.18), in: Capsule())
-            .foregroundStyle(tint)
-    }
-}
-
-// MARK: - Empty state
-
-private struct EmptyBlocksView: View {
-    let onAddBlock: () -> Void
-
-    var body: some View {
-        VStack(spacing: Theme.Space.base) {
-            BlockBadge(symbol: "shield.lefthalf.filled", tint: .indigo, size: 60)
-                .shadow(color: .indigo.opacity(0.25), radius: 16, y: 6)
-
-            VStack(spacing: Theme.Space.tight) {
-                Text("Create your first block")
-                    .font(.system(.title2, design: .rounded).weight(.bold))
-                Text("Choose which sites and apps to block.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 420)
-            }
-
-            Button(action: onAddBlock) {
-                Label("Add a block", systemImage: "plus")
-            }
-            .buttonStyle(.shiftProminent)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
 // MARK: - Random string unlock
 
 struct RandomStringUnlockView: View {
@@ -441,7 +232,7 @@ struct RandomStringUnlockView: View {
                 Button(action: attempt) {
                     Label("Unlock", systemImage: "lock.open")
                 }
-                .buttonStyle(.shiftProminent(tint))
+                .buttonStyle(.shiftProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(challenge.isEmpty)
             }
@@ -449,7 +240,7 @@ struct RandomStringUnlockView: View {
         .padding(Theme.Space.wide)
         .frame(width: 488)
         .background {
-            VisualEffect(surface: .window, blending: .behindWindow).ignoresSafeArea()
+            Paper.background.ignoresSafeArea()
         }
         .onAppear {
             if let code = model.store.createUnlockChallenge(for: block.id) {
@@ -525,7 +316,7 @@ struct RandomStringUnlockView: View {
                 ForEach(characters.indices, id: \.self) { index in
                     let isEntered = index < enteredCount
                     let isWrong = index == mismatch
-                    let tileColor: Color = isWrong ? .red : .green
+                    let tileColor: Color = isWrong ? .red : Paper.coral
                     let outline: Color = isWrong ? .red : (index == enteredCount ? tint : .clear)
                     Text(String(characters[index]))
                         .font(.system(size: 14, weight: .semibold, design: .monospaced))

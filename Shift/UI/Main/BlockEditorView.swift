@@ -38,24 +38,25 @@ struct BlockInspector: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: Theme.Space.snug) {
-                    identity
-                    websites
-                    Panel { apps }
-                    schedule
-                    breaks
-                    lock
-                }
-                .padding(Theme.Space.base)
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Space.snug) {
+                identity
+                websites
+                Panel { apps }
+                schedule
+                breaks
+                lock
             }
-            .scrollBounceBehavior(.basedOnSize)
-
-            Hairline()
-
-            footer
+            .padding(Theme.Space.base)
+            // Room for the floating buttons, so the last panel can scroll clear of them.
+            .padding(.bottom, 56)
         }
+        .scrollBounceBehavior(.basedOnSize)
+        // Floating buttons, not a footer bar: the same capsules as onboarding's Continue.
+        .overlay(alignment: .bottom) { footer }
+        // The editor keeps its original look: frosted glass cards with a hint of the
+        // block's colour, on the sidebar material. Only the buttons float.
+        .environment(\.usesGlassCards, true)
         .background {
             VisualEffect(surface: .sidebar, blending: .behindWindow).ignoresSafeArea()
         }
@@ -93,6 +94,9 @@ struct BlockInspector: View {
                 Label(savedBlock.lock.statusText(), systemImage: "lock.fill")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.regularMaterial, in: Capsule(style: .continuous))
             }
 
             Spacer(minLength: 0)
@@ -100,7 +104,7 @@ struct BlockInspector: View {
             if isLocked {
                 if canSave {
                     Button("Save", action: save)
-                        .buttonStyle(.shiftSoft)
+                        .buttonStyle(FloatingButtonStyle(isPrimary: false, compact: true))
                         .keyboardShortcut("s", modifiers: .command)
                 }
 
@@ -110,14 +114,13 @@ struct BlockInspector: View {
                     } label: {
                         Label("Unlock", systemImage: "lock.open")
                     }
-                    .buttonStyle(.shiftProminent(tint))
+                    .buttonStyle(FloatingButtonStyle(isPrimary: true, compact: true))
                 }
             } else {
                 Button("Save", action: save)
-                    .buttonStyle(.shiftProminent(tint))
-                    .disabled(!canSave)
-                    .opacity(canSave ? 1 : 0.45)
-                    .keyboardShortcut("s", modifiers: .command)
+                    .buttonStyle(FloatingButtonStyle(isPrimary: true, compact: true))
+                .disabled(!canSave)
+                .keyboardShortcut("s", modifiers: .command)
             }
         }
         .padding(Theme.Space.base)

@@ -16,8 +16,8 @@ struct BlockingPermissionRow: View {
     }
 
     var body: some View {
-        let feedback = self.feedback
-        let tint: Color = feedback.action == nil ? .green : .orange
+        let feedback = Self.feedback(for: permission, model: model)
+        let tint: Color = feedback.action == nil ? Paper.mint : .orange
         let content = row(detail: feedback.detail, action: feedback.action, tint: tint)
         if inPanel {
             content.padding(.vertical, 2)
@@ -32,7 +32,7 @@ struct BlockingPermissionRow: View {
                 .foregroundStyle(tint)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.callout.weight(.semibold))
+                Text(Self.title(for: permission)).font(.callout.weight(.semibold))
                 Text(detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -48,7 +48,8 @@ struct BlockingPermissionRow: View {
         .accessibilityElement(children: .contain)
     }
 
-    private var title: String {
+    /// Shared with onboarding, which draws the same status in its own design.
+    static func title(for permission: Permission) -> String {
         switch permission {
         case .browserAccess: PermissionsManager.BrowserAccessPane.current.rawValue
         case .backgroundBlocking: "Background blocking"
@@ -56,7 +57,12 @@ struct BlockingPermissionRow: View {
         }
     }
 
-    private var feedback: (detail: String, action: (title: String, perform: () -> Void)?) {
+    /// What to say about a permission, and the one action that fixes it (nil when it's fine).
+    /// Shared with onboarding, which draws the same status in its own design.
+    static func feedback(
+        for permission: Permission,
+        model: AppModel
+    ) -> (detail: String, action: (title: String, perform: () -> Void)?) {
         switch permission {
         case .browserAccess:
             if !model.browserAccessNeedsAttention {
@@ -77,7 +83,8 @@ struct BlockingPermissionRow: View {
             case .requiresApproval:
                 return ("Turn on Shift under App Background Activity to keep your blocks active after Force Quit.",
                         ("Open Login Items", model.enableBackgroundBlocking))
-            case .notRegistered where !model.backgroundRegistrationFailed:
+            case .notRegistered where !model.backgroundRegistrationFailed,
+                 .notFound where !model.backgroundRegistrationFailed:
                 return ("Enable this to keep your blocks active if you Force Quit Shift.",
                         ("Enable background blocking", model.enableBackgroundBlocking))
             default:

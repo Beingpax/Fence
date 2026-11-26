@@ -54,41 +54,64 @@ struct VisualEffect: NSViewRepresentable {
 
 // MARK: - Card surfaces
 
-/// The standard raised surface. Glass, a hairline, and a continuous corner radius.
+/// The standard raised surface: a warm paper card, a hairline, and a continuous corner
+/// radius. `tint` is accepted for older call sites but no longer colours the card.
 struct GlassSurface: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.usesGlassCards) private var usesGlassCards
 
     var radius: CGFloat = Theme.Radius.card
     var padding: CGFloat? = Theme.Space.base
     var tint: Color?
     var isSelected: Bool = false
 
+    @ViewBuilder
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        return content
-            .padding(padding ?? 0)
-            .background {
-                if reduceTransparency {
-                    shape.fill(Color(nsColor: .controlBackgroundColor))
-                } else {
-                    shape.fill(.ultraThinMaterial)
+        if usesGlassCards {
+            // The block editor's original look, unchanged from before the redesign:
+            // frosted glass with a whisper of the block's colour.
+            content
+                .padding(padding ?? 0)
+                .background {
+                    if reduceTransparency {
+                        shape.fill(Color(nsColor: .controlBackgroundColor))
+                    } else {
+                        shape.fill(.ultraThinMaterial)
+                    }
                 }
-            }
-            .background {
-                // A whisper of the block's colour, so cards feel owned without shouting.
-                if let tint {
-                    shape.fill(tint.opacity(isSelected ? 0.16 : 0.07))
+                .background {
+                    if let tint {
+                        shape.fill(tint.opacity(isSelected ? 0.16 : 0.07))
+                    }
                 }
-            }
-            .overlay {
-                shape.strokeBorder(
-                    isSelected
-                        ? (tint ?? Color.accentColor).opacity(0.55)
-                        : Color.primary.opacity(0.08),
-                    lineWidth: isSelected ? 1.5 : 1
-                )
-            }
+                .overlay {
+                    shape.strokeBorder(
+                        isSelected
+                            ? (tint ?? Color.accentColor).opacity(0.55)
+                            : Color.primary.opacity(0.08),
+                        lineWidth: isSelected ? 1.5 : 1
+                    )
+                }
+        } else {
+            content
+                .padding(padding ?? 0)
+                // A plain warm card. No tinted wash: coloured card fills were the most
+                // generic-looking thing in the app.
+                .background(shape.fill(Paper.card))
+                .overlay {
+                    shape.strokeBorder(
+                        isSelected ? Paper.coral : Paper.hairline,
+                        lineWidth: isSelected ? 1.5 : 1
+                    )
+                }
+        }
     }
+}
+
+extension EnvironmentValues {
+    /// Set by the block editor, which keeps the original frosted glass cards.
+    @Entry var usesGlassCards = false
 }
 
 extension View {

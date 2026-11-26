@@ -101,6 +101,11 @@ final class AppModel {
     @ObservationIgnored private var engineTimer: Timer?
     @ObservationIgnored private var activationObserver: NSObjectProtocol?
     @ObservationIgnored private var tickCount = 0
+    /// The handshake file as this process last wrote it. See `syncLockProtections`.
+    @ObservationIgnored private var savedGuardState: GuardState?
+    @ObservationIgnored private var guardStateLoaded = false
+    /// Unknown until the first tick sets it, so the first tick always applies it.
+    @ObservationIgnored private var ignoresSIGTERM: Bool?
 
     @ObservationIgnored private var lastNudgeSignature: String?
     @ObservationIgnored private var lastNudgeAt = Date.distantPast
@@ -161,6 +166,7 @@ final class AppModel {
     func applicationWillTerminate() {
         if canQuitApp {
             GuardState.clear()
+            savedGuardState = nil
             if WatchdogService.hasConfiguration { WatchdogService.remove() }
         }
         for observer in serviceObservers { DistributedNotificationCenter.default().removeObserver(observer) }
@@ -219,6 +225,9 @@ final class AppModel {
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.engineTick() }
         }
+        // Both processes tick all day. A little slack lets macOS fold these wake-ups into
+        // ones it was making anyway, and a schedule still starts within about a second.
+        timer.tolerance = 0.1
         RunLoop.main.add(timer, forMode: .common)
         engineTimer = timer
         engineTick()
@@ -475,7 +484,7 @@ final class AppModel {
                         pauseBlockingAfterCloseAttempt(pid: pid, seconds: 5)
                         showManualTabClose()
                     case .targetUnavailable:
-                        nudgeHUD.status(headline: "Couldn’t close the tab.", detail: "Shift couldn’t confirm the blocked tab was active.")
+                        nudgeHUD.status(headline: "Couldn’t close the tab.", detail: "Shift couldn’t confirm the blocked tab was active.", mood: .sorry)
                         monitor.resampleSoon()
                     }
                 }
@@ -504,7 +513,7 @@ final class AppModel {
                   verdict.ruleTarget == request.ruleTarget, let reachKey = reachKey(for: verdict),
                   store.spendBreak(id: blockID) else {
                 monitor.resampleSoon()
-                nudgeHUD.status(headline: "Break didn’t start.", detail: "Access is no longer available for \(request.blockedTarget).")
+                nudgeHUD.status(headline: "Break didn’t start.", detail: "Access is no longer available for \(request.blockedTarget).", mood: .sorry)
                 return
             }
 
@@ -534,7 +543,7 @@ final class AppModel {
 
     private func showManualTabClose() {
         let path = PermissionsManager.BrowserAccessPane.current.settingsPath
-        nudgeHUD.status(headline: "Close the tab manually.", detail: "Review Shift’s browser access in \(path).")
+        nudgeHUD.status(headline: "Close the tab manually.", detail: "Review Shift’s browser access in \(path).", mood: .sorry)
     }
 
     private func pauseBlockingAfterCloseAttempt(pid: pid_t, seconds: TimeInterval = 1.5) {
@@ -598,23 +607,36 @@ final class AppModel {
     /// Keeps SIGTERM handling, the watchdog and the handshake file in step with whether
     /// any block is currently locked.
     private func syncLockProtections(agentReady: Bool) {
-        signal(SIGTERM, canQuitApp ? SIG_DFL : SIG_IGN)
+        if ignoresSIGTERM != !canQuitApp {
+            ignoresSIGTERM = !canQuitApp
+            signal(SIGTERM, canQuitApp ? SIG_DFL : SIG_IGN)
+        }
 
-        let guardState = GuardState.load()
+        // Only this process writes the handshake, so remember it rather than reading and
+        // decoding the file on every tick. Read once, to clear one left by a crash.
+        if !guardStateLoaded {
+            savedGuardState = GuardState.load()
+            guardStateLoaded = true
+        }
         guard let deadline = store.lockedUntil else {
-            if guardState != nil { GuardState.clear() }
+            if savedGuardState != nil {
+                GuardState.clear()
+                savedGuardState = nil
+            }
             if WatchdogService.hasConfiguration { WatchdogService.remove() }
             return
         }
 
         let names = store.lockedBlocks.filter(\.isEnabled).map(\.name).joined(separator: ", ")
-        if guardState?.lockedUntil != deadline || guardState?.goal != names || tickCount % 10 == 0 {
-            GuardState(
+        if savedGuardState?.lockedUntil != deadline || savedGuardState?.goal != names || tickCount % 10 == 0 {
+            let state = GuardState(
                 lockedUntil: deadline,
                 bundlePath: Bundle.main.bundleURL.path,
                 goal: names,
                 heartbeat: Date()
-            ).save()
+            )
+            state.save()
+            savedGuardState = state
         }
         if agentReady, WatchdogService.hasConfiguration { WatchdogService.remove() }
     }
@@ -660,6 +682,8 @@ final class AppModel {
 
     // MARK: Windows
 
+    /// Shows a window: setup on first launch, the main window after it. Called at every
+    /// launch and reopen, so a menu bar app never starts with nothing on screen.
     func openApp() {
         if !hasCompletedOnboarding || onboarding.isShowing {
             presentOnboarding()
@@ -689,6 +713,9 @@ final class AppModel {
         refreshSystemState()
         onboarding.present(model: self)
     }
+
+    /// Closing setup with its close button only orders the window out, so its views live on.
+    var isOnboardingVisible: Bool { onboarding.isShowing }
 
     func completeOnboarding(with block: Block) -> Bool {
         refreshBackgroundServiceStatus()
@@ -723,6 +750,7 @@ final class AppModel {
         if postEvents != keyboardEventsGranted { keyboardEventsGranted = postEvents }
         let accessibility = PermissionsManager.isAccessibilityTrusted
         if accessibility != accessibilityGranted {
+            Self.log.notice("Accessibility changed: \(accessibility, privacy: .public)")
             accessibilityGranted = accessibility
             monitor.invalidate()
             monitor.resampleSoon()

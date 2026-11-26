@@ -30,28 +30,20 @@ enum Theme {
 
     /// The menu bar popover width. Matches the HIG guidance to keep menu bar extras narrow.
     static let menuWidth: CGFloat = 352
-    static let onboardingSize = CGSize(width: 680, height: 560)
+    static let onboardingSize = CGSize(width: 880, height: 720)
 
     static let mainWindowSize = CGSize(width: 1040, height: 680)
 
     /// Behind the whole window, including under the sidebar's rounded trailing corners.
-    static let workspaceBackground = Color(nsColor: NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .black : .white
-    })
+    static let workspaceBackground = Paper.background
 
-    /// The content area beside the sidebar. Slightly off-white so glass cards read.
-    static let detailBackground = Color(nsColor: NSColor(name: nil) { appearance in
-        if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
-            NSColor(srgbRed: 20 / 255, green: 21 / 255, blue: 24 / 255, alpha: 1)
-        } else {
-            NSColor(srgbRed: 239 / 255, green: 241 / 255, blue: 244 / 255, alpha: 1)
-        }
-    })
+    /// The content area beside the sidebar. Warm paper, so white cards read on it.
+    static let detailBackground = Paper.background
 
     /// Verdict colours. Deliberately desaturated so the UI stays calm; the pause is the one full-screen surface.
     static func tint(for kind: Verdict.Kind) -> Color {
         switch kind {
-        case .allow: .green
+        case .allow: .secondary
         case .nudge: .orange
         case .block: .red
         }
@@ -209,12 +201,145 @@ struct BlockBadge: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-            .fill(tint.color.gradient)
+            .fill(tint.color)
             .frame(width: size, height: size)
             .overlay {
                 Image(systemName: symbol)
                     .font(.system(size: size * 0.46, weight: .semibold))
                     .foregroundStyle(.white)
+            }
+            .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Palette
+
+/// Shift's palette, "Sorbet": coral and mint on warm cream. Chosen by the user on
+/// 25 Nov 2026 from `Studies/palette-compare.html` as the most playful, friendly option,
+/// and the one that sits beside the mascot like family.
+///
+/// Rules:
+/// - **Coral** is the main colour: primary buttons, selection, progress, tags and badges.
+/// - **Mint** means done: an allowed permission, an active block. Nothing else.
+/// - **Neutrals** carry everything else: cream background, white cards, warm near-black text.
+/// - **Marigold belongs to the mascot alone** (`MascotPalette`). It isn't in this palette.
+/// - The **system accent colour** is only for controls you switch or pick with.
+/// - Two colours, not a rainbow. No gradients on fills, no tinted washes behind whole cards.
+///
+/// In light mode the fills are a shade deeper than the swatches in the study, so white
+/// text and glyphs on them keep enough contrast.
+enum Paper {
+    // Dark mode needs a wider step between background and card than light mode does:
+    // shadows don't read on a dark background, so the step itself has to carry the depth.
+    static let background = dynamic(
+        light: (255, 246, 238),
+        dark: (29, 22, 20)
+    )
+    static let card = dynamic(
+        light: (255, 255, 255),
+        dark: (43, 34, 32)
+    )
+    /// Body text and strong neutral marks. A warm near-black.
+    static let ink = dynamic(
+        light: (43, 33, 30),
+        dark: (248, 237, 231)
+    )
+    /// Text on an ink fill.
+    static let onInk = dynamic(
+        light: (255, 250, 246),
+        dark: (29, 22, 20)
+    )
+    /// The main colour. #F4573F in light mode (study swatch #FF6A55), #FF8574 in dark.
+    static let coral = dynamic(
+        light: (244, 87, 63),
+        dark: (255, 133, 116)
+    )
+    /// Text and glyphs on a coral fill.
+    static let onCoral = dynamic(
+        light: (255, 255, 255),
+        dark: (43, 12, 6)
+    )
+    /// Coral as small text on cream, such as the step label. Deeper, so it reads.
+    static let coralText = dynamic(
+        light: (214, 72, 52),
+        dark: (255, 143, 128)
+    )
+    /// A whisper of coral, only behind small things like the step label.
+    static let coralSoft = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(srgbRed: 255 / 255, green: 133 / 255, blue: 116 / 255, alpha: 0.18)
+            : NSColor(srgbRed: 255 / 255, green: 106 / 255, blue: 85 / 255, alpha: 0.12)
+    })
+    /// Done. #17A877 in light mode (study swatch #20BF8B), #45D9A6 in dark.
+    static let mint = dynamic(
+        light: (23, 168, 119),
+        dark: (69, 217, 166)
+    )
+    /// Text and glyphs on a mint fill.
+    static let onMint = dynamic(
+        light: (255, 255, 255),
+        dark: (6, 41, 28)
+    )
+    /// Behind a neutral icon: a soft tile that reads on a card in both appearances.
+    static let tile = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor.white.withAlphaComponent(0.10)
+            : NSColor.black.withAlphaComponent(0.05)
+    })
+    /// Card and field outlines. Stronger in dark mode, where it does more of the work.
+    static let hairline = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor.white.withAlphaComponent(0.13)
+            : NSColor.black.withAlphaComponent(0.09)
+    })
+
+    static func dynamic(light: (Int, Int, Int), dark: (Int, Int, Int)) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let rgb = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+            return NSColor(
+                srgbRed: CGFloat(rgb.0) / 255,
+                green: CGFloat(rgb.1) / 255,
+                blue: CGFloat(rgb.2) / 255,
+                alpha: 1
+            )
+        })
+    }
+}
+
+/// Flat badge fills. Each pairs a solid fill with a glyph colour that reads on it.
+enum Swatch {
+    case coral, mint, stone
+
+    var fill: Color {
+        switch self {
+        case .coral: Paper.coral
+        case .mint: Paper.mint
+        case .stone: Paper.tile
+        }
+    }
+
+    var glyph: Color {
+        switch self {
+        case .coral: Paper.onCoral
+        case .mint: Paper.onMint
+        case .stone: Paper.ink.opacity(0.7)
+        }
+    }
+}
+
+struct FlatBadge: View {
+    let symbol: String
+    let swatch: Swatch
+    var size: CGFloat = 34
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
+            .fill(swatch.fill)
+            .frame(width: size, height: size)
+            .overlay {
+                Image(systemName: symbol)
+                    .font(.system(size: size * 0.44, weight: .semibold))
+                    .foregroundStyle(swatch.glyph)
             }
             .accessibilityHidden(true)
     }

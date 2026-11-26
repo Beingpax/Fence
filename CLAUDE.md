@@ -22,6 +22,80 @@ Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (br
 - **Runtime verification is still thin.** The app launches and stays up, and the schedule
   and lock maths have standalone tests (`./Tools/run-block-tests.sh`, 22 assertions). The
   UI flows have not been walked through by hand.
+- **Onboarding was redesigned on 25 Nov 2026** to be cleaner and more playful, with no
+  stock controls: everything in `UI/Onboarding/OnboardingView.swift` is drawn by hand
+  (progress pebbles, coral step labels, tap-to-pick tiles with a popping check,
+  capsule fields, ink tag pills, permission cards, a twinkling pause preview, lock tiles,
+  app chips, a custom switch, bouncing loading dots, squishy buttons). The window is
+  880×720 with floating Back/Continue buttons and no footer bar. Each lock option shows
+  its own settings under the tiles (duration chips, a time chooser with quick picks, the
+  typing-challenge length), and they are saved into the new block. The mascot peeks over the
+  welcome card (calm) and over the name card on the last step (happy). Pages slide in the
+  direction of travel. Permission wording comes from `BlockingPermissionRow.feedback`, so
+  onboarding and Settings never disagree. Not yet built or seen running.
+- **Settings follows macOS's own settings layout** (rebuilt 26 Nov 2026, after the user
+  found the playful version badly spaced). Titled groups (General, Nudges, Previews, How
+  blocking works, Setup) of rows on white rounded cards with inset hairline dividers;
+  13 pt text, rows about 38 pt tall, mini system switches, small push buttons; spacing in
+  `SettingsMetrics` (groups 22 apart, title to card 7, rows 12 by 9). No mascot.
+  **Permissions appear only while one still needs doing**, in a "Needs your attention"
+  group at the top; allowed ones aren't listed at all. Explanations are hover tooltips.
+  The shared playful pieces (`PlayType`, `paperCard`, `MascotCard`, `PaperSwitch`,
+  `SquishButtonStyle`, `PillButtonStyle`, `PlayRhythm`, `RowDivider`, `PermissionLine`,
+  `FloatingButtonStyle`) live in `UI/Design/Playful.swift`.
+- **The Dashboard is "your day"** (26 Nov 2026; the user rejected the earlier greeting
+  and stat-card version and asked for a different idea, not a restyle). Every block is
+  a lane on a midnight-to-midnight ribbon: coral outline where it will guard you, faded
+  once done, dashed while switched off, solid coral while on now. **The mascot sits on the
+  ribbon at the current time**, peeking over the card's top edge and holding on, and
+  moves along through the day with a coral "now" line falling from its hands. A speech
+  bubble beside it says one sentence about right now, on whichever side has room.
+  Above: the date in coral small caps and a greeting (the user loves this header), and
+  "New block". No "Preview a pause" button here: the user removed it. Below: fact pills
+  (times paused, last pause, next start) and the legend. Missing permissions sit in a card
+  above the ribbon, and the mascot turns curious. `DayPlan` works out today's spans
+  (overnight windows split across days). Redraws once a minute (`TimelineView(.everyMinute)`).
+  The user has seen it running and loves it.
+- **The Blocks page is one calm list** (26 Nov 2026, `UI/Main/BlocksView.swift`). Same
+  header voice as the Dashboard (coral small caps such as "1 OF 3 ON RIGHT NOW", then
+  "Your blocks", New block). Every block is a row in a single paper card, **in the user's
+  own order so rows never jump when toggled**: icon (coral while on), name with a lock
+  glyph if locked, a status ("On until 5:00 PM" in mint, "Starts
+  9:00 PM", "Tomorrow 9:00 AM", "Off", a coral lock line) and the switch. **Timed blocks
+  get a Start menu (25/50/90 min) instead of a switch.** Click a row to edit; right-click
+  for Edit, timed runs and Delete. A card grid with sticker stacks and week strips came
+  first and was rejected the same day as busy and glitchy to scroll, so keep this page
+  free of lazy grids, entrance or looping animations and hover scaling; only each row's
+  status follows the clock. **Rows hold only the main things**: no list of apps and
+  sites, no schedule line and no hint text (the user asked; the editor has the details).
+  Not yet built or seen running.
+- **The sidebar is Shift's own and stays exactly as on `main`** (26 Nov 2026, the user's
+  call after it was changed twice): a Liquid Glass panel (`.glassEffect(.regular)`) pinned to
+  the window's leading edge, full height, with only its trailing corners rounded; the
+  selected row uses `unemphasizedSelectedContentBackgroundColor`; section tiles are system
+  orange, indigo and gray; the count badge is the accent colour. It is an exception to the
+  palette rules. Don't flatten it to cream, swap it for `NSVisualEffectView` materials, or
+  float it inset like the system sidebar.
+- **The block editor keeps its `main` look; only its buttons float** (26 Nov 2026, the
+  user's call). The sliding panel is the original glass (tinted 28% window background,
+  pinned to the trailing edge, leading corners rounded), the editor sits on the `.sidebar`
+  material, and its cards use the original frosted glass with a whisper of the block's
+  colour: `GlassSurface` switches to that look when `\.usesGlassCards` is set, which only the
+  editor does. Save and Unlock float as `FloatingButtonStyle(compact: true)` capsules with
+  no footer bar: the same size as `main`'s buttons (13 pt semibold, 14 by 8 padding,
+  text only), not onboarding's larger Continue.
+- **No description lines under titles** in Settings and the Dashboard (26 Nov 2026, the
+  user's call). Rows, sections and tiles show their title only; any explanation moves to a
+  hover tooltip (`.help`). Exceptions: a permission that still needs fixing keeps its one
+  instruction line; the How blocking works steps are the content itself; the Dashboard's
+  live status line under the greeting stays. Onboarding keeps its subtitles; it's a
+  guided first run.
+- **The block editor's Save floats** over the panel as the same capsule as onboarding's
+  Continue (`FloatingButtonStyle`, in `UI/Design/Playful.swift`), with no footer bar. Shared page pieces (`PlayHero`, `PlaySection`, `PlayRhythm`,
+  `RowDivider`, `SwitchLine`, `ActionLine`, `PermissionLine`, `SoftPillButtonStyle`) are in
+  `UI/Design/Playful.swift`. Not yet built or seen running.
+- **The nudge mascot is new** as of 25 Nov 2026 (see "The mascot" under product
+  decisions). The card moved to the bottom right. Not yet watched in the running app.
 - Built: main window (Dashboard, Blocks, Activity), block editor, menu bar popover,
   the full-screen pause with time-of-day wallpapers, reward and hint HUD, onboarding, launch at login,
   watchdog pair, and quit and Trash protection.
@@ -125,44 +199,49 @@ Rules that are easy to get wrong, and are covered by the tests:
   made the popover grow the moment Shift started watching, and the mark read as a stray
   blue bar beside the block's name. The switch and the status line say enough. Don't add
   anything to the popover that appears only while a block is on.
+- **The popover never shows warnings** (25 Nov 2026, at the user's request). Permission
+  problems such as browser access appear only in the main window: the Dashboard and
+  Settings. Don't put a warning, banner or "Review…" row back in the popover.
+- **Launch always puts a window on screen**: setup on first launch, the main window after
+  it (`AppModel.openApp`). `presentForUser` calls `orderFrontRegardless()` because
+  `NSApp.activate()` is cooperative and lost to whatever app was in front.
+- **Closing the main window frees it** (25 Nov 2026, at the user's request).
+  `MainWindowController` drops the window and its view tree on close and builds a fresh
+  one on the next open, keeping the last frame for the session. An unsaved inspector edit
+  is lost on close; `newBlock` and `unlockTarget` are cleared with it.
+- **Views read `BlockStore.activeBlockIDs`, not `block.isActive()`.** A schedule opening
+  or closing edits nothing, so views reading only `blocks` stayed stale (the menu bar count
+  among them). The set is refreshed on every change and every engine tick. The engine
+  still uses `activeBlocks`, which asks the clock directly.
 - **Blocks, not sessions.** A timer can't express "never Instagram" or "no games on
   weeknights". The old `FocusSession`, `BlockRules` and `Strictness` types are gone.
 - **Locking and friction are different things.** The lock decides whether the switch works.
   Friction decides what the pause does when you hit it. Don't merge them.
 - **The app icon is generated, not drawn by hand.** `Tools/make-icon.swift` renders every size and rewrites the appiconset's `Contents.json`. Edit the script, not the PNGs.
-- **The nudge character is Flop, an invented creature, drawn in code.**
-  `UI/NudgeCharacterView.swift` renders it in one `Canvas` pass driven by one clock. No
-  image assets, no 3D, no dependency: crisp at any size, kilobytes instead of megabytes,
-  and it can blink.
-  - **The ears carry the escalation**, in pure silhouette: perked and fluttering, one
-    cocked back, then both pinned flat out. You can read the rung from the corner of your
-    eye without resolving a single facial feature. If you change one thing about the
-    expressions, change `earAngle`. Everything else only confirms what the ears said.
-  - **The dark outline is load-bearing.** A tinted `ink` stroke around every shape is the
-    whole difference between a designed mascot and a gradient blob with eyes on it. Each
-    mood carries its own ink — one black outline across all three reads as a printed
-    sticker. Don't remove it.
-  - **A being, not an object, and invented rather than real.** Both halves were tested the
-    long way: rendered 3D art of a boy, a hand-drawn boy, a cat, then a run of faceless
-    objects (plant, gauge, lock, candle). The boy fell into the uncanny valley; the objects
-    stopped being someone you could feel anything about. Don't "improve" it toward realism
-    and don't swap the creature for a thing.
-  - Idle motion is not decoration, and **every mood gets all of it**: the bob, the sway,
-    an ear flutter, a jittered blink (roughly every third a quick double), and eye
-    saccades on top of the slow pupil drift. Eyes that only glide look painted on; a real
-    one snaps somewhere and holds. Both the blink and the saccade intervals are jittered
-    on purpose — fixed ones read as a metronome.
-  - The HUD sits **top right, under the menu bar**, where macOS already puts things that
-    want attention without taking it. **Flop stands to the left of the card, and the card's
-    top edge sits on the tips of his ears**, with his feet hanging below it. The row aligns
-    on `NudgeCharacterView.earTopInset()`, not on his frame: the frame keeps empty air above
-    the ears for the flutter, so aligning on it put the card level with nothing. The top
-    padding gives back what the ears take, which keeps the card under the menu bar where a
-    banner sits. The pair **arrives and leaves exactly like a notification banner**: in from beyond the right edge, and back out the same way when it is dismissed
-    or times out. The card never simply vanishes in place. The panel itself no longer
-    fades; the SwiftUI card owns both halves of the movement, and `NudgeHUDView.isLeaving`
-    is how the controller starts the exit (a new root view, so the slide-out animates
-    without a shared observable). Under Reduce Motion both ends become a cross-fade.
+- **The mascot replaced Flop on 25 Nov 2026.** It is the "Classic" creature from the HTML
+  studies (`Studies/mascot-compare.html`): a marigold (`#ffad33`) soft-rectangle body with round
+  ears, an ink outline, white mitten hands and an antenna. `UI/MascotView.swift` draws it in one
+  `Canvas`, no image assets. It has no name in the UI; copy says "Shift".
+  - **Chosen over a glossy 3D direction.** The user compared both side by side (standing,
+    peeking over the card, beside the card) and picked the flat cartoon. Don't swap it for
+    shaded 3D or bring Flop back without asking.
+  - **The antenna bulb carries the mood**, readable from the corner of the eye: warm at
+    rest, teal when curious (the drift hint), bright when you turn back, amber when
+    something failed. `MascotMood` has exactly the four moods the HUD uses: `calm`,
+    `curious`, `happy`, `sorry`. The studies hold sixteen more; add one only when a real
+    moment needs it.
+  - **It peeks over the card and holds its edge.** The view draws twice: `.body` behind the
+    card, clipped at the card's top edge so it can rise from behind glass without showing
+    through, and `.hands` in front of it. Both layers share one `start` date so they move on
+    one clock. The happy mood waves one hand; sorry shrugs with both.
+  - **Motion is the original gentle idle**: breathing, a slow sway, jittered blinks with
+    the odd double, quick glances that snap and hold. Two attempts at richer per-mood hand
+    choreography (continuous oscillation, then keyframed beats) were rejected by the user
+    as worse. Don't add gesture animation without asking.
+  - The card sits **bottom right, above the Dock**, at the user's request. It slides in
+    from beyond the right edge like a banner, then the mascot pops up from behind it and
+    takes hold of the edge; it leaves the same way. Under Reduce Motion everything is a
+    cross-fade and the mascot holds still.
   - **Three sounds** (`Enforcement/NudgeSound.swift`, `Resources/Sounds/`): `pause` (a soft
     singing-bowl chime, an invitation, never an alarm), `reward` (a bright rising glass bell
     when you turn back) and `shield.m4a`, played by `playDeep()` (a calm deep chord in place
@@ -185,7 +264,13 @@ Rules that are easy to get wrong, and are covered by the tests:
   - **The backdrop is a real photograph that follows the clock** (`PauseBackdrop`,
     `DayPeriod`): green landscapes at sunrise (05–09), late morning (09–13), afternoon
     savanna (13–17), sunset (17–20:30) and the Milky Way at night. All Unsplash License, see
-    `CREDITS.md`. Green land, not desert: the user rejected dunes. A hand-rolled gradient
+    `CREDITS.md`. Files are **2560×1440 JPEG XL** (`cjxl -d 1.0 -e 9`, SSIMULACRA2
+    ≥ 85.8, 7.6 MB for all 20; the 4K originals were 31.8 MB). The photos were generated and
+    upscaled, so nothing real lives above 2560 px. Chosen on 26 Nov 2026 over JPEG (about 2×
+    the size), AVIF (15–20% bigger) and HEIC/WebP (bigger and worse), and because ImageIO
+    decodes JXL in about 30 ms cold against 110–150 ms for AVIF and HEIC; that decode delays
+    the pause. Originals are in git history before that date. `PauseWallpaper` decodes each
+    photo once, no larger than the biggest display needs. Green land, not desert: the user rejected dunes. A hand-rolled gradient
     always looks hand-rolled at this size, and matching the light outside makes the pause
     feel like a window, not a wall. Each period has its own scrim, heavier for bright
     daylight, so white type always reads (tuned by measuring each photo where the title
@@ -206,6 +291,11 @@ Rules that are easy to get wrong, and are covered by the tests:
 - **Socket-level network filtering is hostname-only.** HTTPS hides the path, so a `NEFilterDataProvider` can never do path-aware blocking. It is an M3 backstop, not a detection tier.
 - **The macOS 26 full-URL filter is unusable for us.** It requires a Bloom filter plus a Private Information Retrieval *server* plus a dedicated entitlement. A server contradicts the local-only rule. Rejected, documented in PRD §10.2.
 - **Foundation Models context is about 4,096 tokens** covering instructions, prompt, output and tool definitions together. Trim page text to roughly 2,500 tokens. Never send a whole page.
+- **`SMAppService` reports a never-registered agent as `.notFound`, not `.notRegistered`.**
+  Register on both, or the helper is never set up and the row reads "couldn't start".
+- **`CGPreflightPostEventAccess` can stay false until relaunch** after the user grants
+  Accessibility (macOS 27 calls the pane Device Control and Data Access). Posting events
+  is granted by the same list, so `canPostKeyboardEvents` also accepts `AXIsProcessTrusted`.
 - **Chromium and Electron build accessibility trees lazily.** Chrome needs `AXEnhancedUserInterface` set on its application element; Electron needs `AXManualAccessibility`. Confirm success by reading the attribute back, because Chrome returns not-implemented even when it worked, and retry after about 150 ms because the tree fills asynchronously.
 - **Don't try to render the character live, or in Blender.** Two routes were explored and
   rejected. Live 3D (RealityKit/SceneKit) means standing up a Metal renderer for a figure
@@ -247,7 +337,7 @@ Shift/
 │                   NudgeSound, GuardState,
 │                   LaunchAtLogin, WatchdogService, WatchdogRunner
 └── UI/             DesignSystem (Theme, BlockBadge), Design/ (Materials, Controls),
-                    MenuBarView, SettingsView (a pane, not a scene), NudgeHUD,
+                    MenuBarView, SettingsView (a pane, not a scene), NudgeHUD, MascotView,
                     PermissionsManager, Main/ (MainWindowController, MainWindowView +
                     MainSection, DashboardView, BlockEditorView + BlockInspector +
                     AppPickerView), Onboarding/
@@ -257,16 +347,35 @@ Shift/
 Modelled on IINA: translucent chrome, depth from material weight rather than shadows, and
 generous spacing. Three rules hold it together.
 
-1. **Nothing is opaque** unless Reduce Transparency asks for it. The window, the sidebar,
-   the cards and the popover are all `NSVisualEffectView` materials, via `Surface` and
-   `VisualEffect` in `UI/Design/Materials.swift`. The window itself sets `isOpaque = false`
-   and a clear background so the content can paint its own.
+1. **"Sorbet": coral and mint on warm cream; marigold is the mascot's alone.** Chosen by
+   the user on 25 Nov 2026 from `Studies/palette-compare.html` (five playful directions,
+   three real screens each, beside the mascot), after rejecting paper/ink/marigold and then
+   every calm muted option (pine, evergreen, lake, harbor) as not playful enough.
+   **Coral** (`Paper.coral`, #F4573F light / #FF8574 dark, `Paper.onCoral` on top) is the
+   main colour: primary buttons, selection, progress, tags, badges, focus rings.
+   `Paper.coralText` is a deeper coral for small text like the step label. **Mint**
+   (`Paper.mint`, #17A877 / #45D9A6) means done and nothing else: allowed permissions, the
+   Active tag, the Dashboard's active dot. Neutrals carry the rest: cream background
+   #FFF6EE, white cards, warm near-black text. Light-mode fills are a shade deeper than the
+   study swatches so white text on them keeps its contrast. Rules the user set:
+   - **Two colours, not a rainbow.** The study's rainbow icons and chunky buttons were
+     options, not part of the choice.
+   - **Marigold only on the mascot** (`MascotPalette`). Never on buttons, tiles or labels.
+   - **No black fills** for buttons or tiles. Neutral tiles use `Paper.tile`.
+   - **The system accent colour only on switches** and pick controls.
+   - A finished permission shows a mint check tile; **no "Done" badge** beside it.
+   - No tinted washes behind whole cards, no gradients, no indigo or violet.
+   **Dark mode:** shadows don't read on dark paper, so depth comes from a wider
+   background-to-card step and a stronger hairline (white 13% vs black 9%). Anything with
+   its own dark fill (the pause preview) gets a light edge. Sidebar tiles always draw a
+   white icon, so the Dashboard tile uses the light-mode coral in both modes.
 2. **Controls are Shift's own**, in `UI/Design/Controls.swift`: `SegmentedSelector`,
    `ShiftSwitch`, `OptionCard`, `TimeField`, `NumberStepper`, `DayPicker`, `Chip`,
    `ShiftTextField`, and the `shiftProminent` / `shiftSoft` button styles. Reach for these
    before a stock control, so the app reads as one thing.
-3. **Structure comes from `Panel` and `PanelRow`**, not `Form`. Tint is carried by thin
-   strokes and content, never by large filled rectangles.
+3. **Structure comes from `Panel` and `PanelRow`**, not `Form`, except in onboarding and
+   the Dashboard (playful paper cards from `UI/Design/Playful.swift`) and Settings
+   (macOS-style grouped rows in `SettingsView.swift`).
 4. **Page titles are `PageHeader`, inside the content.** Never use a `.principal` toolbar
    item: macOS 26 renders it as a capsule floating in the middle of the title bar. The
    title bar is for window controls and the one primary action.
@@ -299,10 +408,10 @@ relitigate them without asking:
   pressing Return wakes a sample within ~0.1 s. Value-changed is deliberately *not*
   observed: it fires on every keystroke in every text field. A feed that never pays out
   stops being worth reaching for, which is why speed matters more than anything else.
-- **Full screen, no Flop.** `PauseController` covers every display with `PauseBackdrop`
+- **Full screen, no mascot.** `PauseController` covers every display with `PauseBackdrop`
   and locks out the Dock, menu bar and Cmd+Tab. An earlier version covered only the
   browser window with Flop on a frosted panel; the user rejected it because the page
-  stayed visible around it. Flop appears only afterwards, in the reward card.
+  stayed visible around it. The mascot appears only afterwards, in the reward card.
 - **One breath, then one honest question, one thing at a time.** During the breath there
   is no panel: only `ConstellationBreath`, chosen by the user from six HTML studies. On
   the out-breath the stars gather into a tight knot with a warm glow; breathing in, they
@@ -360,7 +469,7 @@ relitigate them without asking:
   visit) and about 125 turning-back lines (general, harder, and per craving), dealt by
   `CopyDeck` so nothing repeats until the rest of its set has been seen. The user asked
   for this explicitly; add lines rather than trimming them, in the voice described there.
-- **Reward turning back, immediately.** Flop's happy face, a sparkle burst and the `reward` chime. This is the step that
+- **Reward turning back, immediately.** The mascot's happy face, a sparkle burst and the `reward` chime. This is the step that
   builds the habit; before it, turning back got nothing.
 - **Repeats cost more.** Reaches are counted per block and target for an hour
   (`reaches`, keyed by `reachKey`, not the process), so switching tabs or relaunching the
@@ -369,7 +478,7 @@ relitigate them without asking:
 - `Close it` closes the **tab** (Command-W posted to the browser's pid by `TabCloser`, after
   yielding activation to it). Apps are asked to quit.
 
-`NudgeHUDController` now serves three kinds: `hint` (soft drift), `reward` (happy Flop,
+`NudgeHUDController` now serves three kinds: `hint` (soft drift), `reward` (happy mascot,
 after the pause closes), and `status` (break started, no breaks left). `hideHint()` takes down only hints, so a
 reward survives the app switch it usually lands on.
 

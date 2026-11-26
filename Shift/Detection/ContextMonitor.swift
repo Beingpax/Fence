@@ -45,6 +45,8 @@ final class ContextMonitor {
         let timer = Timer(timeInterval: pollInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.sample() }
         }
+        // The poll is only the backstop behind `AddressObserver`, so it can share a wake-up.
+        timer.tolerance = pollInterval * 0.1
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
         sample()

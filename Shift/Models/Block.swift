@@ -9,7 +9,7 @@ struct Block: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
     var name: String
     var symbol: String = "shield.lefthalf.filled"
-    var tint: BlockTint = .indigo
+    var tint: BlockTint = .orange
 
     /// The switch on the block's row. Honoured only when the block isn't locked on.
     var isEnabled: Bool = false

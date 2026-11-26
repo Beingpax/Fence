@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import Observation
 import SwiftUI
 
@@ -66,7 +67,8 @@ struct PauseWallpaperSelection: Equatable {
     }
 }
 
-/// One active image shared by all pause windows. The bundled JPEG stays out of AppKit's named image cache.
+/// One active image shared by all pause windows. The bundled JPEG stays out of AppKit's
+/// named image cache, so it is freed with the pause.
 @MainActor
 @Observable
 final class PauseWallpaper {
@@ -99,9 +101,47 @@ final class PauseWallpaper {
         }
     }
 
+    /// Decodes the photo once, no larger than the biggest display needs (about 15 MB at full
+    /// size; less on a smaller display).
+    ///
+    /// The photos are generated and were upscaled to 4K, so they carry no real detail past
+    /// 2560 px: shrinking to 2560 and back scored 49–51 dB. They ship as 2560×1440 JPEG XL
+    /// (`cjxl -d 1.0 -e 9`, SSIMULACRA2 ≥ 85.8), about 380 KB each. At equal perceptual
+    /// quality JPEG XL came out about half the size of JPEG and 15–20% under AVIF, and
+    /// ImageIO decodes it in about 30 ms cold, faster than JPEG (≈60 ms) and far faster
+    /// than AVIF or HEIC (110–150 ms). This decode sits between the reach and the pause.
     private static func load(_ selection: PauseWallpaperSelection) -> NSImage? {
-        Bundle.main.url(forResource: selection.resourceName, withExtension: "jpg")
-            .flatMap { NSImage(contentsOf: $0) }
+        guard let url = Bundle.main.url(forResource: selection.resourceName, withExtension: "jxl"),
+              let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary)
+        else { return nil }
+
+        var options: [CFString: Any] = [
+            // Never the small preview the file may embed.
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        if let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+           let width = properties[kCGImagePropertyPixelWidth] as? Int,
+           let height = properties[kCGImagePropertyPixelHeight] as? Int,
+           let limit = neededLongSide(width: width, height: height) {
+            options[kCGImageSourceThumbnailMaxPixelSize] = limit
+        }
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+    }
+
+    /// The photo fills each screen and arrives slightly zoomed in, so the scale that matters
+    /// is the larger of width and height, on the most demanding display. Nil keeps full size.
+    private static func neededLongSide(width: Int, height: Int) -> Int? {
+        guard width > 0, height > 0 else { return nil }
+        let scale = NSScreen.screens.map { screen in
+            let pixels = screen.convertRectToBacking(screen.frame).size
+            return max(pixels.width / CGFloat(width), pixels.height / CGFloat(height))
+        }.max() ?? 1
+        let needed = scale * PauseBackdrop.arrivalZoom
+        guard needed > 0, needed < 1 else { return nil }
+        return Int((CGFloat(max(width, height)) * needed).rounded(.up))
     }
 }
 
@@ -112,6 +152,9 @@ final class PauseWallpaper {
 /// one that breathes reads as a place. Under Reduce Motion it simply holds still.
 struct PauseBackdrop: View {
     let wallpaper: PauseWallpaper
+
+    /// How far in the photo starts before it pulls back. The wallpaper is decoded for this.
+    static let arrivalZoom: CGFloat = 1.14
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var arrived = false
@@ -127,7 +170,7 @@ struct PauseBackdrop: View {
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                         .frame(width: geometry.size.width, height: geometry.size.height)
-                        .scaleEffect(reduceMotion ? 1 : (arrived ? (drifting ? 1.06 : 1.0) : 1.14))
+                        .scaleEffect(reduceMotion ? 1 : (arrived ? (drifting ? 1.06 : 1.0) : Self.arrivalZoom))
                         .offset(x: reduceMotion ? 0 : (drifting ? -geometry.size.width * 0.012 : 0))
                         .clipped()
                 }

@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shift · Mascot: Classic vs Glossy</title>
+<!--
+  Two candidate Shift mascots, side by side, sharing one mood system.
+
+  Classic: the yellow antenna creature, flat cartoon with an ink outline, white mitten hands.
+  Glossy:  the purple vinyl-toy creature, shaded volume, glossy eyes and body-colour mittens.
+
+  One table (MOODS) drives both. Each mood has shared numbers (hands, motion, effects, the
+  antenna light, the peek-over-the-card hands) plus each character's own face numbers.
+  Every number springs toward its target, so any mood blends into any other.
+-->
+<style>
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{font:13px/1.4 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;color:#1d1d1f;background:#ecebe7;
+       display:grid;grid-template-columns:1fr 290px;grid-template-rows:auto 1fr;overflow:hidden}
+  header{grid-column:1;display:flex;align-items:baseline;gap:10px;padding:12px 16px 0}
+  header b{font-size:20px;font-weight:600}
+  header span{color:#6e6e73}
+  #grid{grid-column:1;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr 1fr;gap:10px;padding:10px 14px 14px;min-height:0}
+  .pane{position:relative;border-radius:16px;overflow:hidden;min-height:0;background:radial-gradient(120% 90% at 50% 30%,#faf9f6 0%,#e2ded6 100%)}
+  .pane.peek{background:radial-gradient(130% 100% at 30% 0%,#a9b9e6 0%,#6d7fbf 55%,#3c4a86 100%)}
+  .pane canvas{width:100%;height:100%;display:block}
+  .tag{position:absolute;left:12px;top:10px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:rgba(0,0,0,.45)}
+  .peek .tag{color:rgba(255,255,255,.75)}
+  aside{grid-row:1 / span 2;grid-column:2;background:rgba(250,249,246,.92);border-left:1px solid rgba(0,0,0,.08);padding:14px;overflow:auto}
+  h2{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#6e6e73;margin:16px 2px 7px}
+  h2:first-child{margin-top:0}
+  .moods{display:flex;flex-wrap:wrap;gap:5px}
+  .moods button{border:1px solid rgba(0,0,0,.1);background:#fff;border-radius:999px;padding:5px 11px;cursor:pointer;font:inherit;font-size:12.5px}
+  .moods button.on{background:#1d1d1f;color:#fff;border-color:#1d1d1f}
+  .play{width:100%;border:0;border-radius:10px;padding:10px;font:inherit;font-weight:600;background:#1d1d1f;color:#fff;cursor:pointer}
+  .play.on{background:#7a3cff}
+  .swatches{display:flex;gap:10px}
+  .swatches.wrap{flex-wrap:wrap;gap:8px}
+  .swatches.wrap .sw{width:30px;height:30px}
+  .sw{width:34px;height:34px;border-radius:50%;cursor:pointer;border:1px solid rgba(0,0,0,.1)}
+  .sw.on{box-shadow:0 0 0 2px #fff,0 0 0 4px #1d1d1f}
+  .row{display:flex;align-items:center;justify-content:space-between;margin:8px 2px}
+  .note{color:#8e8e93;font-size:11.5px;margin:6px 2px}
+  kbd{font:11px ui-monospace,monospace;background:rgba(0,0,0,.06);border-radius:4px;padding:1px 4px}
+</style>
+</head>
+<body>
+<header><b id="mLabel"></b><span id="mUse"></span></header>
+<div id="grid">
+  <div class="pane"><span class="tag">Classic · standing</span><canvas data-eng="classic" data-pose="stand"></canvas></div>
+  <div class="pane"><span class="tag">Glossy · standing</span><canvas data-eng="glossy" data-pose="stand"></canvas></div>
+  <div class="pane peek"><span class="tag">Classic · peeking over a card</span><canvas data-eng="classic" data-pose="peek"></canvas></div>
+  <div class="pane peek"><span class="tag">Glossy · peeking over a card</span><canvas data-eng="glossy" data-pose="peek"></canvas></div>
+  <div class="pane peek"><span class="tag">Classic · beside the card</span><canvas data-eng="classic" data-pose="side"></canvas></div>
+  <div class="pane peek"><span class="tag">Glossy · beside the card</span><canvas data-eng="glossy" data-pose="side"></canvas></div>
+</div>
+<aside>
+  <div id="moodGroups"></div>
+  <p class="note"><kbd>←</kbd> <kbd>→</kbd> step through every mood.</p>
+  <h2>Story</h2>
+  <button class="play" id="play">▶ Play a day with Shift</button>
+  <h2>Classic · yellows</h2>
+  <div class="swatches wrap" id="classicYellows"></div>
+  <h2>Classic · other colours</h2>
+  <div class="swatches wrap" id="classicOthers"></div>
+  <div class="row"><label for="classicCustom">Classic · any colour</label><input type="color" id="classicCustom" value="#f6cf62"></div>
+  <h2>Glossy colour</h2>
+  <div class="swatches" id="colours"></div>
+  <div class="row"><label for="outline">Glossy: bold outline</label><input type="checkbox" id="outline"></div>
+  <p class="note">The antenna light carries the mood on both: warm at rest, teal when curious, amber when worried, red when you reach for something blocked, deep red when annoyed, gold when proud, blue and drooping when sad, dim on a break.</p>
+</aside>
+
+<script>
+"use strict";
+const TAU = Math.PI * 2, D = Math.PI / 180, K = 1.9;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const mix = (a, b, t) => '#' + rgb(a).map((v, i) => Math.round(lerp(v, rgb(b)[i], clamp(t, 0, 1))).toString(16).padStart(2, '0')).join('');
+const rgba = (h, a) => `rgba(${rgb(h).join(',')},${a})`;
+const DEEP = '#1c0f3a';
+function poly(pts, closed = true) { const P = new Path2D(); pts.forEach(([x, y], i) => i ? P.lineTo(x, y) : P.moveTo(x, y)); if (closed) P.closePath(); return P; }
+function ellPath(cx, cy, rx, ry, rot = 0) { const P = new Path2D(); P.ellipse(cx, cy, Math.max(.01, rx), Math.max(.01, ry), rot, 0, TAU); return P; }
+function supell(cx, cy, rx, ry, p, n = 96) { const o = []; for (let i = 0; i < n; i++) { const a = i / n * TAU, c = Math.cos(a), s = Math.sin(a);
+  o.push([cx + rx * Math.sign(c) * Math.abs(c) ** (2 / p), cy + ry * Math.sign(s) * Math.abs(s) ** (2 / p)]); } return o; }
+function quad(a, c, b, n = 16) { const o = []; for (let i = 0; i <= n; i++) { const t = i / n, u = 1 - t; o.push([u * u * a[0] + 2 * u * t * c[0] + t * t * b[0], u * u * a[1] + 2 * u * t * c[1] + t * t * b[1]]); } return o; }
+
+/* ───────────── the shared mood table ───────────── */
+const GLOW = { warm: '#ffd25a', bright: '#fff27a', teal: '#5fe6d4', amber: '#ff9a3c', red: '#ff4a4a', crimson: '#e0203a', gold: '#ffc23a', dim: '#9c8f74', blue: '#7aa8ff' };
+// Hands use classic units (the yellow body is ~48 wide); the glossy one scales them by K.
+// x is outward from the body, r turns the fingers outward, so one set of numbers serves both sides.
+const H = (sides, o) => { const r = {}; for (const s of sides) for (const k in o) r['h' + s + k] = o[k]; return r; };
+const SHARED_BASE = {
+  lookX: 0, lookY: 0, pupil: 1, blush: .35, flush: 0, glow: .85, droop: 0,
+  tilt: 0, squash: 0, bounce: 0, shake: 0, bobAmp: 1.6, bobSpd: 2, wave: 0,
+  sparkle: 0, zzz: 0, q: 0, bang: 0, sweat: 0, tear: 0, steam: 0,
+  ...H('LR', { x: 50, y: 16, r: .3, open: .55, point: 0, thumb: 0 }),
+  raise: 0, pwave: 0, fist: 0, thumb: 0, chin: 0, shrug: 0, tap: 0, handIn: 0, sink: 0,
+};
+const MOODS = [
+  { id: 'idle', label: 'Idle', group: 'Everyday', use: 'Shift is on, nothing to do', glow: 'warm',
+    card: ['Shift is on', 'Weeknights list until 18:00.'], s: {}, c: {}, g: {} },
+  { id: 'hello', label: 'Hello', group: 'Everyday', use: 'Onboarding, first launch', glow: 'bright',
+    card: ['Hi, I\'m Shift.', 'I\'ll keep an eye on the lists you choose.'],
+    s: { tilt: -4, lookX: .15, blush: .5, wave: 1, bounce: .15, pwave: 1, ...H('R', { x: 46, y: -32, r: .2, open: 1 }) },
+    c: { browL: .45, browR: .45, mouthCurve: .85, mouthOpen: .35, mouthW: 7, earR: -10 },
+    g: { lid: .08, low: .25, bLy: -8, bRy: -8, curve: .95, open: .45, mw: 13 } },
+  { id: 'thinking', label: 'Thinking', group: 'Everyday', use: 'Empty states, settings', glow: 'teal',
+    card: ['Hmm.', 'Nothing blocked here. Carry on.'],
+    s: { tilt: -6, lookX: -.5, lookY: -.7, bobAmp: 1, chin: 1, ...H('R', { x: 16, y: 27, r: -1.35, open: .2, point: .7 }) },
+    c: { earL: 14, browL: .75, browR: .2, mouthCurve: -.05, mouthW: 4, mouthX: 4 },
+    g: { lid: .15, bLy: -11, bLr: .06, bRy: 2, curve: -.05, mw: 8, mx: 8, asym: .4 } },
+  { id: 'shy', label: 'Shy', group: 'Everyday', use: 'Welcome back after a while', glow: 'warm',
+    card: ['Welcome back.', 'Nice to see you.'],
+    s: { blush: 1, lookX: -.6, lookY: .45, tilt: -8, handIn: .6, sink: .12, ...H('LR', { x: 12, y: 41, r: -1.1, open: .4 }) },
+    c: { lid: .25, mouthCurve: .35, mouthW: 3, earL: 22, earR: 22 },
+    g: { lid: .3, curve: .45, mw: 6, bLr: .15, bRr: .15, bLy: -3, bRy: -3 } },
+  { id: 'laugh', label: 'Laughing', group: 'Everyday', use: 'Easter egg', glow: 'bright',
+    card: ['Ha.', 'You found the secret one.'],
+    s: { blush: .8, shake: .45, bobSpd: 9, tilt: 4, glow: 1.2, tap: .6, ...H('LR', { x: 20, y: 38, r: -.9, open: .6 }) },
+    c: { eyeX: 1, mouthOpen: 1, mouthCurve: .9, mouthW: 9, earL: -8, earR: 4 },
+    g: { squint: 1, curve: 1, open: 1, mw: 17, bLy: -8, bRy: -8 } },
+
+  { id: 'curious', label: 'Curious', group: 'Nudges', use: 'A feed keyword in the window title', glow: 'teal',
+    card: ['That title looks like a feed.', 'Still what you came for?'],
+    s: { tilt: 8, lookX: .55, lookY: -.25, q: 1, handIn: .2, ...H('R', { x: 22, y: 24, r: -1.1, open: .25, point: .8 }) },
+    c: { earL: -12, earR: 28, browR: .95, browL: .05, mouthCurve: .1, mouthW: 4 },
+    g: { lid: .05, bRy: -13, bRr: .08, bLy: -1, curve: .15, mw: 7, open: .18 } },
+  { id: 'cheeky', label: 'Cheeky', group: 'Nudges', use: 'Back on it within the hour', glow: 'warm',
+    card: ['Back so soon?', 'That\'s twice in an hour.'],
+    s: { tilt: 6, lookX: .65, glow: 1, ...H('LR', { x: 45, y: 22, r: 2.3, open: .3 }) },
+    c: { lid: .42, browR: .95, browL: .05, mouthCurve: .75, mouthW: 5, mouthX: 3, earL: -6, earR: 22 },
+    g: { lid: .45, lidTilt: .06, bLy: 4, bLr: -.12, bRy: -13, bRr: .2, curve: .55, mw: 13, asym: 1, mx: 8 } },
+  { id: 'worried', label: 'Worried', group: 'Nudges', use: 'Drifting toward a blocked list', glow: 'amber',
+    card: ['This one tends to pull.', 'Maybe a different tab?'],
+    s: { lookX: -.25, lookY: .15, pupil: .88, blush: .15, glow: .65, sweat: 1, bobAmp: .8, handIn: .55, ...H('LR', { x: 13, y: 40, r: -1.05, open: .3 }) },
+    c: { browAng: 1, browL: .35, browR: .35, mouthCurve: -.4, mouthW: 5.5, earL: 38, earR: 38, eyeSize: 1.08 },
+    g: { lid: 0, bLy: -8, bRy: -8, bLr: .36, bRr: .36, curve: -.25, mw: 9, wobble: 1 } },
+  { id: 'holdon', label: 'Hold on', group: 'Nudges', use: 'Reaching for a blocked site', glow: 'red',
+    card: ['Hold on a second.', 'This is on your Weeknights list.'],
+    s: { pupil: .6, blush: 0, glow: 1.3, shake: .8, squash: -.06, bang: 1, raise: 1, ...H('LR', { x: 46, y: -22, r: .12, open: 1 }) },
+    c: { earL: 80, earR: 80, eyeSize: 1.2, browL: 1, browR: 1, browAng: .7, mouthOpen: .85, mouthCurve: -.3, mouthW: 5 },
+    g: { lid: 0, bLy: -13, bRy: -13, bLr: .12, bRr: .12, curve: -.2, open: .55, mw: 8 } },
+  { id: 'annoyed', label: 'Annoyed', group: 'Nudges', use: 'Third reach in an hour', glow: 'crimson',
+    card: ['Third time this hour.', 'Let\'s actually close it this time.'],
+    s: { pupil: .8, blush: 0, flush: 1, glow: 1.15, steam: 1, tilt: -2, tap: 1, ...H('LR', { x: 45, y: 24, r: 2.4, open: .25 }) },
+    c: { lid: .35, browAng: -1, browL: 0, browR: 0, mouthCurve: -.6, mouthW: 5, earL: 50, earR: 50 },
+    g: { lid: .32, lidTilt: .38, bLy: 3, bRy: 3, bLr: -.42, bRr: -.42, curve: -.6, mw: 11 } },
+
+  { id: 'happy', label: 'Happy', group: 'Rewards', use: 'You turned back', glow: 'bright',
+    card: ['You turned back.', 'That\'s the whole habit, right there.'],
+    s: { blush: .85, glow: 1.3, bounce: .6, sparkle: .7, lookY: -.1, pwave: 1, ...H('LR', { x: 48, y: -20, r: .45, open: 1 }) },
+    c: { eyeHappy: 1, mouthCurve: 1, mouthOpen: .55, mouthW: 9, browL: .55, browR: .55, earL: -14, earR: -14 },
+    g: { lid: .06, low: .6, bLy: -10, bRy: -10, curve: 1, open: .7, mw: 16 } },
+  { id: 'cheer', label: 'Cheer', group: 'Rewards', use: 'A full day without a slip', glow: 'bright',
+    card: ['A full day, untouched.', 'Every reach today ended in a turn back.'],
+    s: { blush: .7, glow: 1.35, bounce: 1, sparkle: 1, fist: 1, ...H('LR', { x: 38, y: -44, r: .15, open: 0 }) },
+    c: { eyeX: 1, mouthOpen: .85, mouthCurve: 1, mouthW: 8, earL: -18, earR: -18 },
+    g: { squint: 1, curve: 1, open: .85, mw: 15, bLy: -12, bRy: -12 } },
+  // Proud reads from the whole body, not the face: chin up, chest out, eyes shut in satisfaction,
+  // one thumb up and the other hand on the hip.
+  { id: 'proud', label: 'Proud', group: 'Rewards', use: 'A block held all week', glow: 'gold',
+    card: ['Seven days held.', 'The block barely had to work.'],
+    s: { tilt: -8, squash: -.06, blush: .55, glow: 1.25, sparkle: .65, lookY: -.4, thumb: 1,
+         ...H('R', { x: 46, y: -8, r: -.1, open: 0, thumb: 1 }), ...H('L', { x: 46, y: 24, r: 2.4, open: .25 }) },
+    c: { eyeHappy: 1, mouthCurve: .95, mouthW: 7, mouthX: 2, browL: .8, browR: .8, earL: -12, earR: -12, faceDY: -3 },
+    g: { arc: 1, curve: .9, mw: 15, asym: .5, mx: 4, bLy: -13, bRy: -13, bLr: -.08, bRr: -.08, faceY: -8 } },
+
+  { id: 'sleepy', label: 'On a break', group: 'Breaks', use: 'Break started · 5 min', glow: 'dim',
+    card: ['Break started', '5 minutes. I\'ll be here after.'],
+    s: { lookY: .3, blush: .45, glow: .25, droop: .8, tilt: -7, zzz: 1, bobAmp: 3, bobSpd: 1.1, sink: .2, ...H('LR', { x: 36, y: 32, r: 2.4, open: .35 }) },
+    c: { lid: .78, mouthCurve: .15, mouthOpen: .14, mouthW: 2.8, earL: 52, earR: 52 },
+    g: { lid: .82, bLy: 5, bRy: 5, bLr: .08, bRr: .08, curve: .2, open: .2, mw: 6 } },
+  { id: 'sorry', label: 'No breaks', group: 'Breaks', use: 'No breaks left today', glow: 'amber',
+    card: ['No breaks left today.', 'Two used. They come back tomorrow.'],
+    s: { lookX: .3, sweat: .7, tilt: 6, glow: .6, shrug: 1, ...H('LR', { x: 60, y: 8, r: 1.45, open: 1 }) },
+    c: { browAng: .9, browL: .4, browR: .4, mouthCurve: -.05, mouthW: 6, earL: 32, earR: 32 },
+    g: { lid: .1, bLy: -6, bRy: -6, bLr: .3, bRr: .3, curve: .05, mw: 10, wobble: .5 } },
+  { id: 'sad', label: 'Sad', group: 'Breaks', use: 'Locked block, a rough day', glow: 'blue',
+    card: ['Rough one?', 'The lock ends at 18:00. Nearly there.'],
+    s: { lookY: .5, blush: .2, glow: .45, droop: 1, tear: 1, tilt: -4, squash: .05, bobSpd: 1, sink: .32, handIn: .55, ...H('LR', { x: 40, y: 34, r: 2.7, open: .5 }) },
+    c: { browAng: 1, browL: .2, browR: .2, mouthCurve: -.85, mouthW: 6, lid: .35, earL: 72, earR: 72 },
+    g: { lid: .42, lidTilt: -.32, bLy: -2, bRy: -2, bLr: .42, bRr: .42, curve: -.75, mw: 9, faceY: 3 } },
+];
+const MOOD = Object.fromEntries(MOODS.map(m => [m.id, m]));
+
+/* Mitten hand in classic units: four finger capsules and a thumb under a round palm.
+   open → fist, point and thumbs-up are blends, so a hand can travel between them. */
+function mitten(open, point, thumb, fat = 1) {
+  const parts = [];
+  [-.5, -.17, .17, .5].forEach((a, i) => { let len = lerp(2.5, 10, open); len = i === 0 ? lerp(len, 15, point) : lerp(len, 1.5, point); len *= 1 - thumb * .75;
+    const d = 7.5 + len / 2; parts.push([Math.sin(a) * d, 2 - Math.cos(a) * d, 3.8 * fat, len / 2 + 3.8 * fat, a]); });
+  const ta = lerp(-1.3, -.05, thumb), tl = lerp(lerp(3, 8, open), 12, thumb), td = 8 + tl / 2;
+  parts.push([Math.sin(ta) * td, 3 - Math.cos(ta) * td, 4 * fat, tl / 2 + 4 * fat, ta]);
+  parts.push([0, 3, 10.5 * fat, 10 * fat, 0, true]);
+  return parts;
+}
+
+/* Peek-over-the-card hands, in scene units. The card's top edge is y = 70.
+   Each mood weight pulls the hands from their grip toward a pose. */
+const CARD_Y = 70;
+function peekHands(p, t) {
+  const out = [];
+  for (const s of [-1, 1]) {
+    const tap = p.tap * Math.max(0, Math.sin(t * 12 + (s > 0 ? 0 : 1.8))) * 6;
+    let x = s * lerp(66, 38, p.handIn), y = CARD_Y + 1 - tap, rot = 0, open = .6, thumb = 0, grip = 1;
+    const to = (w, tx, ty, tr, top, tth) => { w = clamp(w, 0, 1); if (w < .001) return; x = lerp(x, tx, w); y = lerp(y, ty, w); rot = lerp(rot, tr, w); open = lerp(open, top, w); thumb = lerp(thumb, tth, w); grip = lerp(grip, 0, w); };
+    to(p.raise, s * 120, -6, s * .25, 1, 0);
+    if (s > 0) to(p.pwave, 120, -6, .25 + Math.sin(t * 9) * .4, 1, 0);
+    to(p.fist, s * 100, -46 + Math.sin(t * 10 + s) * 5, s * .15, 0, 0);
+    if (s > 0) to(p.thumb, 108, 10, 0, 0, 1);
+    if (s > 0) to(p.chin, 34, 50, -.5, .2, 0);
+    to(p.shrug, s * 140, 32, s * 1.35, 1, 0);
+    out.push({ s, x: x + Math.sin(t * 42) * 2 * p.shake, y: y + Math.sin(t * 2 + s) * 1.5, rot, open, thumb, grip });
+  }
+  return out;
+}
+
+/* ───────────── Classic: flat cartoon, ink outline ───────────── */
+let CPAL = { body: '#f6cf62', shade: '#e0ad3e', belly: '#fff1c4', inner: '#ff9a72', ink: '#43290f', hand: '#fffaf0', mouth: '#5e2410', tongue: '#ff7a63', blush: '#ff8f73' };
+const CBODY = poly(supell(0, 8, 48, 36, 3.1)), COFF = poly(supell(-7, 1, 48, 36, 3.1)), CBELLY = ellPath(0, 25, 28, 13);
+const Classic = {
+  key: 'c', scale: K,
+  base: { earL: 0, earR: 0, browL: .15, browR: .15, browAng: 0, eyeOpen: 1, eyeSize: 1, eyeHappy: 0, eyeX: 0, lid: 0, mouthCurve: .45, mouthOpen: 0, mouthW: 6, mouthX: 0, faceDY: 0 },
+  fill(ctx, P, fill, lw = 2.7) { if (fill) { ctx.fillStyle = fill; ctx.fill(P); } if (lw) { ctx.lineWidth = lw; ctx.strokeStyle = CPAL.ink; ctx.lineJoin = 'round'; ctx.stroke(P); } },
+  line(ctx, pts, lw = 3) { ctx.lineWidth = lw; ctx.strokeStyle = CPAL.ink; ctx.lineCap = ctx.lineJoin = 'round'; ctx.stroke(poly(pts, false)); },
+
+  body(ctx, P, o) {
+    const p = P.p, t = P.t, pal = CPAL;
+    ctx.save(); ctx.scale(K, K); ctx.translate(0, -2);
+    if (o.pose === 'stand') { ctx.fillStyle = 'rgba(60,40,10,.14)'; ctx.fill(ellPath(0, 66, 36, 5));
+      for (const s of [-1, 1]) this.fill(ctx, ellPath(s * 18, 53, 11, 6.5, s * .12), pal.shade); }
+    ctx.save(); ctx.translate(0, 44); ctx.rotate(p.tilt * D + Math.sin(t * .55) * .02); ctx.scale(1 + o.sq, 1 - o.sq); ctx.translate(0, -44);
+    // ears, then the antenna, both tucked behind the body
+    for (const s of [-1, 1]) { const deg = s < 0 ? p.earL : p.earR; ctx.save(); ctx.translate(s * 31, -18); ctx.rotate(s * (18 + deg * .7) * D);
+      this.fill(ctx, ellPath(0, -7, 9, 11.5), pal.body); this.fill(ctx, ellPath(0, -7, 4.5, 6.5), pal.inner, 0); ctx.restore(); }
+    const droop = clamp(p.droop, 0, 1), tw = P.twitch(t);
+    ctx.save(); ctx.translate(0, -25); ctx.rotate(Math.sin(t * 1.8) * .12 * (1 - droop * .6) + droop * 1 + tw * .25 + p.lookX * .08);
+    const tip = [droop * 9, -31 + droop * 9]; this.line(ctx, quad([0, 0], [droop * 2, -16], tip), 3.2);
+    const I = clamp(p.glow * P.pulse(t), 0, 1.4), gc = P.glowC;
+    const h = ctx.createRadialGradient(tip[0], tip[1], 2, tip[0], tip[1], 26); h.addColorStop(0, rgba(gc, .55 * I)); h.addColorStop(1, rgba(gc, 0)); ctx.fillStyle = h; ctx.fill(ellPath(tip[0], tip[1], 26, 26));
+    this.fill(ctx, ellPath(tip[0], tip[1], 7.5, 7.5), mix(gc, '#ffffff', .15 * I));
+    ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fill(ellPath(tip[0] - 2.5, tip[1] - 3, 2.2, 1.4, -.6));
+    ctx.restore();
+    // body: flat fill, a cel-shaded crescent, a soft highlight, then the outline on top
+    ctx.fillStyle = pal.body; ctx.fill(CBODY);
+    ctx.fillStyle = pal.belly; ctx.fill(CBELLY);
+    ctx.save(); ctx.clip(CBODY); const cres = new Path2D(); cres.rect(-200, -200, 400, 400); cres.addPath(COFF); ctx.fillStyle = pal.shade; ctx.fill(cres, 'evenodd');
+    if (p.flush > .02) { const g = ctx.createLinearGradient(0, -30, 0, 10); g.addColorStop(0, `rgba(255,60,60,${.45 * p.flush})`); g.addColorStop(1, 'rgba(255,60,60,0)'); ctx.fillStyle = g; ctx.fillRect(-60, -40, 120, 50); }
+    ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.fill(ellPath(-27, -15, 9, 5, -.45)); ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.fill(ellPath(-33, -10, 2, 2));
+    ctx.restore();
+    this.fill(ctx, CBODY, null, 3);
+    ctx.save(); ctx.translate(p.lookX * 2.5, 5 + p.lookY * 2 + p.faceDY); this.face(ctx, P); ctx.restore();
+    ctx.restore();
+    if (o.pose === 'stand') this.hands(ctx, P);
+    ctx.restore();
+  },
+
+  face(ctx, P) {
+    const p = P.p, t = P.t, pal = CPAL, blink = P.blink(t), sac = P.saccade(t), gap = 17;
+    const lx = clamp(p.lookX + sac[0], -1, 1), ly = clamp(p.lookY + sac[1], -1, 1);
+    if (p.blush > .03) for (const s of [-1, 1]) { ctx.fillStyle = rgba(pal.blush, clamp(p.blush, 0, 1) * .6); ctx.fill(ellPath(s * (gap + 11), 9, 7, 4)); }
+    for (const s of [-1, 1]) {
+      const es = p.eyeSize, ex = s * gap, ey = -4, rx = 8.8 * es, ryF = 10.6 * es, open = clamp(p.eyeOpen * (1 - blink), 0, 1);
+      if (p.eyeX > .5) this.line(ctx, [[ex + s * 6, ey - 6], [ex - s * 5, ey], [ex + s * 6, ey + 6]], 3.4);
+      else if (p.eyeHappy > .5) this.line(ctx, quad([ex - 7.5, ey + 3], [ex, ey - 9], [ex + 7.5, ey + 3]), 3.4);
+      else if (open < .14) this.line(ctx, quad([ex - 8, ey + 1], [ex, ey + 4], [ex + 8, ey + 1]), 3);
+      else {
+        const ry = ryF * open, W = ellPath(ex, ey, rx, ry);
+        ctx.fillStyle = '#ffffff'; ctx.fill(W); ctx.save(); ctx.clip(W);
+        const pr = 4.8 * p.pupil, px = ex + lx * (rx - pr - .5), py = ey + ly * (ry - pr - .5);
+        ctx.fillStyle = pal.ink; ctx.fill(ellPath(px, py, pr, pr * Math.min(1, ry / pr)));
+        ctx.fillStyle = '#ffffff'; ctx.fill(ellPath(px - pr * .35, py - pr * .4, pr * .34, pr * .34)); ctx.fill(ellPath(px + pr * .35, py + pr * .35, pr * .15, pr * .15));
+        if (p.lid > .02) { const top = ey - ry, hh = 2 * ry * clamp(p.lid, 0, 1), tl = s * p.browAng * 1.5;
+          ctx.fillStyle = pal.body; ctx.fill(poly([[ex - rx - 2, top - 2], [ex + rx + 2, top - 2], [ex + rx + 2, top + hh + tl], [ex - rx - 2, top + hh - tl]]));
+          this.line(ctx, [[ex - rx, top + hh - tl], [ex + rx, top + hh + tl]], 2.5); }
+        ctx.restore(); this.fill(ctx, W, null, 2.7);
+      }
+      const b = s < 0 ? p.browL : p.browR, by = ey - ryF - 6 - b * 5;
+      const inner = [ex - s * 6, by - p.browAng * 4.5], outer = [ex + s * 7, by + p.browAng * 1.5];
+      this.line(ctx, quad(inner, [ex, Math.min(inner[1], outer[1]) - 2.2], outer, 10), 3.4);
+    }
+    ctx.save(); ctx.translate(p.mouthX, 14);
+    const w = p.mouthW, c = p.mouthCurve * 8, op = p.mouthOpen * 14;
+    if (op < 1.2) this.line(ctx, quad([-w, 0], [0, c], [w, 0]), 3);
+    else { const M = poly([...quad([-w, 0], [0, c * .55], [w, 0]), ...quad([w, 0], [0, c + op], [-w, 0]).slice(1)]);
+      ctx.fillStyle = pal.mouth; ctx.fill(M); ctx.save(); ctx.clip(M); ctx.fillStyle = pal.tongue; ctx.fill(ellPath(0, (c + op) * .55 + op * .2, w * .62, op * .32 + 1)); ctx.restore(); this.fill(ctx, M, null, 2.7); }
+    ctx.restore();
+  },
+
+  hands(ctx, P) {
+    const p = P.p, t = P.t;
+    for (const s of [-1, 1]) {
+      const S = s < 0 ? 'L' : 'R'; let r = p['h' + S + 'r']; if (s > 0) r += Math.sin(t * 10) * .42 * p.wave;
+      const x = p['h' + S + 'x'] + Math.cos(t * 1.7 + s) * 1.1, y = p['h' + S + 'y'] + Math.sin(t * 2.2 + s * 1.3) * 1.6;
+      ctx.save(); ctx.translate(s * x, y); ctx.scale(s, 1); ctx.rotate(r);
+      for (const [cx, cy, rx, ry, a] of mitten(clamp(p['h' + S + 'open'], 0, 1), clamp(p['h' + S + 'point'], 0, 1), clamp(p['h' + S + 'thumb'], 0, 1))) this.fill(ctx, ellPath(cx, cy, rx, ry, a), CPAL.hand);
+      ctx.restore();
+    }
+  },
+
+  peekHand(ctx, h) {
+    ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(h.rot); ctx.scale(h.s, 1);
+    if (h.grip > .5) { this.fill(ctx, ellPath(0, 0, 23, 13), CPAL.hand, 4.6); for (const f of [-11, 0, 11]) this.fill(ctx, ellPath(f, 12, 6, 7.5), CPAL.hand, 4.2); }
+    else { ctx.scale(K, K); for (const [cx, cy, rx, ry, a] of mitten(h.open, 0, h.thumb)) this.fill(ctx, ellPath(cx, cy, rx, ry, a), CPAL.hand); }
+    ctx.restore();
+  },
+};
+
+/* ───────────── Glossy: vinyl toy ───────────── */
+const GBODY_PTS = (() => { const o = [], n = 200; for (let i = 0; i < n; i++) { const a = i / n * TAU, c = Math.cos(a), s = Math.sin(a), p = 2.3;
+  let x = 90 * Math.sign(c) * Math.abs(c) ** (2 / p), y = 98 * Math.sign(s) * Math.abs(s) ** (2 / p); x *= 1 + .08 * s; o.push([x, y + 10]); } return o; })();
+const GBODY = poly(GBODY_PTS), GBOX = { x: -97, y: -88, w: 194, h: 196 };
+const Glossy = {
+  key: 'g',
+  base: { lid: .22, lidTilt: 0, low: 0, arc: 0, squint: 0, bLy: 0, bLr: 0, bRy: 0, bRr: 0, curve: .5, open: 0, mw: 14, asym: 0, mx: 0, wobble: 0, faceY: 0 },
+
+  gloss(ctx, path, base, b, o = {}) {
+    const lx = b.x + b.w * .32, ly = b.y + b.h * .24, R = Math.max(b.w, b.h) * .95;
+    const g = ctx.createRadialGradient(lx, ly, R * .04, lx, ly, R);
+    g.addColorStop(0, mix(base, '#ffffff', .34)); g.addColorStop(.45, base); g.addColorStop(.82, mix(base, DEEP, .35)); g.addColorStop(1, mix(base, DEEP, .55));
+    ctx.fillStyle = g; ctx.fill(path);
+    ctx.save(); ctx.clip(path);
+    const ao = ctx.createLinearGradient(0, b.y + b.h * .6, 0, b.y + b.h); ao.addColorStop(0, 'rgba(20,10,50,0)'); ao.addColorStop(1, 'rgba(20,10,50,.25)'); ctx.fillStyle = ao; ctx.fill(path);
+    const bx = b.x + b.w * .78, by = b.y + b.h * .95, bl = ctx.createRadialGradient(bx, by, 0, bx, by, b.w * .5);
+    bl.addColorStop(0, rgba(mix(base, '#ffb8f0', .5), .45)); bl.addColorStop(1, rgba(base, 0)); ctx.fillStyle = bl; ctx.fill(path);
+    ctx.lineWidth = b.w * .06; ctx.strokeStyle = rgba(mix(base, '#ffffff', .6), .2); ctx.stroke(path);
+    if (!o.flat) {
+      ctx.save(); ctx.translate(b.x + b.w * .3, b.y + b.h * .2); ctx.rotate(-.55); ctx.scale(1, .55);
+      const s = ctx.createRadialGradient(0, 0, 0, 0, 0, b.w * .27); s.addColorStop(0, 'rgba(255,255,255,.8)'); s.addColorStop(.45, 'rgba(255,255,255,.28)'); s.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = s; ctx.beginPath(); ctx.arc(0, 0, b.w * .27, 0, TAU); ctx.fill(); ctx.restore();
+      ctx.fillStyle = 'rgba(255,255,255,.95)'; ctx.beginPath(); ctx.ellipse(b.x + b.w * .23, b.y + b.h * .16, b.w * .055, b.w * .028, -.6, 0, TAU); ctx.fill();
+      if (o.streak) { ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = b.w * .025; ctx.lineCap = 'round'; ctx.beginPath(); ctx.arc(b.x + b.w * .5, b.y + b.h * .52, b.w * .42, -1.25, -.55); ctx.stroke(); }
+    }
+    ctx.restore();
+  },
+  outline(ctx, path, o, w = 9) { if (!o.outline) return; ctx.lineWidth = w; ctx.strokeStyle = mix(o.colour, '#000000', .74); ctx.lineJoin = 'round'; ctx.stroke(path); },
+  part(ctx, P, o, b, opt) { this.outline(ctx, P, o, opt && opt.lw || 8); this.gloss(ctx, P, opt && opt.colour || o.colour, b, opt); },
+
+  body(ctx, P, o) {
+    const p = P.p, t = P.t, base = o.colour, ink = mix(base, '#000000', .74);
+    if (o.pose === 'stand') { ctx.save(); ctx.scale(1, .16); const g = ctx.createRadialGradient(0, 124 / .16, 4, 0, 124 / .16, 92); g.addColorStop(0, 'rgba(30,15,60,.3)'); g.addColorStop(1, 'rgba(30,15,60,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 124 / .16, 92, 0, TAU); ctx.fill(); ctx.restore(); }
+    ctx.save(); ctx.translate(0, 108); ctx.rotate(p.tilt * D + Math.sin(t * .6) * .015); ctx.scale(1 + o.sq, 1 - o.sq); ctx.translate(0, -108);
+    const droop = clamp(p.droop, 0, 1), sway = Math.sin(t * 1.6) * 6 * (1 - droop * .6) + p.lookX * 4;
+    const a = { base: [8, -72], ctrl: [10 + sway * .3 + droop * 10, -118 + droop * 8], tip: [22 + sway + droop * 40, -150 + droop * 46] };
+    const S = new Path2D(); S.moveTo(...a.base); S.quadraticCurveTo(...a.ctrl, ...a.tip); ctx.lineCap = 'round';
+    if (o.outline) { ctx.lineWidth = 17; ctx.strokeStyle = ink; ctx.stroke(S); }
+    ctx.lineWidth = 9; ctx.strokeStyle = mix(base, DEEP, .3); ctx.stroke(S); ctx.lineWidth = 3.5; ctx.strokeStyle = rgba(mix(base, '#ffffff', .45), .8); ctx.save(); ctx.translate(-1.8, -1); ctx.stroke(S); ctx.restore();
+    if (o.pose === 'stand') for (const s of [-1, 1]) this.part(ctx, ellPath(s * 40, 108, 27, 15), o, { x: s * 40 - 27, y: 93, w: 54, h: 30 }, { colour: mix(base, DEEP, .2) });
+    this.outline(ctx, GBODY, o, 11); this.gloss(ctx, GBODY, base, GBOX, { streak: true });
+    ctx.save(); ctx.translate(p.lookX * 6, p.faceY + p.lookY * 4); this.face(ctx, P, o, ink); ctx.restore();
+    this.orb(ctx, a.tip, P, t);
+    ctx.restore();
+    if (o.pose === 'stand') this.hands(ctx, P, o);
+  },
+
+  orb(ctx, [x, y], P, t) {
+    const c = P.glowC, I = clamp(P.p.glow * P.pulse(t), 0, 1.4);
+    const h = ctx.createRadialGradient(x, y, 4, x, y, 74); h.addColorStop(0, rgba(c, .6 * I)); h.addColorStop(1, rgba(c, 0)); ctx.fillStyle = h; ctx.beginPath(); ctx.arc(x, y, 74, 0, TAU); ctx.fill();
+    const g = ctx.createRadialGradient(x - 5, y - 6, 1, x, y, 19); g.addColorStop(0, '#ffffff'); g.addColorStop(.35, mix(c, '#ffffff', .55 * Math.min(1, I))); g.addColorStop(1, mix(c, '#2a1a40', .35 + (1 - Math.min(1, I)) * .3));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 18, 0, TAU); ctx.fill();
+    ctx.strokeStyle = rgba('#ffffff', .5 + .35 * Math.min(1, I)); ctx.lineWidth = 2.4; ctx.beginPath(); ctx.arc(x, y, 8, 0, TAU); ctx.stroke();
+    ctx.fillStyle = ctx.strokeStyle; ctx.beginPath(); ctx.arc(x, y, 3, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.beginPath(); ctx.ellipse(x - 7, y - 8, 4, 2.4, -.6, 0, TAU); ctx.fill();
+  },
+
+  face(ctx, P, o, ink) {
+    const p = P.p, t = P.t, base = o.colour, blink = P.blink(t), sac = P.saccade(t), lx = clamp(p.lookX + sac[0], -1, 1), ly = clamp(p.lookY + sac[1], -1, 1);
+    if (p.flush > .02) { ctx.save(); ctx.clip(GBODY); const g = ctx.createLinearGradient(0, -90, 0, 10); g.addColorStop(0, `rgba(255,40,70,${.4 * p.flush})`); g.addColorStop(1, 'rgba(255,40,70,0)'); ctx.fillStyle = g; ctx.fillRect(-120, -100, 240, 120); ctx.restore(); }
+    for (const s of [-1, 1]) { const g = ctx.createRadialGradient(s * 58, 18, 0, s * 58, 18, 22); g.addColorStop(0, `rgba(255,110,170,${.5 * clamp(p.blush, 0, 1)})`); g.addColorStop(1, 'rgba(255,110,170,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(s * 58, 18, 22, 0, TAU); ctx.fill(); }
+    const stroke = (fn, lw) => { ctx.strokeStyle = ink; ctx.lineWidth = lw; ctx.lineCap = ctx.lineJoin = 'round'; ctx.beginPath(); fn(); ctx.stroke(); };
+    for (const s of [-1, 1]) {
+      const ex = s * 35, ey = -18, R = 30, E = ellPath(ex, ey, R, R * 1.05);
+      if (p.squint > .5) { stroke(() => { ctx.moveTo(ex + s * 16, ey - 14); ctx.lineTo(ex - s * 12, ey); ctx.lineTo(ex + s * 16, ey + 14); }, 8); continue; }
+      if (p.arc > .5) { // eyes shut in satisfaction: a thick arch with a little lash flick
+        stroke(() => { ctx.moveTo(ex - 22, ey + 6); ctx.quadraticCurveTo(ex, ey - 20, ex + 22, ey + 6); }, 8);
+        stroke(() => { ctx.moveTo(ex + s * 20, ey + 2); ctx.lineTo(ex + s * 28, ey - 4); }, 5); continue; }
+      if (o.outline) { ctx.lineWidth = 8; ctx.strokeStyle = ink; ctx.stroke(E); }
+      ctx.save(); ctx.clip(GBODY); ctx.fillStyle = rgba(DEEP, .14); ctx.beginPath(); ctx.ellipse(ex + 1, ey + 3, R + 4, R * 1.05 + 4, 0, 0, TAU); ctx.fill(); ctx.restore();
+      const w = ctx.createRadialGradient(ex - 9, ey - 11, 2, ex, ey, R * 1.05); w.addColorStop(0, '#ffffff'); w.addColorStop(.72, '#f0f0f7'); w.addColorStop(1, '#bfc0d6'); ctx.fillStyle = w; ctx.fill(E);
+      ctx.save(); ctx.clip(E);
+      const ir = 15.5 * (.74 + .26 * p.pupil), ix = ex + lx * (R - ir - 3), iy = ey + ly * (R - ir - 3);
+      const ig = ctx.createRadialGradient(ix - 3, iy - 4, 1, ix, iy, ir); ig.addColorStop(0, '#6a4b9a'); ig.addColorStop(.55, '#2b1847'); ig.addColorStop(1, '#120a1f');
+      ctx.fillStyle = ig; ctx.beginPath(); ctx.arc(ix, iy, ir, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#05030a'; ctx.beginPath(); ctx.arc(ix, iy, ir * .55 * p.pupil, 0, TAU); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.96)'; ctx.beginPath(); ctx.ellipse(ix - ir * .38, iy - ir * .42, ir * .32, ir * .24, -.5, 0, TAU); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.beginPath(); ctx.arc(ix + ir * .36, iy + ir * .38, ir * .13, 0, TAU); ctx.fill();
+      const sh = ctx.createLinearGradient(0, ey - R, 0, ey - R * .25); sh.addColorStop(0, 'rgba(40,20,70,.3)'); sh.addColorStop(1, 'rgba(40,20,70,0)'); ctx.fillStyle = sh; ctx.fill(E);
+      const lid = clamp(p.lid + blink * (1 - p.lid), 0, 1), top = ey - R * 1.05, edge = top + lid * R * 2.1, on = lid > .03 ? 1 : 0;
+      const inY = edge + p.lidTilt * R * on, outY = edge - p.lidTilt * R * on;
+      if (lid > .02) { const L = poly([[ex - s * (R + 2), top - 6], [ex + s * (R + 2), top - 6], [ex + s * (R + 2), outY], [ex - s * (R + 2), inY]]);
+        this.gloss(ctx, L, base, { x: ex - R, y: top - 6, w: R * 2, h: R * 2 }, { flat: true });
+        stroke(() => { ctx.moveTo(ex - s * R, inY); ctx.lineTo(ex + s * R, outY); }, 4); }
+      if (p.low > .02) { const lo = ey + R * 1.05 - p.low * R * 1.2, L = new Path2D(); L.moveTo(ex - R - 2, ey + R + 4); L.lineTo(ex - R - 2, lo + 6); L.quadraticCurveTo(ex, lo - 10 * p.low, ex + R + 2, lo + 6); L.lineTo(ex + R + 2, ey + R + 4); L.closePath();
+        ctx.fillStyle = mix(base, '#ffffff', .1); ctx.fill(L); }
+      ctx.restore();
+      if (o.outline) { ctx.lineWidth = 3; ctx.strokeStyle = rgba(ink, .6); ctx.stroke(E); }
+    }
+    for (const s of [-1, 1]) {
+      const y = s < 0 ? p.bLy : p.bRy, r = s < 0 ? p.bLr : p.bRr;
+      ctx.save(); ctx.translate(s * 36, -63 + y); ctx.scale(s, 1); ctx.rotate(r);
+      const B = new Path2D(); B.moveTo(-20, 4); B.quadraticCurveTo(0, -9, 21, 2); B.quadraticCurveTo(23, 9, 15, 8); B.quadraticCurveTo(0, 0, -16, 11); B.quadraticCurveTo(-25, 10, -20, 4); B.closePath();
+      const g = ctx.createLinearGradient(0, -8, 0, 11); g.addColorStop(0, mix(ink, '#ffffff', .22)); g.addColorStop(1, ink); ctx.fillStyle = g; ctx.fill(B);
+      ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.beginPath(); ctx.ellipse(-2, -2, 9, 2, -.1, 0, TAU); ctx.fill(); ctx.restore();
+    }
+    ctx.save(); ctx.translate(p.mx, 30);
+    const w = p.mw, c = p.curve, op = p.open, a = p.asym * 6;
+    if (op < .08) stroke(() => {
+      if (p.wobble > .3) for (let i = 0; i <= 16; i++) { const x = -w + i / 16 * 2 * w, y = c * 6 * (1 - (x / w) ** 2) + Math.sin(i / 16 * TAU * 1.5 + t * 6) * 2.2 * p.wobble; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+      else { ctx.moveTo(-w, a * .4); ctx.quadraticCurveTo(a * .5, c * 11, w, -a); } }, 5);
+    else { const M = new Path2D(); M.moveTo(-w, 0); M.quadraticCurveTo(0, c * 4, w, 0); M.quadraticCurveTo(0, c * 8 + op * 26, -w, 0); M.closePath();
+      ctx.fillStyle = '#3a1230'; ctx.fill(M); ctx.save(); ctx.clip(M); ctx.fillStyle = '#ff7da6'; ctx.beginPath(); ctx.ellipse(0, c * 6 + op * 18, w * .6, op * 9 + 2, 0, 0, TAU); ctx.fill(); ctx.restore();
+      ctx.strokeStyle = ink; ctx.lineWidth = 4; ctx.lineJoin = 'round'; ctx.stroke(M); }
+    ctx.restore();
+  },
+
+  mittenAt(ctx, o, open, point, thumb) {
+    // glossy mittens are chunkier than the classic gloves, in the body's own colour
+    ctx.scale(K, K);
+    for (const [cx, cy, rx, ry, a, palm] of mitten(open, point, thumb, 1.15)) {
+      const P = ellPath(cx, cy, rx, ry, a); this.outline(ctx, P, o, 4); this.gloss(ctx, P, o.colour, { x: cx - rx, y: cy - ry, w: rx * 2, h: ry * 2 }, { flat: !palm }); }
+  },
+  hands(ctx, P, o) {
+    const p = P.p, t = P.t;
+    for (const s of [-1, 1]) {
+      const S = s < 0 ? 'L' : 'R'; let r = p['h' + S + 'r']; if (s > 0) r += Math.sin(t * 10) * .42 * p.wave;
+      const x = (p['h' + S + 'x'] + Math.cos(t * 1.7 + s) * 1.1) * K, y = (p['h' + S + 'y'] + Math.sin(t * 2.2 + s * 1.3) * 1.6) * K + 8;
+      ctx.save(); ctx.translate(s * x, y); ctx.scale(s, 1); ctx.rotate(r);
+      this.mittenAt(ctx, o, clamp(p['h' + S + 'open'], 0, 1), clamp(p['h' + S + 'point'], 0, 1), clamp(p['h' + S + 'thumb'], 0, 1));
+      ctx.restore();
+    }
+  },
+  peekHand(ctx, h, o) {
+    ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(h.rot); ctx.scale(h.s, 1);
+    if (h.grip > .5) { this.part(ctx, ellPath(0, 0, 25, 15), o, { x: -25, y: -15, w: 50, h: 30 });
+      for (const f of [-11, 0, 11]) { this.part(ctx, ellPath(f, 13, 6.5, 8), o, { x: f - 6.5, y: 5, w: 13, h: 16 }, { flat: true, lw: 6 });
+        ctx.strokeStyle = rgba(DEEP, .25); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(f, 13, 6, .3, Math.PI - .3); ctx.stroke(); } }
+    else this.mittenAt(ctx, o, h.open, 0, h.thumb);
+    ctx.restore();
+  },
+};
+const ENGINES = { classic: Classic, glossy: Glossy };
+
+/* ───────────── puppet: springs, blinks, glances ───────────── */
+class Puppet {
+  constructor(engine, mood, seed) { this.e = engine; this.mood = mood; this.p = this.target(); this.glowC = GLOW[MOOD[mood].glow]; this.t = seed; this.seed = seed; this.kick = 9; }
+  target() { const m = MOOD[this.mood]; return { ...SHARED_BASE, ...this.e.base, ...m.s, ...m[this.e.key] }; }
+  set(m) { if (m !== this.mood) { this.mood = m; this.kick = 0; } }
+  update(dt) { const tg = this.target(), k = 1 - Math.exp(-dt * 8); for (const key in tg) this.p[key] += (tg[key] - this.p[key]) * k;
+    this.glowC = mix(this.glowC, GLOW[MOOD[this.mood].glow], k * 1.5); this.t += dt; this.kick += dt; }
+  pulse(t) { return this.mood === 'holdon' ? .72 + .28 * Math.sin(t * 11) : this.mood === 'annoyed' ? .75 + .25 * Math.sin(t * 7) : .9 + .1 * Math.sin(t * 2.4); }
+  blink(t) { const base = 3.6, d = .14, i = Math.floor(t / base), n = Math.abs((Math.sin(i * 12.9898 + this.seed) * 43758.5453) % 1), l = t - i * base - n * 2.4;
+    let a = 0; if (l >= 0 && l <= d) a = Math.sin(l / d * Math.PI); if (n > .66) { const s = l - d * 1.9; if (s >= 0 && s <= d) a = Math.max(a, Math.sin(s / d * Math.PI)); } return a; }
+  saccade(t) { const b = 2.4, i = Math.floor(t / b), l = t - i * b, nx = (Math.sin(i * 91.17 + this.seed) * 7919.3) % 1, ny = (Math.sin(i * 47.31) * 3571.7) % 1,
+    tr = Math.min(1, l / .07), se = l > b * .6 ? Math.max(0, 1 - (l - b * .6) / .5) : 1; return [nx * .22 * tr * se, ny * .14 * tr * se]; }
+  twitch(t) { const b = 4.7, i = Math.floor(t / b), n = Math.abs((Math.sin(i * 3.77 + this.seed) * 9187.1) % 1), l = t - i * b - n * 3; return l > 0 && l < .25 && n > .35 ? Math.sin(l / .25 * Math.PI) : 0; }
+}
+
+/* ───────────── scene: motion, effects, the card ───────────── */
+function drawScene(ctx, W, H, P, o) {
+  if (o.pose === 'side') return drawSide(ctx, W, H, P, o);
+  const p = P.p, t = P.t, peek = o.pose === 'peek';
+  const u = Math.min(W / 440, H / (peek ? 400 : 380));
+  ctx.save(); ctx.translate(W / 2, H / 2 + (peek ? -6 : 18) * u); ctx.scale(u, u);
+  const bob = Math.sin(t * p.bobSpd) * p.bobAmp * 1.6 - Math.abs(Math.sin(t * 5)) * 15 * p.bounce;
+  const shake = Math.sin(t * 42) * 2.2 * p.shake;
+  const sq = p.squash + Math.exp(-P.kick * 5) * Math.cos(P.kick * 16) * .07 + Math.sin(t * 2) * .012;
+  if (peek) { ctx.save(); ctx.beginPath(); ctx.rect(-500, -500, 1000, 500 + CARD_Y + 20); ctx.clip(); }
+  ctx.save(); ctx.translate(shake, bob * (peek ? .5 : 1) + (peek ? p.sink * 62 : 0));
+  P.e.body(ctx, P, { ...o, sq });
+  fx(ctx, p, t);
+  ctx.restore();
+  if (peek) { ctx.restore(); card(ctx, P); for (const h of peekHands(p, t)) P.e.peekHand(ctx, h, o); }
+  ctx.restore();
+}
+function drawSide(ctx, W, H, P, o) {
+  const p = P.p, t = P.t, u = Math.min(W / 640, H / 330);
+  ctx.save(); ctx.translate(W / 2, H / 2 + 12 * u); ctx.scale(u, u);
+  card(ctx, P, { x: -70, y: -74, w: 360, h: 124, f: .92 });
+  const bob = Math.sin(t * p.bobSpd) * p.bobAmp * 1.6 - Math.abs(Math.sin(t * 5)) * 15 * p.bounce;
+  const shake = Math.sin(t * 42) * 2.2 * p.shake;
+  const sq = p.squash + Math.exp(-P.kick * 5) * Math.cos(P.kick * 16) * .07 + Math.sin(t * 2) * .012;
+  ctx.save(); ctx.translate(-196, -6); ctx.scale(.62, .62); ctx.translate(shake, bob);
+  P.e.body(ctx, P, { ...o, pose: 'stand', sq }); fx(ctx, p, t);
+  ctx.restore(); ctx.restore();
+}
+function card(ctx, P, b = { x: -205, y: CARD_Y, w: 410, h: 124, f: 1 }) {
+  const [title, sub] = MOOD[P.mood].card, L = b.x + 29, R = b.x + b.w - 29, f = b.f || 1;
+  ctx.save(); ctx.shadowColor = 'rgba(10,10,40,.3)'; ctx.shadowBlur = 30; ctx.shadowOffsetY = 10;
+  const C = new Path2D(); C.roundRect(b.x, b.y, b.w, b.h, 28); ctx.fillStyle = 'rgba(248,248,252,.95)'; ctx.fill(C); ctx.restore();
+  ctx.textAlign = 'left'; ctx.fillStyle = '#8e8e93'; ctx.font = '600 13px -apple-system, system-ui'; ctx.fillText('SHIFT', L, b.y + 38);
+  ctx.textAlign = 'right'; ctx.fillText('now', R, b.y + 38); ctx.textAlign = 'left';
+  ctx.fillStyle = '#1d1d1f'; ctx.font = `600 ${21 * f}px -apple-system, system-ui`; ctx.fillText(title, L, b.y + 70);
+  ctx.fillStyle = '#48484a'; ctx.font = `${17 * f}px -apple-system, system-ui`; ctx.fillText(sub, L, b.y + 96);
+}
+function fx(ctx, p, t) {
+  const font = s => `800 ${s}px "SF Pro Rounded", ui-rounded, system-ui`;
+  const glyph = (ch, x, y, size, fill, ink, rot, a) => { ctx.save(); ctx.globalAlpha = a; ctx.translate(x, y); ctx.rotate(rot); ctx.font = font(size); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 5; ctx.strokeStyle = ink; ctx.lineJoin = 'round'; ctx.strokeText(ch, 0, 0); ctx.fillStyle = fill; ctx.fillText(ch, 0, 0); ctx.restore(); };
+  if (p.zzz > .05) for (let i = 0; i < 3; i++) { const ph = (t * .35 + i / 3) % 1; glyph('z', 78 + ph * 40, -100 - ph * 60, 16 + ph * 18, '#c6bdff', '#3a2f7a', .1, p.zzz * Math.sin(ph * Math.PI)); }
+  if (p.q > .05) glyph('?', -96, -104 + Math.sin(t * 2.2) * 4, 44, '#5fe6d4', '#1c3a40', -.2, clamp(p.q, 0, 1));
+  if (p.bang > .05) glyph('!', -100, -104, 50, '#ff5a4f', '#4a0f12', -.15 + Math.sin(t * 2.5) * .05, clamp(p.bang, 0, 1));
+  const drop = (x, y, s, c, a) => { ctx.save(); ctx.globalAlpha = a; const g = ctx.createRadialGradient(x - 2, y - 3, 1, x, y, 12 * s); g.addColorStop(0, '#ffffff'); g.addColorStop(1, c);
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(x, y - 16 * s); ctx.bezierCurveTo(x + 4 * s, y - 8 * s, x + 10 * s, y, x, y + 6 * s); ctx.bezierCurveTo(x - 10 * s, y, x - 4 * s, y - 8 * s, x, y - 16 * s); ctx.fill(); ctx.restore(); };
+  if (p.sweat > .05) drop(96, -74 + ((t * .5) % 1) * 22, 1, '#7cc8ff', clamp(p.sweat, 0, 1));
+  if (p.tear > .05) { const ph = (t * .45) % 1; drop(-56, 4 + ph * 34, .8, '#8ab8ff', clamp(p.tear, 0, 1) * (1 - ph * .6)); }
+  if (p.steam > .05) for (const s of [-1, 1]) for (let i = 0; i < 2; i++) { const ph = (t * .8 + i * .5 + (s > 0 ? .25 : 0)) % 1;
+    ctx.save(); ctx.globalAlpha = clamp(p.steam, 0, 1) * (1 - ph) * .85; ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(s * (74 + ph * 18), -80 - ph * 40, 7 + ph * 10, 0, TAU); ctx.fill(); ctx.restore(); }
+  if (p.sparkle > .05) for (let i = 0; i < 5; i++) { const a = i / 5 * TAU + t * .5, r = 140 + Math.sin(t * 2 + i) * 6, sz = (7 + 4 * Math.sin(t * 5 + i * 1.7)) * clamp(p.sparkle, 0, 1);
+    if (sz < 1) continue; const x = Math.cos(a) * r, y = -24 + Math.sin(a) * r * .7; ctx.fillStyle = '#ffd84d'; ctx.strokeStyle = '#7a5200'; ctx.lineWidth = 2; ctx.beginPath();
+    for (let k = 0; k < 8; k++) { const aa = k / 8 * TAU - Math.PI / 2, rr = k % 2 ? sz * .32 : sz; ctx.lineTo(x + Math.cos(aa) * rr, y + Math.sin(aa) * rr); } ctx.closePath(); ctx.fill(); ctx.stroke(); }
+}
+
+/* ───────────── app ───────────── */
+// Classic keeps its original yellow exactly. Every other colour derives its shading in HSL, so a
+// yellow shades toward amber and a blue toward navy instead of everything going muddy.
+const CLASSIC_YELLOW = { ...CPAL };
+function hsl(hex) { let [r, g, b] = rgb(hex).map(v => v / 255); const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2; let h = 0, s = 0;
+  if (mx !== mn) { const d = mx - mn; s = l > .5 ? d / (2 - mx - mn) : d / (mx + mn); h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h *= 60; } return [h, s, l]; }
+function hex(h, s, l) { h = ((h % 360) + 360) % 360; s = clamp(s, 0, 1); l = clamp(l, 0, 1); const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l),
+  f = n => Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1)))).toString(16).padStart(2, '0'); return '#' + f(0) + f(8) + f(4); }
+function classicPal(body) { const [h, s, l] = hsl(body), warm = h < 70 || h > 330, shift = warm ? -8 : 6;
+  return { body, shade: hex(h + shift, Math.min(1, s * 1.05), l - .11), belly: hex(h, s * .9, l + (1 - l) * .68), inner: '#ff9a8a', ink: hex(h + shift * 2, Math.min(s, .55), .15),
+    hand: '#fffaf2', mouth: hex(h + shift * 3, .55, .2), tongue: '#ff7a7a', blush: '#ff8f8f' }; }
+const CLASSIC_COLOURS = {
+  classicYellows: [['original', null], ['lemon', '#fbe35a'], ['sunflower', '#ffc928'], ['honey', '#f5b83d'], ['marigold', '#ffad33'], ['mustard', '#ddae3a'], ['cream', '#f8dd8f']],
+  classicOthers: [['peach', '#ffb38a'], ['coral', '#ff8a73'], ['rose', '#ff9ec4'], ['mint', '#7fd8b8'], ['sage', '#a8c99a'], ['sky', '#8cc8ff'], ['lavender', '#b9a6ff']],
+};
+const classicSwatches = [];
+for (const [box, list] of Object.entries(CLASSIC_COLOURS)) for (const [id, body] of list) {
+  const pal = body ? classicPal(body) : CLASSIC_YELLOW, d = document.createElement('div'); d.className = 'sw'; d.dataset.v = id; d.title = id;
+  d.style.background = `linear-gradient(135deg, ${pal.body} 62%, ${pal.shade} 62%)`; d.style.outline = `2.5px solid ${pal.ink}`; d.style.outlineOffset = '-2.5px';
+  d.onclick = () => { CPAL = pal; state.classic = id; sync(); }; document.getElementById(box).appendChild(d); classicSwatches.push(d); }
+document.getElementById('classicCustom').oninput = e => { CPAL = classicPal(e.target.value); state.classic = 'custom'; sync(); };
+const COLOURS = [{ id: 'violet', body: '#8a6bff' }, { id: 'lilac', body: '#a88cff' }, { id: 'grape', body: '#6a4cd6' }, { id: 'orchid', body: '#b56cf0' }];
+const state = { mood: 'idle', colour: '#8a6bff', outline: false, classic: 'original' };
+const dpr = Math.min(2, devicePixelRatio || 1);
+const views = [...document.querySelectorAll('#grid canvas')].map((el, i) => ({ el, pose: el.dataset.pose, P: new Puppet(ENGINES[el.dataset.eng], 'idle', 1.7 + i * 3.1) }));
+
+const groupsEl = document.getElementById('moodGroups');
+for (const g of [...new Set(MOODS.map(m => m.group))]) {
+  const h = document.createElement('h2'); h.textContent = g; groupsEl.appendChild(h);
+  const box = document.createElement('div'); box.className = 'moods'; groupsEl.appendChild(box);
+  for (const m of MOODS.filter(m => m.group === g)) { const b = document.createElement('button'); b.dataset.id = m.id; b.textContent = m.label; b.onclick = () => { stop(); setMood(m.id); }; box.appendChild(b); }
+}
+const cols = document.getElementById('colours');
+for (const c of COLOURS) { const d = document.createElement('div'); d.className = 'sw'; d.dataset.v = c.body; d.title = c.id;
+  d.style.background = `radial-gradient(circle at 35% 30%, ${mix(c.body, '#ffffff', .4)}, ${c.body} 50%, ${mix(c.body, DEEP, .45)})`; d.onclick = () => { state.colour = c.body; sync(); }; cols.appendChild(d); }
+document.getElementById('outline').onchange = e => state.outline = e.target.checked;
+addEventListener('keydown', e => { if (!['ArrowLeft', 'ArrowRight'].includes(e.key)) return; stop(); const i = MOODS.findIndex(m => m.id === state.mood), n = MOODS.length; setMood(MOODS[(i + (e.key === 'ArrowRight' ? 1 : n - 1)) % n].id); });
+function setMood(id) { state.mood = id; for (const v of views) v.P.set(id); document.getElementById('mLabel').textContent = MOOD[id].label; document.getElementById('mUse').textContent = MOOD[id].use; sync(); }
+function sync() { for (const b of groupsEl.querySelectorAll('button')) b.classList.toggle('on', b.dataset.id === state.mood); for (const d of cols.children) d.classList.toggle('on', d.dataset.v === state.colour); for (const d of classicSwatches) d.classList.toggle('on', d.dataset.v === state.classic); }
+
+const STORY = ['idle', 'hello', 'curious', 'thinking', 'cheeky', 'worried', 'holdon', 'annoyed', 'happy', 'cheer', 'proud', 'sleepy', 'sorry', 'sad', 'shy', 'laugh', 'idle'];
+let story = null; const playBtn = document.getElementById('play');
+function stop() { story = null; playBtn.classList.remove('on'); playBtn.textContent = '▶ Play a day with Shift'; }
+playBtn.onclick = () => { if (story) return stop(); story = { t: 0, i: -1 }; playBtn.classList.add('on'); playBtn.textContent = '■ Stop'; };
+
+let last = performance.now();
+function frame(now) { const dt = Math.min(.05, (now - last) / 1000); last = now;
+  if (story) { story.t += dt; const i = Math.floor(story.t / 2.4); if (i !== story.i) { if (i >= STORY.length) stop(); else { story.i = i; setMood(STORY[i]); } } }
+  for (const v of views) { const w = Math.round(v.el.clientWidth * dpr), h = Math.round(v.el.clientHeight * dpr); if (!w || !h) continue;
+    if (v.el.width !== w || v.el.height !== h) { v.el.width = w; v.el.height = h; }
+    const ctx = v.el.getContext('2d'); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, w, h);
+    v.P.update(dt); drawScene(ctx, w, h, v.P, { pose: v.pose, colour: state.colour, outline: state.outline }); }
+  requestAnimationFrame(frame); }
+setMood('idle'); requestAnimationFrame(frame);
+</script>
+</body>
+</html>

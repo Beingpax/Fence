@@ -4,7 +4,8 @@ import SwiftUI
 ///
 /// Deliberately not a second copy of the app. Anything needing more than a switch lives
 /// in the main window, and the popover is built from the same pieces as everything else
-/// so it doesn't read as a system menu that wandered in.
+/// so it doesn't read as a system menu that wandered in. It never shows warnings:
+/// permission problems surface only in the main window.
 struct MenuBarView: View {
     @Environment(AppModel.self) private var model
 
@@ -20,10 +21,6 @@ struct MenuBarView: View {
                 blockList
             }
 
-            if model.browserAccessNeedsAttention {
-                permissionWarning
-            }
-
             Hairline()
 
             footer
@@ -34,12 +31,6 @@ struct MenuBarView: View {
             VisualEffect(surface: .window, blending: .behindWindow).ignoresSafeArea()
         }
         .onAppear { model.refreshSystemState() }
-        .task {
-            while !Task.isCancelled {
-                model.refreshPermissions()
-                try? await Task.sleep(for: .seconds(2))
-            }
-        }
     }
 
     // MARK: Header
@@ -75,33 +66,6 @@ struct MenuBarView: View {
                 MenuBlockRow(block: block)
             }
         }
-    }
-
-    private var permissionWarning: some View {
-        Button {
-            model.requestBrowserAccess()
-        } label: {
-            HStack(alignment: .top, spacing: Theme.Space.tight) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Review browser access")
-                        .font(.caption.weight(.semibold))
-                    Text(PermissionsManager.BrowserAccessPane.current.setupInstructions)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(Theme.Space.tight)
-            .background {
-                RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                    .fill(Color.orange.opacity(0.12))
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: Footer
@@ -144,7 +108,7 @@ private struct MenuBlockRow: View {
 
     @State private var isHovering = false
 
-    private var isActive: Bool { block.isActive() }
+    private var isActive: Bool { model.store.activeBlockIDs.contains(block.id) }
     private var showsLockStatus: Bool { block.isLocked() && !block.requiresUnlockChallenge() }
 
     var body: some View {

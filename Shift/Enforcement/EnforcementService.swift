@@ -17,7 +17,10 @@ enum EnforcementService {
     @discardableResult
     static func registerIfNeeded(enabled: Bool) throws -> Bool {
         switch (enabled, service.status) {
-        case (true, .notRegistered): try service.register()
+        // `.notFound` is what macOS reports for an agent that has never been registered
+        // (its login-items record doesn't exist yet), so it needs registering too.
+        // Treating only `.notRegistered` as "not yet" meant the helper was never set up.
+        case (true, .notRegistered), (true, .notFound): try service.register()
         case (false, .enabled), (false, .requiresApproval): try service.unregister()
         default: break
         }

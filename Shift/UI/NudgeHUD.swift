@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// What one card says, and how Flop looks saying it.
+/// What one card says, and how the mascot looks saying it.
 struct NudgeContent: Equatable {
     enum Kind: Equatable {
         /// A soft hint from the feed-keyword check. Never escalates.
@@ -15,25 +15,7 @@ struct NudgeContent: Equatable {
     var headline: String
     var detail: String
     var kind: Kind
-
-    var mood: NudgeMood { kind == .reward ? .happy : .calm }
-}
-
-/// Drives which rendered expression appears and what colour the panel carries.
-///
-/// `concerned` and `alarmed` belonged to the old three-nudge ladder. They stay because the
-/// character's ears are still the clearest way to show escalation, should it come back.
-enum NudgeMood {
-    case calm, concerned, alarmed, happy
-
-    var tint: Color {
-        switch self {
-        case .calm: Color(red: 0.36, green: 0.78, blue: 0.72)
-        case .concerned: Color(red: 0.98, green: 0.69, blue: 0.33)
-        case .alarmed: Color(red: 0.98, green: 0.45, blue: 0.47)
-        case .happy: Color(red: 0.36, green: 0.78, blue: 0.72)
-        }
-    }
+    var mood: MascotMood
 }
 
 /// The HUD for every nudge, soft or escalating.
@@ -42,11 +24,10 @@ enum NudgeMood {
 /// platform: a non-activating panel that floats over everything, never takes keyboard focus,
 /// never appears in Cmd+Tab or Mission Control, and fades itself out.
 ///
-/// It sits against the right edge rather than the bottom centre, because a nudge has to be
-/// noticed without covering the thing the user is reading, and because that is where macOS
-/// already puts banners. Flop stands to the left of the card, the card against the screen
-/// edge, and the pair arrives and leaves exactly like a notification: in from beyond the
-/// right edge, and back out the same way.
+/// It sits in the bottom-right corner, clear of the menu bar, the middle of the screen and
+/// whatever the user is reading. The mascot peeks over the card's top edge and holds it,
+/// and the pair arrives and leaves like a notification: in from beyond the right edge,
+/// and back out the same way.
 @MainActor
 final class NudgeHUDController {
     private var panel: NSPanel?
@@ -64,7 +45,8 @@ final class NudgeHUDController {
 
     /// How long a soft hint stays up before fading.
     private let hintDuration: Duration = .seconds(5)
-    private let width: CGFloat = 580
+    /// The card, plus the margin it keeps from the screen edges.
+    private let width: CGFloat = NudgeHUDView.cardWidth + Theme.Space.loose * 2
 
     var isShowing: Bool { (panel?.isVisible ?? false) && !isLeaving }
 
@@ -72,16 +54,17 @@ final class NudgeHUDController {
 
     /// A nudge that will never turn into anything. Fades itself out.
     func hint(reason: String, detail: String) {
-        show(NudgeContent(headline: reason, detail: detail, kind: .hint))
+        show(NudgeContent(headline: reason, detail: detail, kind: .hint, mood: .curious))
     }
 
-    /// Flop, delighted, the moment someone turns back on their own.
+    /// The mascot, delighted, the moment someone turns back on their own.
     func reward(headline: String, detail: String) {
-        show(NudgeContent(headline: headline, detail: detail, kind: .reward))
+        show(NudgeContent(headline: headline, detail: detail, kind: .reward, mood: .happy))
     }
 
-    func status(headline: String, detail: String) {
-        show(NudgeContent(headline: headline, detail: detail, kind: .status))
+    /// A plain status line. Pass `.sorry` when it reports something that didn't work.
+    func status(headline: String, detail: String, mood: MascotMood = .calm) {
+        show(NudgeContent(headline: headline, detail: detail, kind: .status, mood: mood))
     }
 
     /// Takes a soft hint down when the user moves on, but leaves praise alone: a reward
@@ -165,8 +148,8 @@ final class NudgeHUDController {
         )
     }
 
-    /// Cards differ in height, and the panel is anchored by its top edge, so a resize has
-    /// to be followed by a reposition or the card appears to sink.
+    /// Cards differ in height, and the panel is anchored by its bottom edge, so a resize has
+    /// to be followed by a reposition or the card appears to jump.
     private func fit(_ panel: NSPanel, _ hosting: NSHostingView<NudgeHUDView>) {
         panel.setContentSize(NSSize(width: width, height: hosting.fittingSize.height))
         position(panel)
@@ -197,19 +180,13 @@ final class NudgeHUDController {
         return panel
     }
 
-    /// Top right, just under the menu bar — where macOS already puts things that want
-    /// your attention without taking it. Clear of the Dock, clear of the middle of the
-    /// screen, and clear of whatever you are reading.
+    /// Bottom right, just above the Dock: out of the way of the menu bar and of whatever
+    /// you are reading, and low enough that the mascot peeking up reads as a visitor at
+    /// the edge of the desk rather than a banner.
     private func position(_ panel: NSPanel) {
         guard let screen = NSScreen.main else { return }
         let visible = screen.visibleFrame
-        let size = panel.frame.size
-        panel.setFrameOrigin(
-            NSPoint(
-                x: visible.maxX - size.width,
-                y: visible.maxY - size.height - Theme.Space.tight
-            )
-        )
+        panel.setFrameOrigin(NSPoint(x: visible.maxX - panel.frame.width, y: visible.minY))
     }
 
     // MARK: Timing
@@ -242,42 +219,48 @@ private struct NudgeHUDView: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var isHovering = false
     @State private var entered = false
+    /// The mascot rises from behind the card a beat after it lands, then takes hold of it.
+    @State private var risen = false
+    @State private var holding = false
+    /// One clock for both of the mascot's layers, so its hands move with its body.
+    @State private var start = Date()
+
+    static let cardWidth: CGFloat = 300
 
     /// How long the exit runs. `NudgeHUDController.exitGrace` waits this out.
     static let exitDuration: Double = 0.28
 
-    /// Far enough to clear Flop, the card and the gap at the edge, so the pair ends up
-    /// fully past the screen's right edge rather than half-visible against it.
-    private static let travel: CGFloat = 540
+    /// Far enough that the card and its margin end up fully past the screen's right edge.
+    private static let travel: CGFloat = cardWidth + Theme.Space.loose * 2
 
-    private var mood: NudgeMood { content.mood }
+    /// How far below the card's edge the mascot starts, hidden, before it rises.
+    private static let riseDistance: CGFloat = 70
 
     /// Off to the right both before the entrance and during the exit.
     private var isOffscreen: Bool { !entered || isLeaving }
 
     var body: some View {
-        // Top-aligned on the ears, not on Flop's frame: the card's top edge and the tips of
-        // his ears share a line, and his feet hang below the card. The alignment guide is
-        // what skips the empty air above his ears.
-        HStack(alignment: .top, spacing: -10) {
-            NudgeCharacter(mood: mood, animates: !reduceMotion)
-                .alignmentGuide(.top) { _ in NudgeCharacterView.earTopInset() }
-                .overlay {
-                    // A burst of sparkles when someone turns back: a small celebration
-                    // the instant they do the thing the habit is built on.
-                    if content.kind == .reward, !reduceMotion { SparkleBurst() }
-                }
-                // Leaning in front of the card, not behind it: the overlap is what ties
-                // the pair together.
-                .zIndex(1)
+        // Three layers: the mascot's body behind the card, the card, then its hands in
+        // front, curled over the card's top edge.
+        ZStack(alignment: .top) {
+            mascotBody
             message
+                .padding(.top, MascotView.cardEdgeOffset)
+            MascotView(mood: content.mood, layer: .hands, animates: !reduceMotion, start: start)
+                .opacity(holding ? 1 : 0)
+                .offset(y: holding ? 0 : 6)
+                .allowsHitTesting(false)
         }
-        .padding(.trailing, Theme.Space.loose)
-        // Flop now reaches higher than the card, so the top padding gives back what the
-        // ears take: the card stays under the menu bar where a banner sits.
-        .padding(.top, max(0, Theme.Space.loose - NudgeCharacterView.earTopInset()))
+        .overlay(alignment: .top) {
+            // A burst of sparkles when someone turns back: a small celebration the instant
+            // they do the thing the habit is built on.
+            if content.kind == .reward, !reduceMotion {
+                SparkleBurst()
+                    .frame(width: MascotView.size.width, height: MascotView.cardEdgeOffset)
+            }
+        }
+        .padding(.horizontal, Theme.Space.loose)
         .padding(.bottom, Theme.Space.loose)
-        // Flop stands to the left, the card against the screen edge where banners sit.
         .frame(maxWidth: .infinity, alignment: .trailing)
         // Travels in from beyond the screen edge and back out the same way, like a
         // notification banner. The panel clips to its window, and the window's right edge
@@ -289,16 +272,33 @@ private struct NudgeHUDView: View {
         .animation(reduceMotion
                    ? .easeOut(duration: 0.2)
                    : .easeIn(duration: Self.exitDuration), value: isLeaving)
-        .onAppear {
-            guard !reduceMotion else {
-                entered = true
-                return
-            }
-            // Eased, not bouncy: a banner settles into place, it doesn't overshoot.
-            withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) { entered = true }
-        }
+        .onAppear(perform: arrive)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
+    }
+
+    /// The body is clipped at the card's top edge, so it can rise from behind a card made
+    /// of glass without showing through it.
+    private var mascotBody: some View {
+        MascotView(mood: content.mood, layer: .body, animates: !reduceMotion, start: start)
+            .offset(y: risen ? 0 : Self.riseDistance)
+            .frame(width: MascotView.size.width, height: MascotView.cardEdgeOffset, alignment: .top)
+            .clipped()
+            .allowsHitTesting(false)
+    }
+
+    private func arrive() {
+        guard !reduceMotion else {
+            entered = true
+            risen = true
+            holding = true
+            return
+        }
+        // The card settles like a banner; the mascot pops up behind it with a little
+        // overshoot, then reaches for the edge.
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) { entered = true }
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.62).delay(0.18)) { risen = true }
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.7).delay(0.42)) { holding = true }
     }
 
     private var accessibilityLabel: String {
@@ -331,15 +331,15 @@ private struct NudgeHUDView: View {
                 .font(.callout)
                 .foregroundStyle(.primary)
                 .lineLimit(2)
-
         }
         .padding(.horizontal, Theme.Space.base)
-        .padding(.vertical, Theme.Space.snug + 1)
-        .frame(width: 300, alignment: .leading)
+        // Extra room at the top: the mascot's fingers curl over this edge.
+        .padding(.top, Theme.Space.loose + Theme.Space.hair)
+        .padding(.bottom, Theme.Space.snug + 1)
+        .frame(width: Self.cardWidth, alignment: .leading)
         .background {
             // The same glass macOS draws notification banners on, so a nudge looks like
-            // it belongs next to them. No tinted border any more: banners don't carry one,
-            // and Flop's ears and colour already say which rung this is.
+            // it belongs next to them.
             if reduceTransparency {
                 RoundedRectangle(cornerRadius: Theme.Radius.hud, style: .continuous)
                     .fill(Color(nsColor: .windowBackgroundColor))
@@ -356,43 +356,11 @@ private struct NudgeHUDView: View {
             onHoverChange(hovering)
         }
     }
-
-}
-
-// MARK: - The character
-
-/// Hosts the drawn character and gives it its entrance.
-///
-/// The face itself lives in `NudgeCharacterView`, which owns the idle motion — breathing,
-/// sway, blink. This wrapper only handles the arrival.
-private struct NudgeCharacter: View {
-    let mood: NudgeMood
-    let animates: Bool
-
-    @State private var landed = false
-
-    var body: some View {
-        NudgeCharacterView(mood: mood, animates: animates)
-            // Arrives a beat after the panel, with a little overshoot, so he reads as
-            // stepping in rather than appearing.
-            .scaleEffect(landed ? 1 : 0.82, anchor: .bottom)
-            .opacity(landed ? 1 : 0)
-            .onAppear {
-                guard animates else {
-                    landed = true
-                    return
-                }
-                withAnimation(.spring(response: 0.46, dampingFraction: 0.62).delay(0.08)) {
-                    landed = true
-                }
-            }
-            .accessibilityHidden(true)
-    }
 }
 
 // MARK: - Celebration
 
-/// Eight small sparkles that fly out from Flop and fade, once.
+/// Eight small sparkles that fly out from the mascot and fade, once.
 private struct SparkleBurst: View {
     @State private var burst = false
 
