@@ -1,0 +1,21 @@
+Shift/Enforcement/PauseController.swift
+  s_bea2d78581f3eb::t_0b80b26b73d52a 62-66
+Shift/Enforcement/PauseBackdrop.swift
+  s_bea2d78581f3eb::t_0b80b26b73d52a 162-170,172-190,194-297
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "26badde586bd6e543404b4b453b0550dc3ea8b24",
+  "prompts": {},
+  "sessions": {
+    "s_bea2d78581f3eb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "48e14b93-5929-46a5-9280-a9ab7c6f0e64",
+        "model": "unknown"
+      },
+      "human_author": "Prakash Joshi Pax <101010368+Beingpax@users.noreply.github.com>"
+    }
+  }
+}
