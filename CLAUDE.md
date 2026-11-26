@@ -69,11 +69,28 @@ Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (br
   status follows the clock. **Rows hold only the main things**: no list of apps and
   sites, no schedule line and no hint text (the user asked; the editor has the details).
   Not yet built or seen running.
+- **Every pause is journaled, and the way back needs a few written words** (26 Nov 2026,
+  the user's call). `ReachJournal` (`Models/ReachJournal.swift`) writes each reach to SQLite
+  at `~/Library/Application Support/Shift/journal.sqlite`: time, local day, hour, block,
+  rule, site or app, URL, window title, visit number, the feeling, what they wrote, and the
+  outcome (`closed`, `break` for "I need it" access, `dismissed`, `left_early`, `open`). The schema is plain so it can be queried
+  from a terminal later; the `daily` view sums each day. Both processes write to it (WAL
+  mode). The pause is one version every time (see "The pause"): Close isn't offered until
+  an answer is picked and `UrgeReason.minimumWords` are written, 10 for a feeling and 20
+  for "I need it". The **Journal** sidebar
+  section (`UI/Main/JournalView.swift`, teal tile) shows two weeks of "pulls" as bars, a few
+  fact pills and one summary card per day: the tally, a 24-hour strip of when the pulls
+  came, and pills for where (each site once, with a count) and why (each feeling once). No
+  per-pull list: the user found it read like a log file (26 Nov 2026); every pull, its time
+  and its words stay in `journal.sqlite` for analysis. Information, never a grade:
+  no streaks or scores. Researched in `Research/habit-science-review.md`. The user rejected
+  two ideas from that review: a "Back to work" button after closing, and if-then plans in
+  the person's own words. Don't add either without asking. Not yet built or seen running.
 - **The sidebar is Shift's own and stays exactly as on `main`** (26 Nov 2026, the user's
   call after it was changed twice): a Liquid Glass panel (`.glassEffect(.regular)`) pinned to
   the window's leading edge, full height, with only its trailing corners rounded; the
   selected row uses `unemphasizedSelectedContentBackgroundColor`; section tiles are system
-  orange, indigo and gray; the count badge is the accent colour. It is an exception to the
+  orange, indigo, teal (Journal) and gray; the count badge is the accent colour. It is an exception to the
   palette rules. Don't flatten it to cream, swap it for `NSVisualEffectView` materials, or
   float it inset like the system sidebar.
 - **The block editor keeps its `main` look; only its buttons float** (26 Nov 2026, the
@@ -110,29 +127,50 @@ xcodebuild -project Shift.xcodeproj -scheme Shift -configuration Debug -destinat
 ```
 
 - Run from Xcode with Cmd+R. Shift is an `LSUIElement` menu bar app (◎ icon), with no Dock icon.
-- Test without side effects: Settings → Previews has the pause (first, second and third reach), the turning-back reward, and the soft drift hint.
+- Test without side effects: Settings → Previews has the pause (one button: it's the same every time), the turning-back reward, and the soft drift hint. Settings → How blocking works, the onboarding demo page and the README describe the same flow: change them together with the pause.
 - Real test: switch on a block listing `instagram.com` or `youtube.com/shorts`, then open it in Safari or Chrome. The pause should cover the screen within about a quarter of a second of pressing Return, usually before the page has loaded.
 - Shift requests Accessibility for window titles and browser addresses.
 - **Signing is load-bearing for permissions.** `DEVELOPMENT_TEAM = V6J6A3VWY2` is set on both configurations, so builds are signed with a real identity. Do not let this fall back to ad-hoc. macOS keys TCC grants to the designated requirement, and an ad-hoc signature puts the binary's `cdhash` in that requirement, so **every rebuild silently voids the Accessibility grant** and the app reports "not granted" while System Settings still shows it enabled. Verify with `codesign -d -r- <app>`: the requirement must name the certificate, not a `cdhash`. If a grant ever does go stale, `tccutil reset Accessibility com.beingpax.Shift` and grant it again.
+- **Real pauses come from the background helper, not the app Xcode runs.** The
+  `--enforcement-agent` process is a `KeepAlive` launch agent that owns the monitor, so
+  after a rebuild it kept enforcing with the old code for hours (26 Nov 2026: previews showed
+  the new pause, real pauses the old one, and the journal stayed empty). It now restarts
+  itself: `AppModel.restartIfReplaced` compares `ExecutableStamp` (inode, size, modification
+  date) every 5 s and exits once the new executable has been stable for 4 s, with no pause
+  on screen and no "I need it" access running; launchd relaunches it on the new build. To
+  restart it by hand: `launchctl kickstart -k gui/$UID/com.beingpax.Shift.enforcement`.
+  The dashboard also checks the helper (`replaceStaleHelper`): one running another copy of
+  Shift (Xcode's build folder against /Applications) or started before this copy was built
+  is asked to restart (`restartHelper` notification), and re-registered from this copy if
+  it's still stale 20 s later. The dashboard relaunches itself after an update too
+  (`relaunchDashboard`), but only while none of its windows is open; the relaunch passes
+  `--relaunched-after-update` so it comes back without opening a window. Xcode's debugger
+  holds a stopped app as "traced": kill the `debugserver` parent, not the app.
 - Automated GUI testing needs Accessibility and Screen Recording granted to the terminal running Claude Code. Without them, `osascript` UI scripting fails with -1719 and `screencapture` fails outright, so shield verification has to be manual.
 
 ## Verification checklist (not yet walked through by hand)
 
 1. **Menu bar.** Icon appears; the count next to it matches the number of active blocks.
 2. **Main window.** Menu bar → Open Shift. Create a block, add sites and apps, save.
-3. **Blocking.** Switch the block on, visit a listed site in Safari and Chrome. The pause
-   should cover every display almost at once. Choices unlock after 10 s (20 s on the
-   second reach). Every answer except "I need it" closes only the tab, then shows the
-   reward. "I need it" appears only when the block allows breaks. Type a reason, pick 2 or
-   5 minutes, and wait one minute for access to the matched rule. The close button
-   cancels the wait. A third reach within an hour waits 30 s and plays
-   the deeper chime. Check the wallpaper matches the time of day.
+3. **Blocking.** Switch the block on, visit a listed site in Safari and Chrome. The
+   heads-up card (annoyed mascot) should appear almost at once and the page stays usable.
+   A click or a two-finger swipe dismisses the card but not the countdown. Close the tab
+   within 10 s yourself: a reward, a
+   "Before the pause" row in the Journal, no pause. Stay 10 s: the pause should cover
+   every display. Come back within 2 minutes of leaving: straight to the pause. After one 5 s breath the six answers
+   appear; there is no Close yet. Pick a feeling, write 10 words, and Close appears (Return
+   works too); it closes only the tab, then shows the reward. The back button in the
+   panel's top-right corner returns to the answers. Each pause should appear on the Journal
+   page and in `journal.sqlite`. "I need it" is always there: write 20 words, pick 2 or 5
+   minutes, and wait 15 s for access to the matched rule. The countdown has no buttons. A
+   repeat reach looks the same, with different words. Check the wallpaper matches the
+   time of day.
 4. **Schedules.** Set a window that starts a minute from now and confirm it self-activates.
 5. **Nudges.** With a block active and nudges enabled, open an unblocked window whose title contains a configured feed keyword.
 6. **Locks.** Each of duration, until-time, random-string and restart. Check that the
    switch, the editor and Delete all refuse while locked.
-7. **Breaks.** Enable breaks, hit the block, take a break, confirm the block goes quiet and
-   comes back.
+7. **I need it.** Take 2 minutes of access, confirm only that site opens, and that the
+   pause comes back when the time is up.
 8. **Quit protection.** Cmd+Q with a locked block should explain itself. `kill -15` should
    be ignored; `kill -9` is expected to win.
 9. **Watchdog.** With a lock engaged, `pkill -f 'Shift.app/Contents/MacOS/Shift$'`. Shift
@@ -153,11 +191,15 @@ A **block** is the unit of everything. It owns:
   storage and starts timed runs from the block’s menu bar context menu;
 - a **lock**: `none`, `duration`, `untilTime`, `randomString`, or `restart`, which engages
   the moment the block is switched on;
-- **Breaks** are optional, with two starts per local day. Each gives 2 or 5 minutes of access after a one-minute wait.
+- **No breaks setting.** The per-block breaks switch, its two a day and the "on a break"
+  state were removed on 26 Nov 2026 (the user's call). "I need it" at the pause is always
+  offered instead: 20 written words, a 15-second wait, then 2 or 5 minutes on the one
+  matched rule (`AccessPlan`), with no daily limit. Old saves still carry a `breaks` key;
+  decoding ignores it.
 
 Several blocks can be active at once. `BlockEvaluator` asks each active block in order and
 the first with an opinion wins. A block is active when it is enabled or locked on, is
-inside its schedule, and is not on a break.
+inside its schedule.
 
 Rules that are easy to get wrong, and are covered by the tests:
 
@@ -166,7 +208,11 @@ Rules that are easy to get wrong, and are covered by the tests:
 - A `restart` lock releases after the boot session changes. Saves from older builds
   use their stored boot time during migration.
 - While locked, a block may be edited only to become stricter. Entries can be added,
-  and the schedule, break settings and lock method are frozen.
+  and the schedule and lock method are frozen.
+- **A blocked app outranks every page inside it**, across all active blocks: Arc on
+  x.com, with Arc blocked anywhere, is an app match (quit Arc), not a website match (close
+  the tab). Website rules are only looked at when no active block lists the app. Before
+  26 Nov 2026 the website rule won, so Shift closed one tab and paused again on the next.
 - `Finder`, System Settings and Shift itself are never blocked, so a bad allow-list can't
   lock someone out of fixing it.
 
@@ -226,14 +272,34 @@ Rules that are easy to get wrong, and are covered by the tests:
     peeking over the card, beside the card) and picked the flat cartoon. Don't swap it for
     shaded 3D or bring Flop back without asking.
   - **The antenna bulb carries the mood**, readable from the corner of the eye: warm at
-    rest, teal when curious (the drift hint), bright when you turn back, amber when
-    something failed. `MascotMood` has exactly the four moods the HUD uses: `calm`,
-    `curious`, `happy`, `sorry`. The studies hold sixteen more; add one only when a real
-    moment needs it.
+    rest, teal when curious, amber when worried, deep red when annoyed, gold when proud,
+    blue when sad, dim while "I need it" access runs.
+  - **Thirteen of the sixteen study moods are in the app** (26 Nov 2026, the user's call,
+    replacing "only the four the HUD uses"). `MascotMood` follows the study's table, ported
+    from `Studies/mascot-compare.html` with its positions divided by 1.9 (the study's scene
+    units): idle, hello, thinking, shy; curious, cheeky, worried, annoyed; happy, cheer,
+    proud; resting, sad. **Sorry, laughing and hold on were removed the same day** because
+    the user didn't like how they look: don't bring them back, or their shrug, shake, "!"
+    and raised hands. Each mood brings its face, hand pose (grip, wave, fists, thumb, chin,
+    tapping) and effects (?, sweat, a tear, steam, sparkles, zzz). **The mood follows the message, not the card type:** drift hints go
+    curious, then cheeky, then worried as the same drift repeats within half an hour;
+    rewards are happy, cheer or proud by the line (`PauseCopy.mood(for:)`: harder-set
+    lines and lines about strength are proud, exuberant ones cheer); access starting is
+    resting; something that didn't work, or "close the tab manually", is worried.
+    Onboarding's welcome waves hello, the empty Blocks page is thinking, the Dashboard is
+    idle (hello with no blocks, curious when a permission is missing). The heads-up card
+    before the pause is annoyed, and sad from the third time in an hour. Shy is unused.
+    Settings → Previews → "Mascot moods" plays them all on the live card, and "Mascot
+    gallery" (`UI/MascotGallery.swift`, a sheet) shows every place the mascot appears with
+    its real words and mood, side by side. The gallery draws nudges with
+    `NudgeCardPreview`, which shares `NudgeMessage` with the live card, and in-app cards
+    with `MascotCard`; reward examples come from `PauseCopy` through `PauseCopy.mood(for:)`.
+    Its other example texts are copies: update them when that copy changes.
   - **It peeks over the card and holds its edge.** The view draws twice: `.body` behind the
     card, clipped at the card's top edge so it can rise from behind glass without showing
     through, and `.hands` in front of it. Both layers share one `start` date so they move on
-    one clock. The happy mood waves one hand; sorry shrugs with both.
+    one clock. Hands are worked out as in the study's `peekHands`: each mood weight pulls
+    them from their grip toward a pose.
   - **Motion is the original gentle idle**: breathing, a slow sway, jittered blinks with
     the odd double, quick glances that snap and hold. Two attempts at richer per-mood hand
     choreography (continuous oscillation, then keyframed beats) were rejected by the user
@@ -244,8 +310,9 @@ Rules that are easy to get wrong, and are covered by the tests:
     cross-fade and the mascot holds still.
   - **Three sounds** (`Enforcement/NudgeSound.swift`, `Resources/Sounds/`): `pause` (a soft
     singing-bowl chime, an invitation, never an alarm), `reward` (a bright rising glass bell
-    when you turn back) and `shield.m4a`, played by `playDeep()` (a calm deep chord in place
-    of the chime from the third reach: firmer, not louder).
+    when you turn back) and `shield.m4a`, played by `playDeep()` (a calm deep chord). The
+    deep chord marked the third reach until the ladder went on 26 Nov 2026; nothing plays it
+    now, and every pause gets the same chime.
     Polished chimes, not creature voices: a cartoon-creature set was tried and rejected.
     Generated with ElevenLabs sound effects, trimmed and loudness-matched with ffmpeg. Soft
     hints stay silent. Settings → Nudges → "Sounds" switches them all off.
@@ -258,9 +325,15 @@ Rules that are easy to get wrong, and are covered by the tests:
   ladder let the feed pay out for 25 seconds, trained people to tune Flop out, gave nothing
   for turning back, and reset on every tab switch. The separate shield (a 10-second wait
   plus 20 typed words on the third reach) was merged into the pause at the user's request:
-  one screen that simply waits longer each time. See "The pause" below.
-  - **In a browser, close the tab; anything else, quit it.** Quitting the whole browser
-    punished the wrong thing. Let the user respond when an app shows a quit confirmation.
+  one screen. It waited longer each time until 26 Nov 2026; now it's the same every time.
+  See "The pause" below.
+  - **A website rule closes the tab; an app rule quits the app, browsers included.**
+    Quitting the whole browser for a website punished the wrong thing. But a block that
+    lists the browser app itself (Arc) quits it, and the button says "Quit Arc"
+    (`PauseRequest.closesTab`); until 26 Nov 2026 any browser got "Close the tab". Quitting
+    never brings the app forward; if it's still open after 1.5 s it's probably asking
+    something, so then it comes forward to be answered. Otherwise the next app gets focus,
+    never Shift's own window.
   - **The backdrop is a real photograph that follows the clock** (`PauseBackdrop`,
     `DayPeriod`): green landscapes at sunrise (05–09), late morning (09–13), afternoon
     savanna (13–17), sunset (17–20:30) and the Milky Way at night. All Unsplash License, see
@@ -291,6 +364,13 @@ Rules that are easy to get wrong, and are covered by the tests:
 - **Socket-level network filtering is hostname-only.** HTTPS hides the path, so a `NEFilterDataProvider` can never do path-aware blocking. It is an M3 backstop, not a detection tier.
 - **The macOS 26 full-URL filter is unusable for us.** It requires a Bloom filter plus a Private Information Retrieval *server* plus a dedicated entitlement. A server contradicts the local-only rule. Rejected, documented in PRD §10.2.
 - **Foundation Models context is about 4,096 tokens** covering instructions, prompt, output and tool definitions together. Trim page text to roughly 2,500 tokens. Never send a whole page.
+- **An allowed helper can still be unloaded.** `launchctl bootout`, or launchd giving up on
+  a crashing job, leaves `SMAppService.status == .enabled` with nothing running, and
+  `register()` refuses a service that's already registered, so nothing brought it back and
+  the row's "Open Login Items" led to a switch that was already on (26 Nov 2026, after a
+  bootout during testing). `AppModel.repairHelperIfDue` now calls
+  `EnforcementService.reload()` (unregister, then register) when a 15-second check finds it
+  offline, at most every two minutes; the row's "Restart helper" does it straight away.
 - **`SMAppService` reports a never-registered agent as `.notFound`, not `.notRegistered`.**
   Register on both, or the helper is never set up and the row reads "couldn't start".
 - **`CGPreflightPostEventAccess` can stay false until relaunch** after the user grants
@@ -324,10 +404,11 @@ Intent-aware blocking has shipped elsewhere, so it is not a differentiator on it
 Shift/
 ├── App/            main (entry point branch), ShiftApp (MenuBarExtra + Settings),
 │                   AppDelegate (quit protection), AppModel (@Observable, @MainActor engine)
-├── Models/         Block (+ BlockList, BlockSchedule, ScheduleWindow, BlockLock, BreakPlan,
+├── Models/         Block (+ BlockList, BlockSchedule, ScheduleWindow, BlockLock, AccessPlan,
 │                   BlockTint), BlockStore (persistence, locking, CRUD),
 │                   ScreenContext, Verdict, ActivityEvent, DistractionPreset,
 │                   Urge (the reasons shown in the pause),
+│                   ReachJournal (every pause, in SQLite, + Reflection word count),
 │                   PauseCopy (every line at the pause and on turning back, + CopyDeck)
 ├── Detection/      ContextMonitor (async sampling), AddressObserver (AX notifications),
 │                   WindowInspector (AX),
@@ -396,8 +477,9 @@ Reduce Motion.
 Flow: `AppModel.engineTick` (1 s) decides which blocks are active and starts or stops
 detection → `ContextMonitor` sample (on every `AddressObserver` event, plus a 1.5 s poll) →
 `AppModel.handle` → `BlockEvaluator` over the active blocks → `Hysteresis` (2 consistent
-readings, the second requested 150 ms after the first) → `beginReach` → `PauseController`
-→ `handlePause` → close the tab and reward the user, or start temporary access.
+readings, the second requested 150 ms after the first) → `reach` (the 10 s heads-up card;
+leaving during it ends here, with praise) → `beginReach` → `PauseController` →
+`handlePause` → close the tab and reward the user, or start temporary access.
 
 ### The pause
 Every choice here comes from habit research. Check changes against these, and don't
@@ -408,6 +490,26 @@ relitigate them without asking:
   pressing Return wakes a sample within ~0.1 s. Value-changed is deliberately *not*
   observed: it fires on every keystroke in every text field. A feed that never pays out
   stops being worth reaching for, which is why speed matters more than anything else.
+- **A heads-up first, then the pause** (26 Nov 2026, the user's call, made knowing the
+  trade-off above). Detection is still instant, but what appears first is the nudge card
+  (`AppModel.reach`, `PauseCopy.warning`): "x.com is on your Distractions list." and "Close
+  the tab, or I'll step in." ("Quit the app…" for apps; kept short at the user's request),
+  with no button, the annoyed mascot (sad from
+  the third time in an hour) and the page left usable. The user wanted people to be able to
+  turn back on their own before Shift steps in, and judged ten seconds of feed an
+  acceptable price; I recommended hiding the page during the countdown and the user chose
+  not to. A Close button on the card was tried and removed the same day: closing is the
+  person's own act. Leaving within 10 s (Cmd-W, another page or another app, read twice
+  150 ms apart; a browser showing no page, such as Safari's Start Page or a window closed
+  with its last tab, once that has lasted 1 s) is a self-made turn back, praised the moment
+  it's seen (`noteLeaving`; until 26 Nov 2026 a blank never counted, so praise only came
+  when something else changed, 8 to 37 s late). Debug builds also listen for
+  `debugCloseFrontTab` and `debugNewTab` (Cmd-W and Cmd-T to the front browser) for
+  scripted trials. Verified: Cmd-W noticed about 0.3 s after, a blank tab at 1 s, and staying
+  brings the pause at exactly 10 s. Leaving earns `PauseCopy.turnedBackEarly` praise and a `left_early` journal
+  row. Still on it at 10 s: the pause. Coming back within 2 minutes of leaving, or hopping
+  to another blocked target during the countdown, goes straight to the pause, so stepping
+  away can't restart the clock. Settings → Previews → "Heads-up" shows the card.
 - **Full screen, no mascot.** `PauseController` covers every display with `PauseBackdrop`
   and locks out the Dock, menu bar and Cmd+Tab. An earlier version covered only the
   browser window with Flop on a frosted panel; the user rejected it because the page
@@ -421,7 +523,7 @@ relitigate them without asking:
   and a shooting star passes every 13 s or so. One `Canvas` at 30 fps, stars generated once
   from a fixed seed and stamped from pre-drawn glows. The breath is computed from the
   clock: in over 3 s, out over 2 s. Under it, **a bar that empties, not a countdown**:
-  10 s, 20 s on the second reach, 30 s from the third, drained by one linear animation
+  one breath, 5 s, every time (`PauseRequest.waitSeconds`), drained by one linear animation
   **from the right, anchored at its leading edge** (stepped once a second under Reduce
   Motion). It empties one way, like every other progress bar on the platform; pulling away
   from the middle in both directions at once was wrong and the user caught it. Digits invited
@@ -430,14 +532,18 @@ relitigate them without asking:
   gathers in time with the breath, and words only ask to be obeyed. Rejected on
   the way: rippling rings, a glass orb with orbiting motes, and several organic blobs
   (opaque, foggy, then a translucent drop the user hated). When it ends, the orb grows into the question panel
-  (`matchedGeometryEffect`), the question reveals, and six feeling chips arrive one after
-  another. **The question must be answerable by the chips.** It is "What's pulling you
+  (`matchedGeometryEffect`), the question reveals, and the answer chips arrive one after
+  another: all six, in a 3 × 2 grid. **The question must be answerable by the chips.** It is "What's pulling you
   here?": the chips name a state ("I'm bored", "This is hard"), so the earlier "What were
   you hoping it would give you?" asked for a reward and left every answer reading like a
   non-sequitur. The question asks what prompted the reach. Each chip has a short label and
   a symbol, with a longer description on hover. Choosing a chip replaces the question with its
-  answer. The solid white close button stays outside the panel throughout the pause. Return
-  activates it outside the reason form. Sources: GOV.UK's
+  answer, with a what, why or how prompt (`UrgeReason.prompt`) and a field that needs
+  `UrgeReason.minimumWords` before anything moves on: 10 for a feeling, 20 for "I need it".
+  The solid white close button sits outside the panel and is **not offered during the
+  breath or the question** (the user's call, 26 Nov 2026, over keeping it always
+  available); it fades in once the words are written, and Return in the field then closes.
+  "Pick a different answer" returns to the chips. Sources: GOV.UK's
   one-thing-per-page, Hick's law, one sec's breath-then-choice.
 - **Neutral glass and white action buttons.** The frosted panel has a dark wash for readability.
   The access choices and close action use white capsules with dark text. The feeling choices
@@ -452,34 +558,71 @@ relitigate them without asking:
   words fully dissolve before the new ones rise in. A crossfade that showed both at once
   was rejected.
   Naming the craving weakens it. `UrgeReason` lists them in the person's own words:
-  bored, drained, this is hard, anxious, alone, I need it.
+  bored, drained, this is hard, anxious, alone, I need it. Keep it to these six: "On
+  autopilot", "Just checking" and "I'm waiting" were added and removed the same day
+  (26 Nov 2026); the user finds the six cover it and doesn't want more options or
+  categories.
 - **Every answer closes it, except one.** Each craving gets a line on what would meet it
   better than the feed (a stretch, rest, a tiny step, writing it down, a real person),
-  and the only button closes the tab. The person does the better thing themselves; the
-  user explicitly didn't want in-app timers or forms for these.
-- **"I need it" opens one site, never the block.** It appears only when the block has
-  breaks on (`BreakPlan`, per block, 2 a day), asks what for, then offers 2 or 5 minutes
-  of access after a one-minute wait. The countdown uses the same frosted panel and
+  and the only button closes the tab once they've written why. The person does the better
+  thing themselves; the user explicitly didn't want in-app timers for these. The one form is
+  the written reason, which feeds the journal.
+- **"I need it" opens one site, never the block.** It's always one of the six answers,
+  asks what for in 20 words, then offers 2 or 5 minutes of access after a 15-second wait
+  (`AccessPlan`). The countdown uses the same frosted panel and
   continuously draining bar as the pause. Closing the target during the wait cancels it.
-  When access begins, it spends a break (`BlockStore.spendBreak`) and temporarily allows
-  the matched rule (`AppModel.allow`, keyed by `reachKey`). When access expires, Shift
-  reads the screen again and restores the pause if the current context is still blocked.
-  With no breaks left it shows, disabled, as "No breaks left today".
-- **Never the same words twice in a row.** `PauseCopy` holds 48 pause headlines (by
-  visit) and about 125 turning-back lines (general, harder, and per craving), dealt by
-  `CopyDeck` so nothing repeats until the rest of its set has been seen. The user asked
-  for this explicitly; add lines rather than trimming them, in the voice described there.
+  When access begins, it temporarily allows the matched rule (`AppModel.allow`, keyed by
+  `reachKey`). When access expires, Shift reads the screen again and restores the pause
+  if the current context is still blocked.
+- **Never the same words twice in a row.** `PauseCopy` holds 64 pause headlines (by
+  visit), 15 heads-up headlines and about 150 turning-back lines, dealt by `CopyDeck` so
+  nothing repeats until the rest of its set has been seen. **Rewritten in full on
+  26 Nov 2026** at the user's request; the rules are at the top of `PauseCopy.swift` (true to
+  the moment, nothing made up, no scores or streaks, nothing assumes work, fits the card).
+  Each turning-back line carries its own mascot mood (`PauseCopy.Reward`). Which set: after
+  "I need it", `changedMind`; a repeat reach within the hour, `turnedBackAgain`; otherwise
+  half the time the named feeling's set, half the general `turnedBack`; during the heads-up,
+  `turnedBackEarly` (which says "moved on", since they may only have switched away). The
+  user asked for many lines; add rather than trim, in that voice.
 - **Reward turning back, immediately.** The mascot's happy face, a sparkle burst and the `reward` chime. This is the step that
   builds the habit; before it, turning back got nothing.
-- **Repeats cost more.** Reaches are counted per block and target for an hour
-  (`reaches`, keyed by `reachKey`, not the process), so switching tabs or relaunching the
-  browser can't reset anything. 10 s, then 20 s, then 30 s, with warmer copy each time.
+- **One version, every time.** The ladder (10, 20, 30 s waits and a deeper chime from the
+  third reach) was removed on 26 Nov 2026: the user wanted one pause people can learn and
+  trust. Reaches are still counted per block and target for an hour (`reaches`, keyed by
+  `reachKey`), but only to pick warmer copy for a repeat; the flow doesn't change.
 - **No shame, anywhere.** The voice is a friend's. The urge is "the pull", not the person.
-- `Close it` closes the **tab** (Command-W posted to the browser's pid by `TabCloser`, after
-  yielding activation to it). Apps are asked to quit.
+- `Close it` closes the **tab** (`TabCloser.closeFrontTab`): it yields activation to the
+  browser, then presses the browser's own menu item bound to Command-W through
+  Accessibility (found by shortcut, so any language), falling back to Command-W posted to
+  the browser's pid. It checks the page is still **blocked by a rule**, never that the URL is
+  unchanged: the pause beats the page load, so `x.com` became `x.com/home` and the old
+  exact-URL check left those tabs open (fixed 26 Nov 2026). It then reads the window again
+  and retries with the other method only if it can see the same page still there, so it
+  can't close a second tab; a window it can't read counts as closed (the monitor re-pauses
+  if not). Two things the real-browser trials showed (26 Nov 2026): Safari ignores Close
+  Tab sent the instant it becomes frontmost, so the browser must have been in front for
+  300 ms first; and Chromium browsers return no URL after the pause unless the read asks
+  for the tree again (`prepareAccessibility: browser.isChromium`). Verified in Safari,
+  Chrome, Edge and Brave, while loading and after load: one tab closed, the next tab
+  read back. `TabCloser` logs every step (category `TabCloser`). Repeat the trials with
+  `./Tools/TabCloseTrials/trial.sh "<Browser>" https://x.com 3` against a Debug build,
+  which listens for `debugPauseClose`. Firefox, Dia, Vivaldi and DuckDuckGo raised no pause
+  at all in those trials: detection, not closing, and not yet investigated. Apps are asked
+  to quit (`TabCloser.quit`).
 
-`NudgeHUDController` now serves three kinds: `hint` (soft drift), `reward` (happy mascot,
-after the pause closes), and `status` (break started, no breaks left). `hideHint()` takes down only hints, so a
+**Every nudge card has one shape and no buttons** (26 Nov 2026, the user's call): the same
+300 pt width, a one-line headline (shrinks a little, then truncates) and a detail that always
+reserves two lines (`NudgeMessage`), so cards never change size. The hover × is gone: a
+click anywhere on the card dismisses it, and so does a two-finger sideways swipe
+(`NudgeHostingView` reads the trackpad's scroll events, which SwiftUI gestures don't see).
+Keep headlines to about 35 characters and details to two lines.
+
+`NudgeHUDController` serves five kinds: `hint` (soft drift), `reward` (after turning back),
+`status` (something didn't work), `warning` (the heads-up before the pause, up for its full
+10 s) and `access` ("I need it" running: "x.com is open" with a live countdown beside it and
+their reason under it, resting mascot, up until the access ends; the user's call,
+26 Nov 2026, so the end never comes as a surprise). Hints never cover a warning, a reward or
+an access card. Every card can be clicked or swiped away early. `hideHint()` takes down only hints, so a
 reward survives the app switch it usually lands on.
 
 The standalone semantic classifier and text readers are outside the active detection path. `AppModel` applies explicit rules and handles confirmation and enforcement.

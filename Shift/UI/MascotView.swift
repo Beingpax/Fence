@@ -1,15 +1,81 @@
 import SwiftUI
 
-/// What the mascot is feeling. One per moment the nudge card can show.
-enum MascotMood: Equatable, Sendable {
-    /// A plain status line: a break starting, nothing wrong.
-    case calm
-    /// The soft drift hint: a feed keyword in a window title.
+/// What the mascot is feeling. Every mood from the studies (`Studies/mascot-compare.html`),
+/// grouped as they are there. Each card picks the one that fits its words, so the same kind
+/// of card can wear different moods: a drift hint is curious, then cheeky, then worried; a
+/// reward is happy, cheering or proud depending on the line it shows.
+enum MascotMood: String, CaseIterable, Equatable, Sendable {
+    // Everyday
+    /// Shift is on, nothing to do. Plain status lines.
+    case idle
+    /// Waving: onboarding and first launch.
+    case hello
+    /// Hand on chin: empty states.
+    case thinking
+    /// Sinks a little, blushing: welcome back after a while.
+    case shy
+
+    // Nudges
+    /// A question mark: the first drift hint.
     case curious
-    /// Turning back on your own. The step the habit is built on.
+    /// One eyebrow up, a sly smile: the same drift again soon after.
+    case cheeky
+    /// Sweating, ears down: drift that keeps coming back, or something that didn't work.
+    case worried
+    /// Steaming, tapping its fingers on the card: the heads-up before the pause.
+    case annoyed
+
+    // Rewards
+    /// Waving, sparkles: you turned back.
     case happy
-    /// Something didn't work: the tab couldn't be closed, the break couldn't start.
-    case sorry
+    /// Both fists up: an exuberant turn back.
+    case cheer
+    /// Chin up, thumb up, gold light: turning back when it was hard.
+    case proud
+
+    // Access and bad news
+    /// Dozing, sinking behind the card, dim light: "I need it" access has started.
+    case resting
+    /// A tear, drooping: the heads-up, a third time in an hour.
+    case sad
+
+    /// Its name in Settings' preview.
+    var title: String {
+        switch self {
+        case .idle: "Idle"
+        case .hello: "Hello"
+        case .thinking: "Thinking"
+        case .shy: "Shy"
+        case .curious: "Curious"
+        case .cheeky: "Cheeky"
+        case .worried: "Worried"
+        case .annoyed: "Annoyed"
+        case .happy: "Happy"
+        case .cheer: "Cheer"
+        case .proud: "Proud"
+        case .resting: "On a break"
+        case .sad: "Sad"
+        }
+    }
+
+    /// When it's used, for Settings' preview.
+    var use: String {
+        switch self {
+        case .idle: "Plain status lines."
+        case .hello: "Onboarding and first launch."
+        case .thinking: "Empty states."
+        case .shy: "Welcome back after a while."
+        case .curious: "The first drift hint."
+        case .cheeky: "The same drift again soon after."
+        case .worried: "Drift that keeps coming back, or something that didn’t work."
+        case .annoyed: "The heads-up before the pause."
+        case .happy: "Turning back."
+        case .cheer: "Turning back, with a celebration."
+        case .proud: "Turning back when it was hard."
+        case .resting: "“I need it” access has started."
+        case .sad: "The heads-up, a third time in an hour."
+        }
+    }
 }
 
 /// Shift's mascot: a marigold creature with round ears, white mitten hands and an antenna
@@ -21,9 +87,14 @@ enum MascotMood: Equatable, Sendable {
 /// - **A flat cartoon with an ink outline.** One cel-shaded crescent and one highlight give
 ///   it volume without gradients, so it stays crisp at any size and reads at a glance.
 /// - **The antenna light is the mood you see from the corner of your eye**: warm at rest,
-///   teal when curious, bright when you turn back, amber when something went wrong.
+///   teal when curious, amber when worried, deep red when annoyed, gold when proud, blue
+///   when sad, dim on a break.
 /// - **It holds the card.** The hands curl over the card's top edge, so the card and the
-///   creature read as one object rather than a sticker beside a banner.
+///   creature read as one object rather than a sticker beside a banner. Moods let go of the
+///   edge to wave, cheer or point.
+///
+/// Every number here comes from the study's mood table. The study draws in "scene" units
+/// 1.9 times the size of these, so its positions appear divided by 1.9.
 ///
 /// The card sits between two layers, so the view is drawn twice: `.body` behind the card
 /// (the parent clips it at the card's edge) and `.hands` in front of it. Both layers take
@@ -57,7 +128,7 @@ struct MascotView: View {
             Canvas(rendersAsynchronously: false) { context, _ in
                 context.translateBy(x: -Self.box.minX * Self.scale, y: -Self.box.minY * Self.scale)
                 context.scaleBy(x: Self.scale, y: Self.scale)
-                let rig = MascotRig(face: mood.face, t: t, cardEdge: Self.cardEdge)
+                let rig = MascotRig(pose: mood.pose, t: animates ? t : 0.7, moving: animates, cardEdge: Self.cardEdge)
                 switch layer {
                 case .body: rig.drawBody(in: &context)
                 case .hands: rig.drawHands(in: &context)
@@ -72,77 +143,128 @@ struct MascotView: View {
 // MARK: - Moods
 
 /// Every expression is a handful of numbers. The rig draws whatever they say.
-private struct MascotFace {
-    enum Hand { case grip(inset: Double), wave, shrug }
-    enum Mark { case question, sweat }
+private struct MascotPose {
+    enum Pulse { case gentle, cross }
 
+    // Body and motion
+    var look: (x: Double, y: Double) = (0, 0)
+    /// Pupil size, 1 normal. Small pupils read as alarm.
+    var pupil = 1.0
+    var blush = 0.35
+    /// A red wash over the top of the head.
+    var flush = 0.0
+    /// Degrees, about the feet.
+    var tilt = 0.0
+    /// Positive flattens, negative stretches.
+    var squash = 0.0
+    /// Little hops, 0 to 1.
+    var bounce = 0.0
+    var bobAmplitude = 1.6
+    var bobSpeed = 2.0
+    /// Sinks behind the card, 0 to 1.
+    var sink = 0.0
+
+    // Antenna
+    var glow: Color = MascotPalette.glowWarm
+    var glowStrength = 0.85
+    var pulse = Pulse.gentle
+    var antennaDroop = 0.0
+
+    // Face
     /// Degrees outward from upright. Positive droops them.
     var ears: (left: Double, right: Double) = (0, 0)
     /// How far each brow lifts, 0 to 1.
     var brows: (left: Double, right: Double) = (0.15, 0.15)
-    /// Lifts the inner ends of both brows: worry.
-    var browWorry: Double = 0
+    /// Positive lifts the inner ends of the brows (worry); negative pulls them down (anger).
+    var browAngle = 0.0
+    var eyeSize = 1.0
     /// Closed, upturned eyes.
     var eyesSmiling = false
-    var look: (x: Double, y: Double) = (0, 0)
+    /// Eyes squeezed shut: > <.
+    var eyesSqueezed = false
+    /// Upper eyelids, 0 open to 1 closed.
+    var lid = 0.0
     /// -1 frowns, 1 smiles.
-    var mouthCurve: Double = 0.45
+    var mouthCurve = 0.45
     /// 0 closed, 1 wide open.
-    var mouthOpen: Double = 0
-    var mouthWidth: Double = 6
-    var blush: Double = 0.35
-    /// Degrees, about the feet.
-    var tilt: Double = 0
-    /// Little hops, 0 to 1.
-    var bounce: Double = 0
-    var glow: Color = MascotPalette.glowWarm
-    var glowStrength: Double = 0.85
-    var hands: (left: Hand, right: Hand) = (.grip(inset: 0), .grip(inset: 0))
-    var mark: Mark?
+    var mouthOpen = 0.0
+    var mouthWidth = 6.0
+    var mouthX = 0.0
+    var faceY = 0.0
+
+    // Effects, 0 to 1
+    var sparkle = 0.0, zzz = 0.0, question = 0.0, sweat = 0.0, tear = 0.0, steam = 0.0
+
+    // Hands: each pulls both hands from their grip on the card toward a pose.
+    var wave = 0.0, fist = 0.0, thumb = 0.0, chin = 0.0, tap = 0.0
+    /// Grips the card closer to the middle.
+    var handsIn = 0.0
 }
 
 private extension MascotMood {
-    var face: MascotFace {
-        var face = MascotFace()
+    // The study's mood table, in the same order. Its classic-only numbers (ears, brows,
+    // eyes, mouth) and shared numbers (motion, effects, hands) are merged into one pose.
+    var pose: MascotPose {
+        var p = MascotPose()
         switch self {
-        case .calm:
+        case .idle:
             break
+        case .hello:
+            p.tilt = -4; p.look = (0.15, 0); p.blush = 0.5; p.bounce = 0.15; p.wave = 1
+            p.brows = (0.45, 0.45); p.mouthCurve = 0.85; p.mouthOpen = 0.35; p.mouthWidth = 7; p.ears = (0, -10)
+            p.glow = MascotPalette.glowBright
+        case .thinking:
+            p.tilt = -6; p.look = (-0.5, -0.7); p.bobAmplitude = 1; p.chin = 1
+            p.ears = (14, 0); p.brows = (0.75, 0.2); p.mouthCurve = -0.05; p.mouthWidth = 4; p.mouthX = 4
+            p.glow = MascotPalette.glowTeal
+        case .shy:
+            p.blush = 1; p.look = (-0.6, 0.45); p.tilt = -8; p.handsIn = 0.6; p.sink = 0.12
+            p.lid = 0.25; p.mouthCurve = 0.35; p.mouthWidth = 3; p.ears = (22, 22)
         case .curious:
-            face.ears = (-12, 28)
-            face.brows = (0.05, 0.95)
-            face.look = (0.55, -0.25)
-            face.mouthCurve = 0.1
-            face.mouthWidth = 4
-            face.tilt = 8
-            face.glow = MascotPalette.glowTeal
-            face.hands = (.grip(inset: 0.2), .grip(inset: 0.2))
-            face.mark = .question
+            p.tilt = 8; p.look = (0.55, -0.25); p.question = 1; p.handsIn = 0.2
+            p.ears = (-12, 28); p.brows = (0.05, 0.95); p.mouthCurve = 0.1; p.mouthWidth = 4
+            p.glow = MascotPalette.glowTeal
+        case .cheeky:
+            p.tilt = 6; p.look = (0.65, 0); p.glowStrength = 1
+            p.lid = 0.42; p.brows = (0.05, 0.95); p.mouthCurve = 0.75; p.mouthWidth = 5; p.mouthX = 3; p.ears = (-6, 22)
+        case .worried:
+            p.look = (-0.25, 0.15); p.pupil = 0.88; p.blush = 0.15; p.glowStrength = 0.65; p.sweat = 1
+            p.bobAmplitude = 0.8; p.handsIn = 0.55
+            p.browAngle = 1; p.brows = (0.35, 0.35); p.mouthCurve = -0.4; p.mouthWidth = 5.5; p.ears = (38, 38); p.eyeSize = 1.08
+            p.glow = MascotPalette.glowAmber
+        case .annoyed:
+            p.pupil = 0.8; p.blush = 0; p.flush = 1; p.glowStrength = 1.15; p.pulse = .cross; p.steam = 1
+            p.tilt = -2; p.tap = 1
+            p.lid = 0.35; p.browAngle = -1; p.brows = (0, 0); p.mouthCurve = -0.6; p.mouthWidth = 5; p.ears = (50, 50)
+            p.glow = MascotPalette.glowCrimson
         case .happy:
-            face.ears = (-14, -14)
-            face.brows = (0.55, 0.55)
-            face.eyesSmiling = true
-            face.look = (0, -0.1)
-            face.mouthCurve = 1
-            face.mouthOpen = 0.55
-            face.mouthWidth = 9
-            face.blush = 0.85
-            face.bounce = 0.6
-            face.glow = MascotPalette.glowBright
-            face.glowStrength = 1.3
-            face.hands = (.grip(inset: 0), .wave)
-        case .sorry:
-            face.ears = (32, 32)
-            face.brows = (0.4, 0.4)
-            face.browWorry = 0.9
-            face.look = (0.3, 0)
-            face.mouthCurve = -0.05
-            face.tilt = 6
-            face.glow = MascotPalette.glowAmber
-            face.glowStrength = 0.6
-            face.hands = (.shrug, .shrug)
-            face.mark = .sweat
+            p.blush = 0.85; p.glowStrength = 1.3; p.bounce = 0.6; p.sparkle = 0.7; p.look = (0, -0.1); p.wave = 1
+            p.eyesSmiling = true; p.mouthCurve = 1; p.mouthOpen = 0.55; p.mouthWidth = 9; p.brows = (0.55, 0.55); p.ears = (-14, -14)
+            p.glow = MascotPalette.glowBright
+        case .cheer:
+            p.blush = 0.7; p.glowStrength = 1.35; p.bounce = 1; p.sparkle = 1; p.fist = 1
+            p.eyesSqueezed = true; p.mouthOpen = 0.85; p.mouthCurve = 1; p.mouthWidth = 8; p.ears = (-18, -18)
+            p.glow = MascotPalette.glowBright
+        case .proud:
+            // Proud reads from the whole body, not the face: chin up, chest out, eyes shut
+            // in satisfaction, a thumb up.
+            p.tilt = -8; p.squash = -0.06; p.blush = 0.55; p.glowStrength = 1.25; p.sparkle = 0.65
+            p.look = (0, -0.4); p.thumb = 1
+            p.eyesSmiling = true; p.mouthCurve = 0.95; p.mouthWidth = 7; p.mouthX = 2; p.brows = (0.8, 0.8)
+            p.ears = (-12, -12); p.faceY = -3
+            p.glow = MascotPalette.glowGold
+        case .resting:
+            p.look = (0, 0.3); p.blush = 0.45; p.glowStrength = 0.25; p.antennaDroop = 0.8; p.tilt = -7; p.zzz = 1
+            p.bobAmplitude = 3; p.bobSpeed = 1.1; p.sink = 0.2
+            p.lid = 0.78; p.mouthCurve = 0.15; p.mouthOpen = 0.14; p.mouthWidth = 2.8; p.ears = (52, 52)
+            p.glow = MascotPalette.glowDim
+        case .sad:
+            p.look = (0, 0.5); p.blush = 0.2; p.glowStrength = 0.45; p.antennaDroop = 1; p.tear = 1; p.tilt = -4
+            p.squash = 0.05; p.bobSpeed = 1; p.sink = 0.32; p.handsIn = 0.55
+            p.browAngle = 1; p.brows = (0.2, 0.2); p.mouthCurve = -0.85; p.mouthWidth = 6; p.lid = 0.35; p.ears = (72, 72)
+            p.glow = MascotPalette.glowBlue
         }
-        return face
+        return p
     }
 }
 
@@ -158,9 +280,13 @@ private enum MascotPalette {
     static let blush = Color(hex: 0xFF8F8F)
 
     static let glowWarm = Color(hex: 0xFFD25A)
-    static let glowTeal = Color(hex: 0x5FE6D4)
     static let glowBright = Color(hex: 0xFFF27A)
+    static let glowTeal = Color(hex: 0x5FE6D4)
     static let glowAmber = Color(hex: 0xFF9A3C)
+    static let glowCrimson = Color(hex: 0xE0203A)
+    static let glowGold = Color(hex: 0xFFC23A)
+    static let glowDim = Color(hex: 0x9C8F74)
+    static let glowBlue = Color(hex: 0x7AA8FF)
 }
 
 private extension Color {
@@ -173,44 +299,57 @@ private extension Color {
 
 // MARK: - Drawing
 
-/// One frame of the mascot. A value type built per frame from the face and the clock.
+/// One frame of the mascot. A value type built per frame from the pose and the clock.
 private struct MascotRig {
-    let face: MascotFace
+    let pose: MascotPose
     let t: Double
+    /// False under Reduce Motion: no shaking, hopping or drifting effects.
+    let moving: Bool
     let cardEdge: Double
 
     private typealias P = MascotPalette
     private static let seed = 1.7
+    /// The study's scene units per design unit.
+    private static let scene = 1.9
     private static let body = Self.superellipse(rx: 48, ry: 36, power: 3.1, centerY: 8)
     private static let bodyShadeMask = Self.superellipse(rx: 48, ry: 36, power: 3.1, centerX: -7, centerY: 1)
+
+    private func line(_ width: Double) -> StrokeStyle {
+        StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round)
+    }
 
     // MARK: Body layer
 
     func drawBody(in context: inout GraphicsContext) {
-        let bob = sin(t * 2) * 0.8 - abs(sin(t * 4.4)) * 3 * face.bounce
+        let p = pose
+        let bob = sin(t * p.bobSpeed) * p.bobAmplitude * 0.5 - abs(sin(t * 4.4)) * 3 * p.bounce
         let breath = sin(t * 2) * 0.012
 
-        context.translateBy(x: 0, y: bob)
+        // Effects float with the body but don't tilt with it.
+        var base = context
+        base.translateBy(x: 0, y: bob + p.sink * 62 / Self.scene)
+
+        var body = base
         // Tilt and breathing pivot on the feet, so the head travels and the base stays put.
-        context.translateBy(x: 0, y: 44)
-        context.rotate(by: .degrees(face.tilt) + .radians(sin(t * 0.55) * 0.02))
-        context.scaleBy(x: 1 + breath, y: 1 - breath)
-        context.translateBy(x: 0, y: -44)
+        body.translateBy(x: 0, y: 44)
+        body.rotate(by: .degrees(p.tilt) + .radians(sin(t * 0.55) * 0.02))
+        body.scaleBy(x: 1 + p.squash + breath, y: 1 - p.squash - breath)
+        body.translateBy(x: 0, y: -44)
 
-        drawEars(in: &context)
-        drawAntenna(in: &context)
-        drawTorso(in: &context)
+        drawEars(in: &body)
+        drawAntenna(in: &body)
+        drawTorso(in: &body)
 
-        var faceContext = context
-        faceContext.translateBy(x: face.look.x * 2.5, y: 5 + face.look.y * 2)
+        var faceContext = body
+        faceContext.translateBy(x: p.look.x * 2.5, y: 5 + p.look.y * 2 + p.faceY)
         drawFace(in: &faceContext)
 
-        drawMark(in: &context)
+        drawEffects(in: &base)
     }
 
     private func drawEars(in context: inout GraphicsContext) {
         for side in [-1.0, 1.0] {
-            let angle = side < 0 ? face.ears.left : face.ears.right
+            let angle = side < 0 ? pose.ears.left : pose.ears.right
             var ear = context
             ear.translateBy(x: side * 31, y: -18)
             ear.rotate(by: .degrees(side * (18 + angle * 0.7)))
@@ -221,24 +360,30 @@ private struct MascotRig {
         }
     }
 
-    /// Sways on its own clock and leans with the gaze. The bulb glows in the mood's colour.
+    /// Sways on its own clock, twitches now and then, and leans with the gaze. A drooping
+    /// antenna bends forward. The bulb glows in the mood's colour; warnings make it pulse.
     private func drawAntenna(in context: inout GraphicsContext) {
+        let droop = max(0, min(1, pose.antennaDroop))
         var antenna = context
         antenna.translateBy(x: 0, y: -25)
-        antenna.rotate(by: .radians(sin(t * 1.8) * 0.12 + face.look.x * 0.08))
-        let tip = CGPoint(x: 0, y: -31)
+        antenna.rotate(by: .radians(sin(t * 1.8) * 0.12 * (1 - droop * 0.6) + droop + twitch(at: t) * 0.25 + pose.look.x * 0.08))
+        let tip = CGPoint(x: droop * 9, y: -31 + droop * 9)
 
         var stalk = Path()
         stalk.move(to: .zero)
-        stalk.addQuadCurve(to: tip, control: CGPoint(x: 0, y: -16))
+        stalk.addQuadCurve(to: tip, control: CGPoint(x: droop * 2, y: -16))
         antenna.stroke(stalk, with: .color(P.ink), style: StrokeStyle(lineWidth: 3.2, lineCap: .round))
 
-        let strength = min(1.4, face.glowStrength * (0.9 + 0.1 * sin(t * 2.4)))
+        let pulse: Double = switch pose.pulse {
+        case .gentle: 0.9 + 0.1 * sin(t * 2.4)
+        case .cross: 0.75 + 0.25 * sin(t * 7)
+        }
+        let strength = max(0, min(1.4, pose.glowStrength * pulse))
         antenna.fill(Self.ellipse(tip.x, tip.y, 26, 26), with: .radialGradient(
-            Gradient(colors: [face.glow.opacity(0.55 * strength), face.glow.opacity(0)]),
+            Gradient(colors: [pose.glow.opacity(0.55 * strength), pose.glow.opacity(0)]),
             center: tip, startRadius: 2, endRadius: 26))
         let bulb = Self.ellipse(tip.x, tip.y, 7.5, 7.5)
-        antenna.fill(bulb, with: .color(face.glow))
+        antenna.fill(bulb, with: .color(pose.glow.mix(with: .white, by: 0.15 * min(1, strength))))
         antenna.stroke(bulb, with: .color(P.ink), lineWidth: 2.7)
         antenna.fill(Self.ellipse(tip.x - 2.5, tip.y - 3, 2.2, 1.4, rotation: -0.6), with: .color(.white.opacity(0.85)))
     }
@@ -253,6 +398,11 @@ private struct MascotRig {
         var crescent = Path(CGRect(x: -200, y: -200, width: 400, height: 400))
         crescent.addPath(Self.bodyShadeMask)
         shaded.fill(crescent, with: .color(P.shade), style: FillStyle(eoFill: true))
+        if pose.flush > 0.02 {
+            shaded.fill(Path(CGRect(x: -60, y: -40, width: 120, height: 50)), with: .linearGradient(
+                Gradient(colors: [Color(red: 1, green: 0.24, blue: 0.24).opacity(0.45 * pose.flush), .clear]),
+                startPoint: CGPoint(x: 0, y: -30), endPoint: CGPoint(x: 0, y: 10)))
+        }
         shaded.fill(Self.ellipse(-27, -15, 9, 5, rotation: -0.45), with: .color(.white.opacity(0.55)))
         shaded.fill(Self.ellipse(-33, -10, 2, 2), with: .color(.white.opacity(0.9)))
 
@@ -260,22 +410,30 @@ private struct MascotRig {
     }
 
     private func drawFace(in context: inout GraphicsContext) {
+        let p = pose
         let blink = blink(at: t)
         let glance = saccade(at: t)
-        let lookX = max(-1, min(1, face.look.x + glance.width))
-        let lookY = max(-1, min(1, face.look.y + glance.height))
-        let line = { (width: Double) in StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round) }
+        let lookX = max(-1, min(1, p.look.x + glance.width))
+        let lookY = max(-1, min(1, p.look.y + glance.height))
 
-        for side in [-1.0, 1.0] {
-            context.fill(Self.ellipse(side * 28, 9, 7, 4), with: .color(P.blush.opacity(face.blush * 0.6)))
+        if p.blush > 0.03 {
+            for side in [-1.0, 1.0] {
+                context.fill(Self.ellipse(side * 28, 9, 7, 4), with: .color(P.blush.opacity(min(1, p.blush) * 0.6)))
+            }
         }
 
         for side in [-1.0, 1.0] {
             let center = CGPoint(x: side * 17, y: -4)
-            let radiusX = 8.8, fullRadiusY = 10.6
+            let radiusX = 8.8 * p.eyeSize, fullRadiusY = 10.6 * p.eyeSize
             let openness = 1 - blink
 
-            if face.eyesSmiling {
+            if p.eyesSqueezed {
+                var squeeze = Path()
+                squeeze.move(to: CGPoint(x: center.x + side * 6, y: center.y - 6))
+                squeeze.addLine(to: CGPoint(x: center.x - side * 5, y: center.y))
+                squeeze.addLine(to: CGPoint(x: center.x + side * 6, y: center.y + 6))
+                context.stroke(squeeze, with: .color(P.ink), style: line(3.4))
+            } else if p.eyesSmiling {
                 context.stroke(Self.quad(CGPoint(x: center.x - 7.5, y: center.y + 3), CGPoint(x: center.x, y: center.y - 9),
                                          CGPoint(x: center.x + 7.5, y: center.y + 3)), with: .color(P.ink), style: line(3.4))
             } else if openness < 0.14 {
@@ -287,26 +445,41 @@ private struct MascotRig {
                 context.fill(white, with: .color(.white))
                 var inside = context
                 inside.clip(to: white)
-                let pupil = 4.8
+                let pupil = 4.8 * p.pupil
                 let pupilCenter = CGPoint(x: center.x + lookX * (radiusX - pupil - 0.5), y: center.y + lookY * (radiusY - pupil - 0.5))
                 inside.fill(Self.ellipse(pupilCenter.x, pupilCenter.y, pupil, pupil * min(1, radiusY / pupil)), with: .color(P.ink))
                 inside.fill(Self.ellipse(pupilCenter.x - pupil * 0.35, pupilCenter.y - pupil * 0.4, pupil * 0.34, pupil * 0.34), with: .color(.white))
                 inside.fill(Self.ellipse(pupilCenter.x + pupil * 0.35, pupilCenter.y + pupil * 0.35, pupil * 0.15, pupil * 0.15), with: .color(.white))
+                if p.lid > 0.02 {
+                    // The lid follows the brow: worried lids tilt up inward, cross ones down.
+                    let top = center.y - radiusY, height = 2 * radiusY * min(1, p.lid), slant = side * p.browAngle * 1.5
+                    var lid = Path()
+                    lid.move(to: CGPoint(x: center.x - radiusX - 2, y: top - 2))
+                    lid.addLine(to: CGPoint(x: center.x + radiusX + 2, y: top - 2))
+                    lid.addLine(to: CGPoint(x: center.x + radiusX + 2, y: top + height + slant))
+                    lid.addLine(to: CGPoint(x: center.x - radiusX - 2, y: top + height - slant))
+                    lid.closeSubpath()
+                    inside.fill(lid, with: .color(P.body))
+                    var edge = Path()
+                    edge.move(to: CGPoint(x: center.x - radiusX, y: top + height - slant))
+                    edge.addLine(to: CGPoint(x: center.x + radiusX, y: top + height + slant))
+                    inside.stroke(edge, with: .color(P.ink), style: line(2.5))
+                }
                 context.stroke(white, with: .color(P.ink), lineWidth: 2.7)
             }
 
-            // The inner end lifts with worry.
-            let lift = side < 0 ? face.brows.left : face.brows.right
+            // The inner end lifts with worry and drops with anger.
+            let lift = side < 0 ? p.brows.left : p.brows.right
             let browY = center.y - fullRadiusY - 6 - lift * 5
-            let inner = CGPoint(x: center.x - side * 6, y: browY - face.browWorry * 4.5)
-            let outer = CGPoint(x: center.x + side * 7, y: browY + face.browWorry * 1.5)
+            let inner = CGPoint(x: center.x - side * 6, y: browY - p.browAngle * 4.5)
+            let outer = CGPoint(x: center.x + side * 7, y: browY + p.browAngle * 1.5)
             context.stroke(Self.quad(inner, CGPoint(x: center.x, y: min(inner.y, outer.y) - 2.2), outer),
                            with: .color(P.ink), style: line(3.4))
         }
 
         var mouth = context
-        mouth.translateBy(x: 0, y: 14)
-        let width = face.mouthWidth, curve = face.mouthCurve * 8, open = face.mouthOpen * 14
+        mouth.translateBy(x: p.mouthX, y: 14)
+        let width = p.mouthWidth, curve = p.mouthCurve * 8, open = p.mouthOpen * 14
         if open < 1.2 {
             mouth.stroke(Self.quad(CGPoint(x: -width, y: 0), CGPoint(x: 0, y: curve), CGPoint(x: width, y: 0)),
                          with: .color(P.ink), style: line(3))
@@ -324,47 +497,134 @@ private struct MascotRig {
         }
     }
 
-    private func drawMark(in context: inout GraphicsContext) {
-        switch face.mark {
-        case .question:
-            var mark = context
-            mark.translateBy(x: -52, y: -56 + sin(t * 2.2) * 2)
-            mark.rotate(by: .degrees(-12))
-            mark.draw(Text("?").font(.system(size: 24, weight: .heavy, design: .rounded)).foregroundStyle(P.glowTeal), at: .zero)
-        case .sweat:
-            let y = -40 + (t * 0.5).truncatingRemainder(dividingBy: 1) * 12
-            var drop = Path()
-            drop.move(to: CGPoint(x: 52, y: y - 8))
-            drop.addCurve(to: CGPoint(x: 52, y: y + 3), control1: CGPoint(x: 54, y: y - 4), control2: CGPoint(x: 57, y: y))
-            drop.addCurve(to: CGPoint(x: 52, y: y - 8), control1: CGPoint(x: 47, y: y), control2: CGPoint(x: 50, y: y - 4))
-            context.fill(drop, with: .color(Color(hex: 0x7CC8FF)))
-        case nil:
-            break
+    // MARK: Effects
+
+    /// The floating marks: zzz, ?, sweat, a tear, steam and sparkles. Positions are the
+    /// study's scene units divided by `scene`.
+    private func drawEffects(in context: inout GraphicsContext) {
+        let p = pose
+        let k = Self.scene
+
+        if p.zzz > 0.05 {
+            for index in 0..<3 {
+                let phase = (t * 0.35 + Double(index) / 3).truncatingRemainder(dividingBy: 1)
+                glyph("z", x: (78 + phase * 40) / k, y: (-100 - phase * 60) / k, size: (16 + phase * 18) / k,
+                      fill: Color(hex: 0xC6BDFF), ink: Color(hex: 0x3A2F7A), rotation: 0.1,
+                      opacity: p.zzz * sin(phase * .pi), in: &context)
+            }
         }
+        if p.question > 0.05 {
+            glyph("?", x: -96 / k, y: (-104 + sin(t * 2.2) * 4) / k, size: 44 / k,
+                  fill: P.glowTeal, ink: Color(hex: 0x1C3A40), rotation: -0.2, opacity: min(1, p.question), in: &context)
+        }
+        if p.sweat > 0.05 {
+            drop(x: 96 / k, y: (-74 + (t * 0.5).truncatingRemainder(dividingBy: 1) * 22) / k, scale: 1 / k,
+                 color: Color(hex: 0x7CC8FF), opacity: min(1, p.sweat), in: &context)
+        }
+        if p.tear > 0.05 {
+            let phase = (t * 0.45).truncatingRemainder(dividingBy: 1)
+            drop(x: -56 / k, y: (4 + phase * 34) / k, scale: 0.8 / k,
+                 color: Color(hex: 0x8AB8FF), opacity: min(1, p.tear) * (1 - phase * 0.6), in: &context)
+        }
+        if p.steam > 0.05 {
+            for side in [-1.0, 1.0] {
+                for index in 0..<2 {
+                    let phase = (t * 0.8 + Double(index) * 0.5 + (side > 0 ? 0.25 : 0)).truncatingRemainder(dividingBy: 1)
+                    let radius = (7 + phase * 10) / k
+                    var puff = context
+                    puff.opacity = min(1, p.steam) * (1 - phase) * 0.85
+                    puff.fill(Self.ellipse(side * (74 + phase * 18) / k, (-80 - phase * 40) / k, radius, radius), with: .color(.white))
+                }
+            }
+        }
+        if p.sparkle > 0.05 {
+            for index in 0..<5 {
+                let i = Double(index)
+                let angle = i / 5 * 2 * .pi + t * 0.5
+                let radius = (140 + sin(t * 2 + i) * 6) / k
+                let size = (7 + 4 * sin(t * 5 + i * 1.7)) * min(1, p.sparkle) / k
+                guard size > 0.5 else { continue }
+                let center = CGPoint(x: cos(angle) * radius, y: -24 / k + sin(angle) * radius * 0.7)
+                var star = Path()
+                for point in 0..<8 {
+                    let a = Double(point) / 8 * 2 * .pi - .pi / 2
+                    let r = point.isMultiple(of: 2) ? size : size * 0.32
+                    let corner = CGPoint(x: center.x + cos(a) * r, y: center.y + sin(a) * r)
+                    point == 0 ? star.move(to: corner) : star.addLine(to: corner)
+                }
+                star.closeSubpath()
+                context.fill(star, with: .color(Color(hex: 0xFFD84D)))
+                context.stroke(star, with: .color(Color(hex: 0x7A5200)), style: line(2 / k))
+            }
+        }
+    }
+
+    /// A rounded glyph with an ink outline, drawn as the ink shape offset all round with the
+    /// fill on top: Canvas has no stroked text.
+    private func glyph(_ character: String, x: Double, y: Double, size: Double, fill: Color, ink: Color,
+                       rotation: Double, opacity: Double, in context: inout GraphicsContext) {
+        guard opacity > 0.01 else { return }
+        var mark = context
+        mark.opacity = opacity
+        mark.translateBy(x: x, y: y)
+        mark.rotate(by: .radians(rotation))
+        let font = Font.system(size: size, weight: .heavy, design: .rounded)
+        let outline = mark.resolve(Text(character).font(font).foregroundStyle(ink))
+        let face = mark.resolve(Text(character).font(font).foregroundStyle(fill))
+        let reach = size * 0.06
+        for step in 0..<8 {
+            let a = Double(step) / 8 * 2 * .pi
+            mark.draw(outline, at: CGPoint(x: cos(a) * reach, y: sin(a) * reach))
+        }
+        mark.draw(face, at: .zero)
+    }
+
+    /// A drop with a white highlight: sweat or a tear.
+    private func drop(x: Double, y: Double, scale s: Double, color: Color, opacity: Double, in context: inout GraphicsContext) {
+        guard opacity > 0.01 else { return }
+        var shape = Path()
+        shape.move(to: CGPoint(x: x, y: y - 16 * s))
+        shape.addCurve(to: CGPoint(x: x, y: y + 6 * s), control1: CGPoint(x: x + 4 * s, y: y - 8 * s), control2: CGPoint(x: x + 10 * s, y: y))
+        shape.addCurve(to: CGPoint(x: x, y: y - 16 * s), control1: CGPoint(x: x - 10 * s, y: y), control2: CGPoint(x: x - 4 * s, y: y - 8 * s))
+        var drop = context
+        drop.opacity = opacity
+        drop.fill(shape, with: .radialGradient(Gradient(colors: [.white, color]),
+                                              center: CGPoint(x: x - 2 * s, y: y - 3 * s), startRadius: s, endRadius: 12 * s))
     }
 
     // MARK: Hands layer
 
-    /// The hands sit in front of the card. Gripping, they curl over its top edge.
+    /// The hands sit in front of the card. At rest they curl over its top edge; each mood
+    /// pulls them toward a pose: waving, fists up, a thumb, a hand to the chin, or tapping
+    /// on the card. Worked in the study's scene units, where the card's
+    /// edge is at 71, then converted.
     func drawHands(in context: inout GraphicsContext) {
+        let p = pose
+        let k = Self.scene
         for side in [-1.0, 1.0] {
-            let hand = side < 0 ? face.hands.left : face.hands.right
-            var palm = context
-            switch hand {
-            case .grip(let inset):
-                palm.translateBy(x: side * (34.7 - inset * 14.7), y: cardEdge + 0.5 + sin(t * 2 + side) * 0.8)
-                palm.scaleBy(x: side, y: 1)
-                drawGrip(in: &palm)
-            case .wave:
-                palm.translateBy(x: side * 63, y: -3 + sin(t * 2 + side) * 0.8)
-                palm.rotate(by: .radians(side * (0.25 + sin(t * 6) * 0.35)))
-                palm.scaleBy(x: side, y: 1)
-                drawMitten(in: &palm)
-            case .shrug:
-                palm.translateBy(x: side * 74, y: 17 + sin(t * 2 + side) * 0.8)
-                palm.rotate(by: .radians(side * 1.35))
-                palm.scaleBy(x: side, y: 1)
-                drawMitten(in: &palm)
+            let tapping = p.tap * max(0, sin(t * 12 + (side > 0 ? 0 : 1.8))) * 6
+            var x = side * Self.lerp(66, 38, p.handsIn), y = 71 - tapping
+            var rotation = 0.0, open = 0.6, thumb = 0.0, grip = 1.0
+            func pull(_ weight: Double, _ tx: Double, _ ty: Double, _ tr: Double, _ topen: Double, _ tthumb: Double) {
+                let w = max(0, min(1, weight))
+                guard w > 0.001 else { return }
+                x = Self.lerp(x, tx, w); y = Self.lerp(y, ty, w); rotation = Self.lerp(rotation, tr, w)
+                open = Self.lerp(open, topen, w); thumb = Self.lerp(thumb, tthumb, w); grip = Self.lerp(grip, 0, w)
+            }
+            if side > 0 { pull(p.wave, 120, -6, 0.25 + sin(t * 9) * 0.4, 1, 0) }
+            pull(p.fist, side * 100, -46 + sin(t * 10 + side) * 5, side * 0.15, 0, 0)
+            if side > 0 { pull(p.thumb, 108, 10, 0, 0, 1) }
+            if side > 0 { pull(p.chin, 34, 50, -0.5, 0.2, 0) }
+            y += sin(t * 2 + side) * 1.5
+
+            var hand = context
+            hand.translateBy(x: x / k, y: cardEdge + 0.5 + (y - 71) / k)
+            hand.rotate(by: .radians(rotation))
+            hand.scaleBy(x: side, y: 1)
+            if grip > 0.5 {
+                drawGrip(in: &hand)
+            } else {
+                drawMitten(open: open, point: 0, thumb: thumb, in: &hand)
             }
         }
     }
@@ -380,14 +640,20 @@ private struct MascotRig {
         }
     }
 
-    /// An open mitten: four fingers and a thumb under a round palm.
-    private func drawMitten(in context: inout GraphicsContext) {
+    /// A mitten: four fingers and a thumb under a round palm. `open` curls it into a fist,
+    /// `point` extends the first finger, `thumb` makes a thumbs-up.
+    private func drawMitten(open: Double, point: Double, thumb: Double, in context: inout GraphicsContext) {
         var parts: [Path] = []
-        for angle in [-0.5, -0.17, 0.17, 0.5] {
-            let length = 10.0, reach = 7.5 + length / 2
+        for (index, angle) in [-0.5, -0.17, 0.17, 0.5].enumerated() {
+            var length = Self.lerp(2.5, 10, open)
+            length = index == 0 ? Self.lerp(length, 15, point) : Self.lerp(length, 1.5, point)
+            length *= 1 - thumb * 0.75
+            let reach = 7.5 + length / 2
             parts.append(Self.ellipse(sin(angle) * reach, 2 - cos(angle) * reach, 3.8, length / 2 + 3.8, rotation: angle))
         }
-        let thumbAngle = -1.3, thumbLength = 8.0, thumbReach = 8 + thumbLength / 2
+        let thumbAngle = Self.lerp(-1.3, -0.05, thumb)
+        let thumbLength = Self.lerp(Self.lerp(3, 8, open), 12, thumb)
+        let thumbReach = 8 + thumbLength / 2
         parts.append(Self.ellipse(sin(thumbAngle) * thumbReach, 3 - cos(thumbAngle) * thumbReach, 4, thumbLength / 2 + 4, rotation: thumbAngle))
         parts.append(Self.ellipse(0, 3, 10.5, 10))
         for part in parts {
@@ -426,10 +692,23 @@ private struct MascotRig {
         return CGSize(width: nx * 0.22 * travel * settle, height: ny * 0.14 * travel * settle)
     }
 
+    /// The antenna's occasional flick, on its own jittered schedule.
+    private func twitch(at t: Double) -> Double {
+        let base = 4.7
+        let index = (t / base).rounded(.down)
+        let noise = abs((sin(index * 3.77 + Self.seed) * 9187.1).truncatingRemainder(dividingBy: 1))
+        let local = t - index * base - noise * 3
+        return local > 0 && local < 0.25 && noise > 0.35 ? sin(local / 0.25 * .pi) : 0
+    }
+
     // MARK: Geometry
 
+    private static func lerp(_ a: Double, _ b: Double, _ amount: Double) -> Double {
+        a + (b - a) * amount
+    }
+
     private static func ellipse(_ x: Double, _ y: Double, _ rx: Double, _ ry: Double, rotation: Double = 0) -> Path {
-        Path(ellipseIn: CGRect(x: -rx, y: -ry, width: rx * 2, height: max(0.01, ry) * 2))
+        Path(ellipseIn: CGRect(x: -max(0.01, rx), y: -max(0.01, ry), width: max(0.01, rx) * 2, height: max(0.01, ry) * 2))
             .applying(CGAffineTransform(rotationAngle: rotation).concatenating(CGAffineTransform(translationX: x, y: y)))
     }
 

@@ -3,6 +3,11 @@
 *Research review, 26 Nov 2026. How Shift's design lines up with current research on habits,
 cravings and digital distraction, and what to build next.*
 
+> **Decisions, 26 Nov 2026.** Built: the reach journal (SQLite, every pause), a Journal page
+> with the two-week trend and one card per day, and a required 20-word reason once a feeling
+> is picked at the pause. Rejected by the user: idea 1 ("Back to work") and idea 3 (if-then
+> plans). The other ideas are still open.
+
 ---
 
 ## The short version

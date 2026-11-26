@@ -6,7 +6,7 @@ Shift is a local app and website blocker for Apple Silicon Macs running macOS 26
 
 Create a block from **Blocks → New block**, then add websites, paths or apps. Choose **Always**, **Schedule**, or **None**. For **None**, right-click the block in the menu bar to start a timed run.
 
-Save applies the edits in the block inspector. When breaks are enabled, choose “I need it” on the shield, enter a reason, and pick 2 or 5 minutes of access. Your choice starts a one-minute countdown. When it ends, you get the full 2 or 5 minutes on the matched site, path, or app. Each block allows two breaks per local day, counted when access starts. The shield waits 10, 20, or 30 seconds before showing the choices on repeat hits to the same rule within an hour.
+Save applies the edits in the block inspector. On any block, choose “I need it” on the pause, write at least 20 words about why, and pick 2 or 5 minutes of access. Your choice starts a 15-second countdown. When it ends, you get the full 2 or 5 minutes on the matched site, path, or app; the rest of the block stays on. When a blocked site or app comes up, a card gives you ten seconds to close it yourself; closing it then counts as turning back, with no pause. Still open after ten seconds, the screen pauses. Every pause is the same: one five-second breath, then “What’s pulling you here?” Pick an answer and write at least 10 words, and the tab closes or the app quits. Every pause and its words are kept on the Journal page.
 
 Active website, path and app rules trigger the full-screen pause. Optional drift hints use keywords in the foreground window title.
 

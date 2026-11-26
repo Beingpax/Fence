@@ -104,10 +104,6 @@ block.isEnabled = false
 check("disabled and unlocked is inactive", !block.isActive(at: morning))
 block.isEnabled = true
 check("enabled always-on is active", block.isActive(at: morning))
-block.breaks.isEnabled = true
-block.breaks.currentBreakEndsAt = morning.addingTimeInterval(300)
-check("on a break is inactive", !block.isActive(at: morning))
-block.breaks.currentBreakEndsAt = nil
 block.schedule = .scheduled([work])
 check("scheduled inside window is active", block.isActive(at: date(2, 10, 0)))
 check("scheduled outside window is inactive", !block.isActive(at: date(2, 20, 0)))
@@ -115,6 +111,23 @@ block.schedule = .manual(minutes: 25)
 block.manualRunEndsAt = morning.addingTimeInterval(600)
 check("manual run active before it ends", block.isActive(at: morning))
 check("manual run inactive after it ends", !block.isActive(at: morning.addingTimeInterval(700)))
+
+print("App rules outrank website rules")
+var arcAndX = Block(name: "Distractions")
+arcAndX.list.apps = ["company.thebrowser.Browser"]
+arcAndX.list.hosts = ["x.com"]
+var onlyX = Block(name: "Sites")
+onlyX.list.hosts = ["x.com"]
+var onlyArc = Block(name: "Browsers")
+onlyArc.list.apps = ["company.thebrowser.Browser"]
+let arcOnX = ScreenContext(bundleID: "company.thebrowser.Browser", appName: "Arc", processID: 3, url: URL(string: "https://x.com/home"))
+let safariOnX = ScreenContext(bundleID: "com.apple.Safari", appName: "Safari", processID: 4, url: URL(string: "https://x.com/home"))
+check("same block: Arc on x.com quits Arc",
+      BlockEvaluator(blocks: [arcAndX], driftKeywords: []).ruleVerdict(for: arcOnX)?.ruleTarget == .app("company.thebrowser.browser"))
+check("separate blocks: the app rule wins even when listed second",
+      BlockEvaluator(blocks: [onlyX, onlyArc], driftKeywords: []).ruleVerdict(for: arcOnX)?.ruleTarget == .app("company.thebrowser.browser"))
+check("an unblocked browser on x.com closes the tab",
+      BlockEvaluator(blocks: [arcAndX], driftKeywords: []).ruleVerdict(for: safariOnX)?.ruleTarget == .website("x.com"))
 
 print("Quit protection")
 var policy = Block(name: "Focus")

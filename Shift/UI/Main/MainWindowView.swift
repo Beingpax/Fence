@@ -4,7 +4,7 @@ import SwiftUI
 /// Sections of the main window. Settings is one of these rather than a separate window:
 /// a menu bar app with two windows is one window too many.
 enum MainSection: String, CaseIterable, Identifiable, Hashable {
-    case dashboard, blocks, settings
+    case dashboard, blocks, journal, settings
 
     var id: String { rawValue }
 
@@ -12,6 +12,7 @@ enum MainSection: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .dashboard: "Dashboard"
         case .blocks: "Blocks"
+        case .journal: "Journal"
         case .settings: "Settings"
         }
     }
@@ -20,6 +21,7 @@ enum MainSection: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .dashboard: "square.grid.2x2.fill"
         case .blocks: "shield.lefthalf.filled"
+        case .journal: "book.closed.fill"
         case .settings: "gearshape.fill"
         }
     }
@@ -30,6 +32,7 @@ enum MainSection: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .dashboard: Color(nsColor: .systemOrange)
         case .blocks: Color(nsColor: .systemIndigo)
+        case .journal: Color(nsColor: .systemTeal)
         case .settings: Color(nsColor: .systemGray)
         }
     }
@@ -106,6 +109,8 @@ struct MainWindowView: View {
                 onSelect: selectBlock,
                 onAddBlock: model.presentNewBlock
             )
+        case .journal:
+            JournalView()
         case .settings:
             SettingsView()
         }

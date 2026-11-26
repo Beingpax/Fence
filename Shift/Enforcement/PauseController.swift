@@ -18,6 +18,8 @@ final class PauseController {
     private var windows: [PauseWindow] = []
     private var savedPresentationOptions: NSApplication.PresentationOptions = []
     private var presentationID: UUID?
+    /// The answer handler for the pause on screen, kept for `simulate`.
+    private var handler: ((PauseEvent) -> Void)?
     private(set) var blockID: Block.ID?
 
     var isShowing: Bool { !windows.isEmpty }
@@ -35,6 +37,7 @@ final class PauseController {
             guard self?.presentationID == presentationID else { return }
             onEvent(event)
         }
+        handler = handleEvent
         let wallpaper = PauseWallpaper()
         var primaryWindow: PauseWindow?
         for screen in screens {
@@ -94,6 +97,7 @@ final class PauseController {
         let leaving = windows
         windows.removeAll()
         presentationID = nil
+        handler = nil
         blockID = nil
 
         guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
@@ -108,6 +112,14 @@ final class PauseController {
             MainActor.assumeIsolated { Self.releaseWindows(leaving) }
         }
     }
+
+    #if DEBUG
+    /// Answers the pause on screen as if its button were pressed. Debug builds only, for
+    /// testing tab closing from a script (`EnforcementService.debugPauseClose`).
+    func simulate(_ event: PauseEvent) {
+        handler?(event)
+    }
+    #endif
 
     private static func releaseWindows(_ windows: [PauseWindow]) {
         for window in windows {

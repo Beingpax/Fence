@@ -10,12 +10,19 @@ struct NudgeContent: Equatable {
         case reward
         /// A plain status line, such as the two minutes you asked for starting.
         case status
+        /// The heads-up before the pause: a blocked page or app is open, and the pause
+        /// follows in ten seconds unless it's closed. See `AppModel.startWarning`.
+        case warning
+        /// "I need it" access running: stays up with a countdown until the time is up.
+        case access
     }
 
     var headline: String
     var detail: String
     var kind: Kind
     var mood: MascotMood
+    /// When set, the card counts down to it beside the headline.
+    var endsAt: Date? = nil
 }
 
 /// The HUD for every nudge, soft or escalating.
@@ -31,7 +38,7 @@ struct NudgeContent: Equatable {
 @MainActor
 final class NudgeHUDController {
     private var panel: NSPanel?
-    private var hosting: NSHostingView<NudgeHUDView>?
+    private var hosting: NudgeHostingView?
     private var dismissTask: Task<Void, Never>?
     /// Cards can replace each other within a second or two, so a slide-out already in
     /// flight has to lose to the card that follows it, or the panel gets ordered out from
@@ -50,21 +57,47 @@ final class NudgeHUDController {
 
     var isShowing: Bool { (panel?.isVisible ?? false) && !isLeaving }
 
+    /// What kind of card is on screen, if any.
+    var showingKind: NudgeContent.Kind? { isShowing ? current?.kind : nil }
+
     private var current: NudgeContent?
+    /// How long the current card stays before fading.
+    private var duration: Duration = .seconds(5)
 
-    /// A nudge that will never turn into anything. Fades itself out.
-    func hint(reason: String, detail: String) {
-        show(NudgeContent(headline: reason, detail: detail, kind: .hint, mood: .curious))
+    /// A nudge that will never turn into anything. Fades itself out. Curious the first
+    /// time; the caller passes cheeky or worried when the same drift keeps coming back.
+    func hint(reason: String, detail: String, mood: MascotMood = .curious) {
+        show(NudgeContent(headline: reason, detail: detail, kind: .hint, mood: mood))
     }
 
-    /// The mascot, delighted, the moment someone turns back on their own.
-    func reward(headline: String, detail: String) {
-        show(NudgeContent(headline: headline, detail: detail, kind: .reward, mood: .happy))
+    /// The mascot, delighted, the moment someone turns back on their own. Happy, cheering
+    /// or proud, matched to the line (`PauseCopy.reward`).
+    func reward(headline: String, detail: String, mood: MascotMood = .happy) {
+        show(NudgeContent(headline: headline, detail: detail, kind: .reward, mood: mood))
     }
 
-    /// A plain status line. Pass `.sorry` when it reports something that didn't work.
-    func status(headline: String, detail: String, mood: MascotMood = .calm) {
+    /// A plain status line, in the mood its words call for: resting when access starts,
+    /// worried when something didn't work or needs the person to act.
+    func status(headline: String, detail: String, mood: MascotMood = .idle) {
         show(NudgeContent(headline: headline, detail: detail, kind: .status, mood: mood))
+    }
+
+    /// "I need it" access: what's open, a countdown to when it closes, and the reason they
+    /// gave. Stays up for the whole time unless it's clicked or swiped away.
+    func access(target: String, note: String, until end: Date) {
+        let content = NudgeContent(
+            headline: "\(target) is open",
+            detail: note.isEmpty ? "The pause comes back when time’s up." : note,
+            kind: .access, mood: .resting, endsAt: end
+        )
+        show(content, for: .seconds(max(1, end.timeIntervalSinceNow)))
+    }
+
+    /// The heads-up before the pause. It stays for `seconds`; the caller replaces it with the
+    /// pause or with praise first. Dismissing it only takes the card away: the pause still
+    /// comes if the blocked page is still open when the time runs out.
+    func warning(headline: String, detail: String, mood: MascotMood, seconds: Int) {
+        show(NudgeContent(headline: headline, detail: detail, kind: .warning, mood: mood), for: .seconds(seconds))
     }
 
     /// Takes a soft hint down when the user moves on, but leaves praise alone: a reward
@@ -74,8 +107,9 @@ final class NudgeHUDController {
         hide()
     }
 
-    func show(_ content: NudgeContent) {
+    func show(_ content: NudgeContent, for duration: Duration? = nil) {
         current = content
+        self.duration = duration ?? hintDuration
 
         let panel = self.panel ?? makePanel()
         self.panel = panel
@@ -91,7 +125,8 @@ final class NudgeHUDController {
             transitionTask = nil
             isLeaving = false
 
-            let hosting = NSHostingView(rootView: makeView(content))
+            let hosting = NudgeHostingView(rootView: makeView(content))
+            hosting.onSwipe = { [weak self] in self?.hide() }
             hosting.wantsLayer = true
             hosting.layer?.backgroundColor = .clear
             hosting.frame = NSRect(x: 0, y: 0, width: width, height: hosting.fittingSize.height)
@@ -105,7 +140,7 @@ final class NudgeHUDController {
             panel.orderFrontRegardless()
         }
 
-        scheduleAutoDismiss(after: hintDuration)
+        scheduleAutoDismiss(after: self.duration)
     }
 
     func hide() {
@@ -141,16 +176,18 @@ final class NudgeHUDController {
             isLeaving: leaving,
             onDismiss: { [weak self] in self?.hide() },
             onHoverChange: { [weak self] hovering in
+                // A heads-up or a countdown keeps its clock, hovered or not.
+                if let kind = self?.current?.kind, kind == .warning || kind == .access { return }
                 hovering
                     ? self?.cancelAutoDismiss()
-                    : self?.scheduleAutoDismiss(after: self?.hintDuration ?? .seconds(5))
+                    : self?.scheduleAutoDismiss(after: self?.duration ?? .seconds(5))
             }
         )
     }
 
     /// Cards differ in height, and the panel is anchored by its bottom edge, so a resize has
     /// to be followed by a reposition or the card appears to jump.
-    private func fit(_ panel: NSPanel, _ hosting: NSHostingView<NudgeHUDView>) {
+    private func fit(_ panel: NSPanel, _ hosting: NudgeHostingView) {
         panel.setContentSize(NSSize(width: width, height: hosting.fittingSize.height))
         position(panel)
     }
@@ -212,12 +249,11 @@ private struct NudgeHUDView: View {
     let content: NudgeContent
     /// Flipped by the controller to send the card back out before the panel goes.
     var isLeaving = false
+    /// A click anywhere on the card.
     let onDismiss: (() -> Void)?
     let onHoverChange: (Bool) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @State private var isHovering = false
     @State private var entered = false
     /// The mascot rises from behind the card a beat after it lands, then takes hold of it.
     @State private var risen = false
@@ -305,24 +341,43 @@ private struct NudgeHUDView: View {
         "Shift: \(content.headline). \(content.detail)"
     }
 
+    /// No buttons: a click anywhere takes the card away, and so does a two-finger swipe
+    /// (`NudgeHostingView`), the way notifications go.
     private var message: some View {
+        NudgeMessage(content: content)
+            .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.hud, style: .continuous))
+            .onTapGesture { onDismiss?() }
+            .onHover(perform: onHoverChange)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Dismisses the card")
+    }
+}
+
+/// The card itself: headline, detail, and the notification glass under them. Shared by the
+/// live nudge and the Settings gallery (`NudgeCardPreview`), so the two can't drift apart.
+private struct NudgeMessage: View {
+    let content: NudgeContent
+
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        // One shape for every card: the same width, a one-line headline and room for two
+        // lines of detail even when there's one, so cards never change size.
         VStack(alignment: .leading, spacing: Theme.Space.tight) {
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.tight) {
                 Text(content.headline)
                     .font(.callout.weight(.semibold))
-                    .lineLimit(2)
-
-                Spacer(minLength: 0)
-
-                if let onDismiss, isHovering {
-                    Button(action: onDismiss) {
-                        Image(systemName: "xmark")
-                            .font(.caption2.weight(.bold))
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Dismiss")
-                    .accessibilityLabel("Dismiss nudge")
-                    .calmTransition(.opacity)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                    .truncationMode(.tail)
+                if let endsAt = content.endsAt {
+                    Spacer(minLength: 0)
+                    // Ticks down on its own, no timer of ours needed.
+                    Text(timerInterval: Date()...max(endsAt, Date()), countsDown: true)
+                        .font(.callout.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(Paper.coralText)
+                        .fixedSize()
                 }
             }
 
@@ -330,13 +385,14 @@ private struct NudgeHUDView: View {
             Text(content.detail)
                 .font(.callout)
                 .foregroundStyle(.primary)
-                .lineLimit(2)
+                .lineLimit(2, reservesSpace: true)
+                .truncationMode(.tail)
         }
         .padding(.horizontal, Theme.Space.base)
         // Extra room at the top: the mascot's fingers curl over this edge.
         .padding(.top, Theme.Space.loose + Theme.Space.hair)
         .padding(.bottom, Theme.Space.snug + 1)
-        .frame(width: Self.cardWidth, alignment: .leading)
+        .frame(width: NudgeHUDView.cardWidth, alignment: .leading)
         .background {
             // The same glass macOS draws notification banners on, so a nudge looks like
             // it belongs next to them.
@@ -350,10 +406,61 @@ private struct NudgeHUDView: View {
         // No drop shadow. NSHostingView clips at the window bounds, so any shadow wide
         // enough to be worth having gets sliced off at the edge and leaves a hard grey
         // line across the desktop. The glass draws its own edge highlight instead.
-        .animation(.easeOut(duration: 0.15), value: isHovering)
-        .onHover { hovering in
-            isHovering = hovering
-            onHoverChange(hovering)
+    }
+}
+
+/// A nudge card at rest, exactly as it looks on screen once it has arrived: the mascot's
+/// body behind the card, the card, and its hands over the edge. For the Settings gallery.
+struct NudgeCardPreview: View {
+    let content: NudgeContent
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var start = Date()
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            MascotView(mood: content.mood, layer: .body, animates: !reduceMotion, start: start)
+                .frame(width: MascotView.size.width, height: MascotView.cardEdgeOffset, alignment: .top)
+                .clipped()
+            NudgeMessage(content: content)
+                .padding(.top, MascotView.cardEdgeOffset)
+            MascotView(mood: content.mood, layer: .hands, animates: !reduceMotion, start: start)
+        }
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(content.mood.title): \(content.headline). \(content.detail)")
+    }
+}
+
+// MARK: - Swipe
+
+/// Hosts the card and turns a two-finger horizontal swipe over it into a dismissal, as
+/// notification banners do. SwiftUI gestures don't see trackpad scrolls, so this reads the
+/// scroll events directly.
+private final class NudgeHostingView: NSHostingView<NudgeHUDView> {
+    var onSwipe: (() -> Void)?
+    private var travel: CGFloat = 0
+    private var fired = false
+
+    override func scrollWheel(with event: NSEvent) {
+        // Only trackpad and Magic Mouse swipes; a wheel mouse scrolls in steps.
+        guard event.hasPreciseScrollingDeltas else { return super.scrollWheel(with: event) }
+        switch event.phase {
+        case .began:
+            travel = 0
+            fired = false
+        case .changed:
+            travel += event.scrollingDeltaX
+            // Mostly sideways and far enough: a deliberate swipe, not a scroll.
+            if !fired, abs(travel) > 36, abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) {
+                fired = true
+                onSwipe?()
+            }
+        case .ended, .cancelled:
+            travel = 0
+            fired = false
+        default:
+            break
         }
     }
 }

@@ -24,6 +24,13 @@ struct BlockEvaluator {
             return .allow("\(context.appName) is never blocked")
         }
 
+        // A blocked app outranks every page inside it, in any active block. Arc on x.com,
+        // with both Arc and x.com blocked, quits Arc: closing the one tab would leave a
+        // blocked app open, only to pause again on whatever tab came next.
+        for block in blocks {
+            if let verdict = appMatch(context, in: block) { return verdict }
+        }
+
         let address = context.websiteAddress
         let input = context.url.flatMap(WebRuleInput.init(url:))
         var categories: Set<String> = []
@@ -81,10 +88,8 @@ struct BlockEvaluator {
             target = .website(website.host)
             name = website.host
         } else {
-            let bundleID = context.bundleID.lowercased()
-            guard list.apps.contains(where: { bundleID == $0.lowercased() }) else { return nil }
-            target = .app(bundleID)
-            name = context.appName
+            // App rules were settled before any block's websites were looked at.
+            return nil
         }
 
         return Verdict(
@@ -93,6 +98,19 @@ struct BlockEvaluator {
             blockID: block.id,
             blockName: block.name,
             ruleTarget: target
+        )
+    }
+
+    /// The app itself is on this block's list. Website exceptions never waive it.
+    private func appMatch(_ context: ScreenContext, in block: Block) -> Verdict? {
+        let bundleID = context.bundleID.lowercased()
+        guard block.list.apps.contains(where: { bundleID == $0.lowercased() }) else { return nil }
+        return Verdict(
+            kind: .block,
+            reason: "\(context.appName) is blocked",
+            blockID: block.id,
+            blockName: block.name,
+            ruleTarget: .app(bundleID)
         )
     }
 

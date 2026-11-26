@@ -201,7 +201,7 @@ struct OnboardingView: View {
         VStack(spacing: 0) {
             Spacer(minLength: 20)
 
-            MascotCard(mood: .calm, start: mascotStart, animates: !reduceMotion) {
+            MascotCard(mood: .hello, start: mascotStart, animates: !reduceMotion) {
                 VStack(spacing: 10) {
                     Text(Step.welcome.title)
                         .font(.system(size: 34, weight: .heavy, design: .rounded))
@@ -348,11 +348,11 @@ struct OnboardingView: View {
             }
 
             HStack(alignment: .center, spacing: 8) {
-                JourneyCard(number: 1, symbol: "wind", title: "Breathe",
-                            detail: "A short pause, before the page has loaded.")
+                JourneyCard(number: 1, symbol: "hand.raised.fill", title: "Heads-up",
+                            detail: "Ten seconds to close it yourself. Still open? A short pause.")
                 JourneyArrow()
                 JourneyCard(number: 2, symbol: "bubble.left.fill", title: "Name it",
-                            detail: "One honest question about the pull.")
+                            detail: "What pulled you, and why, in a few words.")
                 JourneyArrow()
                 JourneyCard(number: 3, symbol: "sparkles", title: "Walk away",
                             detail: "Shift cheers. That’s the new habit forming.")
@@ -360,9 +360,9 @@ struct OnboardingView: View {
             // Equal heights: each card stretches to the tallest one in the row.
             .fixedSize(horizontal: false, vertical: true)
 
-            Note(symbol: "hourglass", text: hasSeenDemo
-                 ? "That’s the last resort. Come back within the hour and each pause gets a little longer."
-                 : "Come back within the hour and each pause gets a little longer.")
+            Note(symbol: "repeat", text: hasSeenDemo
+                 ? "Every pause works just like that, so it never takes you by surprise."
+                 : "Every pause is the same: one breath, a few words, then back to work.")
         }
     }
 
@@ -938,9 +938,10 @@ private struct PausePreview: View {
                     .font(PlayType.rounded(17, .semibold))
                     .foregroundStyle(.white)
                 HStack(spacing: 6) {
-                    MiniChip(symbol: "cloud.fill", text: "I’m bored")
-                    MiniChip(symbol: "mountain.2.fill", text: "This is hard")
-                    MiniChip(symbol: "battery.25", text: "I’m drained")
+                    // The real answers, with the symbols the pause uses.
+                    ForEach([UrgeReason.bored, .stuck, .tired]) { reason in
+                        MiniChip(symbol: reason.symbol, text: reason.title)
+                    }
                 }
                 Button(action: onPlay) {
                     HStack(spacing: 7) {

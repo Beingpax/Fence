@@ -13,6 +13,20 @@ enum EnforcementService {
     static let rulesChanged = Notification.Name("\(notificationPrefix).rulesChanged")
     static let openDashboard = Notification.Name("\(notificationPrefix).openDashboard")
     static let agentReady = Notification.Name("\(notificationPrefix).enforcementReady")
+    /// Sent by the dashboard when the helper is running an older or different copy of
+    /// Shift. The helper restarts as soon as no pause or break is in progress.
+    static let restartHelper = Notification.Name("\(notificationPrefix).restartHelper")
+    /// Passed when Shift relaunches itself after an update, so it comes back quietly
+    /// instead of opening its window.
+    static let relaunchedFlag = "--relaunched-after-update"
+    #if DEBUG
+    /// Presses Close on the pause on screen. Debug builds only, for scripted testing.
+    static let debugPauseClose = Notification.Name("\(notificationPrefix).debugPauseClose")
+    /// Presses Command-W in the front browser. Debug builds only, for scripted testing.
+    static let debugCloseFrontTab = Notification.Name("\(notificationPrefix).debugCloseFrontTab")
+    /// Presses Command-T in the front browser. Debug builds only, for scripted testing.
+    static let debugNewTab = Notification.Name("\(notificationPrefix).debugNewTab")
+    #endif
 
     @discardableResult
     static func registerIfNeeded(enabled: Bool) throws -> Bool {
@@ -25,6 +39,16 @@ enum EnforcementService {
         default: break
         }
         return service.status == .enabled
+    }
+
+    /// Loads the helper again when macOS still lists it as allowed but launchd isn't running
+    /// it: unloaded by hand (`launchctl bootout`), or given up on after crashing repeatedly.
+    /// `register()` refuses a service that's already registered, so it has to be
+    /// unregistered first; registering again is what asks launchd to start it. The approval
+    /// in Login Items is kept, because it belongs to the app rather than to the job.
+    static func reload() throws {
+        try? service.unregister()
+        try service.register()
     }
 
     static func lease(_ name: String) throws -> ProcessLease {

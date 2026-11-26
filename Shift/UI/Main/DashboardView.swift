@@ -85,7 +85,7 @@ struct DashboardView: View {
 
     private var mood: MascotMood {
         if needsAttention { return .curious }
-        return model.store.blocks.isEmpty ? .happy : .calm
+        return model.store.blocks.isEmpty ? .hello : .idle
     }
 
     /// One sentence, in a friend's voice, about right now.
@@ -691,7 +691,8 @@ private struct BubbleTail: Shape {
     }
 }
 
-private struct FactPill: View {
+/// A small fact in a pill, shared by the Dashboard and the Journal.
+struct FactPill: View {
     let symbol: String
     let text: String
 

@@ -1,4 +1,8 @@
 /// The reasons offered when Shift pauses a blocked visit.
+///
+/// Five feelings and "I need it", which is last and always shown. The user keeps it to
+/// these six: no extra options or categories. Raw values are
+/// stored in the journal: never rename one.
 enum UrgeReason: String, CaseIterable, Identifiable, Sendable {
     case bored, tired, stuck, anxious, lonely, needed
 
@@ -25,6 +29,23 @@ enum UrgeReason: String, CaseIterable, Identifiable, Sendable {
         case .anxious: "Something’s weighing on me"
         case .lonely: "I want to feel connected"
         case .needed: "For something specific"
+        }
+    }
+
+    /// How many words the written reason needs before anything moves on. "I need it" asks
+    /// for twice as many: friction belongs on the way in, not the way back.
+    var minimumWords: Int { self == .needed ? 20 : 10 }
+
+    /// Asked above the written reason once this is picked: what, why or how, so the journal
+    /// holds what actually set the pull off rather than the label again.
+    var prompt: String {
+        switch self {
+        case .bored: "What were you doing, and why did it feel dull?"
+        case .tired: "What wore you out, and what’s next on your list?"
+        case .stuck: "What are you working on, and where exactly is it hard?"
+        case .anxious: "What’s on your mind, and why now?"
+        case .lonely: "Who or what were you hoping to find here?"
+        case .needed: "What exactly do you need there, why can’t it wait, and how long will it take?"
         }
     }
 

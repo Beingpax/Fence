@@ -6,7 +6,10 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppModel.shared.startDashboard(registerAgent: EnforcementService.registerIfNeeded)
-        AppModel.shared.openApp()
+        // A relaunch after an update stays in the menu bar; every other launch shows a window.
+        if !CommandLine.arguments.contains(EnforcementService.relaunchedFlag) {
+            AppModel.shared.openApp()
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows _: Bool) -> Bool {

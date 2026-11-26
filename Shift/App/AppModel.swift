@@ -38,6 +38,8 @@ final class AppModel {
     @ObservationIgnored private var quittingForRemoval = false
     @ObservationIgnored private var serviceWanted: Bool?
     @ObservationIgnored private var nextServiceCheck = Date.distantPast
+    /// When Shift last tried to bring an offline helper back. See `repairHelperIfDue`.
+    @ObservationIgnored private var lastHelperRepair = Date.distantPast
     @ObservationIgnored private var monitorLease: ProcessLease?
     @ObservationIgnored private var serviceObservers: [NSObjectProtocol] = []
 
@@ -84,6 +86,27 @@ final class AppModel {
     @ObservationIgnored private let pause = PauseController()
     /// When each site was last reached for, per block, for escalation.
     @ObservationIgnored private var reaches: [String: [Date]] = [:]
+    /// The journal row for the pause on screen, until it's answered or taken down.
+    @ObservationIgnored private var openReachID: UUID?
+    /// The heads-up before the pause, running or recently ended. See `reach`.
+    @ObservationIgnored private var warning: ReachWarning?
+    /// When each rule last got a heads-up, for an hour, so a repeat reads differently.
+    @ObservationIgnored private var warnings: [String: [Date]] = [:]
+    @ObservationIgnored private var warningTask: Task<Void, Never>?
+    /// Leaving the blocked page during a heads-up has to read the same twice.
+    @ObservationIgnored private var leaving = Hysteresis(requiredHits: 2)
+    /// When the browser started showing no page during a heads-up: a Start Page, an empty
+    /// tab, a window closed with its last tab. See `noteLeaving`.
+    @ObservationIgnored private var blankSince: Date?
+    @ObservationIgnored private var blankCheck: Task<Void, Never>?
+    /// The executable this process launched from. See `restartIfReplaced`.
+    @ObservationIgnored private let launchedExecutable = ExecutableStamp.current()
+    /// A replacement seen on disk, and when, so a build still being written isn't relaunched.
+    @ObservationIgnored private var pendingExecutable: (stamp: ExecutableStamp, since: Date)?
+    /// Helper only: the dashboard asked for a restart because this helper is out of date.
+    @ObservationIgnored private var restartRequested = false
+    /// Dashboard only: when it asked a stale helper to restart. See `replaceStaleHelper`.
+    @ObservationIgnored private var helperRestartAskedAt: Date?
     /// "I need it": one site, let through until this time. The block itself stays on.
     @ObservationIgnored private var allowances: [String: Date] = [:]
     @ObservationIgnored private var allowanceTasks: [String: Task<Void, Never>] = [:]
@@ -109,6 +132,9 @@ final class AppModel {
 
     @ObservationIgnored private var lastNudgeSignature: String?
     @ObservationIgnored private var lastNudgeAt = Date.distantPast
+    /// When drift hints were shown in the last half hour, so a repeat looks different.
+    @ObservationIgnored private var recentHints: [Date] = []
+    @ObservationIgnored private var moodTour: Task<Void, Never>?
     @ObservationIgnored private let nudgeCooldown: TimeInterval = 120
 
     private init() {
@@ -156,7 +182,37 @@ final class AppModel {
             serviceObservers.append(center.addObserver(forName: EnforcementService.openDashboard, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in self?.openApp() }
             })
+        } else {
+            serviceObservers.append(center.addObserver(forName: EnforcementService.restartHelper, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.restartRequested = true }
+            })
         }
+        #if DEBUG
+        serviceObservers.append(center.addObserver(forName: EnforcementService.debugPauseClose, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.pause.simulate(.close(nil, reflection: nil)) }
+        })
+        // Command-W to the front browser, as a person would press it: for testing the
+        // heads-up from a script.
+        serviceObservers.append(center.addObserver(forName: EnforcementService.debugCloseFrontTab, object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                if let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier {
+                    _ = TabCloser.closeIfFrontmost(pid: pid)
+                }
+            }
+        })
+        // Command-T: a blank new tab, Safari's Start Page.
+        serviceObservers.append(center.addObserver(forName: EnforcementService.debugNewTab, object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                      let down = CGEvent(keyboardEventSource: nil, virtualKey: 0x11, keyDown: true),
+                      let up = CGEvent(keyboardEventSource: nil, virtualKey: 0x11, keyDown: false) else { return }
+                for event in [down, up] {
+                    event.flags = .maskCommand
+                    event.postToPid(pid)
+                }
+            }
+        })
+        #endif
         store.onCommit = { [weak self] in
             EnforcementService.notify(EnforcementService.rulesChanged)
             self?.reconcileMonitoring()
@@ -247,12 +303,118 @@ final class AppModel {
 
         reconcileMonitoring()
         if tickCount % 5 == 0 {
+            restartIfReplaced()
+            replaceStaleHelper()
             if !EnforcementService.isAgent && NSApp.isActive {
                 refreshSystemState()
             } else if isWatching {
                 refreshPermissions()
             }
         }
+    }
+
+    /// Keeps both processes on the copy of Shift that's on disk.
+    ///
+    /// launchd keeps the helper alive for as long as the Mac is up, and the dashboard stays
+    /// open all day in the menu bar, so after a rebuild or an update both would otherwise
+    /// carry on with the old code: previews showed the new pause while real pauses showed
+    /// the old one. Once the new executable has stopped changing for a few seconds:
+    ///
+    /// - The helper exits, and launchd (`KeepAlive`) starts it again on the new build. It
+    ///   also does this when the dashboard says it's stale (`restartRequested`).
+    /// - The dashboard relaunches itself quietly, but only while none of its windows is
+    ///   open, so nobody loses an edit.
+    ///
+    /// Neither leaves while a pause is on screen or "I need it" access is running: both live
+    /// only in this process, and dropping them would end access early or lose an answer.
+    private func restartIfReplaced() {
+        guard let launchedExecutable else { return }
+        var replaced = false
+        if let current = ExecutableStamp.current(), current != launchedExecutable {
+            if let pending = pendingExecutable, pending.stamp == current {
+                replaced = Date().timeIntervalSince(pending.since) >= 4
+            } else {
+                pendingExecutable = (current, Date())
+            }
+        } else {
+            pendingExecutable = nil
+        }
+        let agent = EnforcementService.isAgent
+        guard replaced || (agent && restartRequested),
+              !pause.isShowing, allowances.isEmpty else { return }
+
+        if agent {
+            Self.log.notice("Restarting the background helper on the current build")
+            monitor.stop()
+            nudgeHUD.hide()
+            ReachJournal.shared.flush()
+            exit(0)
+        } else {
+            relaunchDashboard()
+        }
+    }
+
+    /// Starts this copy of Shift again once this process has gone, then exits. The new one
+    /// opens no window (`relaunchedFlag`), so an update in the background stays invisible.
+    /// The helper keeps enforcing through the gap, locks included.
+    private func relaunchDashboard() {
+        // A window someone can type in is open: wait until it's closed.
+        guard !NSApp.windows.contains(where: { $0.isVisible && $0.canBecomeKey }) else { return }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "while /bin/kill -0 \"$1\" 2>/dev/null; do /bin/sleep 0.2; done; exec /usr/bin/open -g \"$2\" --args \"$3\"",
+            "shift-relaunch",
+            String(ProcessInfo.processInfo.processIdentifier),
+            Bundle.main.bundleURL.path(percentEncoded: false),
+            EnforcementService.relaunchedFlag,
+        ]
+        do {
+            try process.run()
+        } catch {
+            Self.log.error("Couldn’t relaunch after an update: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        Self.log.notice("Shift was updated on disk; relaunching on the new build")
+        applicationWillTerminate()
+        ReachJournal.shared.flush()
+        exit(0)
+    }
+
+    /// Dashboard only: makes sure the helper runs this copy of Shift, started after this copy
+    /// was last built. Catches a helper from before it could restart itself, and one
+    /// registered from another copy (Xcode's build folder against /Applications), which its
+    /// own check can't see. It's asked first, so it can finish a pause; if it's still stale
+    /// 20 seconds later, it's registered again from this copy.
+    private func replaceStaleHelper() {
+        guard !EnforcementService.isAgent, backgroundServiceStatus == .enabled,
+              let ownExecutable = Bundle.main.executableURL?.resolvingSymlinksInPath(),
+              let built = ExecutableStamp.currentBuildDate,
+              // A build still being written isn't one to restart onto.
+              Date().timeIntervalSince(built) >= 5,
+              let bundleID = Bundle.main.bundleIdentifier else { return }
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        let stale = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).filter { helper in
+            guard helper.processIdentifier != ownPID, !helper.isTerminated else { return false }
+            let sameCopy = helper.executableURL?.resolvingSymlinksInPath() == ownExecutable
+            let started = ExecutableStamp.startDate(of: helper.processIdentifier) ?? .distantPast
+            return !sameCopy || started < built
+        }
+        guard !stale.isEmpty else {
+            helperRestartAskedAt = nil
+            return
+        }
+        guard let asked = helperRestartAskedAt else {
+            helperRestartAskedAt = Date()
+            Self.log.notice("Background helper is out of date; asking it to restart")
+            EnforcementService.notify(EnforcementService.restartHelper)
+            return
+        }
+        guard Date().timeIntervalSince(asked) >= 20 else { return }
+        helperRestartAskedAt = nil
+        Self.log.notice("Background helper didn’t restart; registering it again from this copy")
+        repairHelperIfDue()
     }
 
     private func reconcileMonitoring() {
@@ -292,6 +454,7 @@ final class AppModel {
                 lastContext = nil
                 lastVerdict = nil
                 pause.dismiss()
+                finishOpenReach(.dismissed)
                 nudgeHUD.hideHint()
                 hysteresis.reset()
                 log("Nothing active", symbol: "eye.slash")
@@ -310,6 +473,7 @@ final class AppModel {
 
         if let blockID = pause.blockID, !active.contains(where: { $0.id == blockID }) {
             pause.dismiss()
+            finishOpenReach(.dismissed)
             hysteresis.reset()
             monitor.resampleSoon()
         }
@@ -329,12 +493,41 @@ final class AppModel {
             let enabled = try registerAgent(wanted)
             backgroundRegistrationFailed = false
             backgroundServiceOffline = wanted && enabled && !agentReady && !firstAttempt
+            if backgroundServiceOffline { repairHelperIfDue() }
         } catch {
             backgroundRegistrationFailed = wanted
             backgroundServiceOffline = false
             Self.log.error("Background registration: \(error.localizedDescription, privacy: .public)")
         }
         refreshBackgroundServiceStatus()
+    }
+
+    /// Brings back a helper that macOS still allows but launchd isn't running. Without this
+    /// nothing ever would: registration skips a service that already reads as enabled, and
+    /// Login Items has no switch for it. At most once every two minutes, so a helper that
+    /// keeps failing doesn't turn into a registration loop.
+    private func repairHelperIfDue() {
+        guard !EnforcementService.isAgent, Date().timeIntervalSince(lastHelperRepair) >= 120 else { return }
+        lastHelperRepair = Date()
+        do {
+            try EnforcementService.reload()
+            Self.log.notice("Background helper was allowed but not running; reloaded it")
+            // Look again soon rather than in the usual 15 seconds.
+            nextServiceCheck = Date().addingTimeInterval(5)
+        } catch {
+            Self.log.error("Background helper reload: \(error.localizedDescription, privacy: .public)")
+        }
+        refreshBackgroundServiceStatus()
+    }
+
+    /// "Restart helper" on the offline row: the same repair, straight away.
+    func restartBackgroundHelper() {
+        lastHelperRepair = .distantPast
+        repairHelperIfDue()
+        // The next check counts as a fresh attempt, so the row doesn't call it offline
+        // while launchd is still starting it.
+        serviceWanted = nil
+        reconcileMonitoring()
     }
 
     // MARK: Detection → enforcement
@@ -368,8 +561,10 @@ final class AppModel {
         case .allow:
             hysteresis.reset()
             nudgeHysteresis.reset()
+            noteLeaving(context)
         case .nudge:
             hysteresis.reset()
+            noteLeaving(context)
             if verdict.source == .rules, !nudgeHysteresis.register(context.signature) { return }
             considerNudge(verdict, on: context)
         case .block:
@@ -393,8 +588,172 @@ final class AppModel {
                 monitor.resampleSoon()
                 return
             }
-            beginReach(reachKey: reachKey, verdict: verdict, context: context)
+            reach(reachKey: reachKey, verdict: verdict, context: context)
         }
+    }
+
+    // MARK: The heads-up
+
+    /// How long the heads-up card gives someone to close it themselves.
+    private static let warningSeconds = 10
+    /// Coming back to the same thing this soon after leaving it skips the heads-up, so
+    /// stepping away can't restart the clock.
+    private static let returnGrace: TimeInterval = 120
+
+    /// A blocked page or app, read twice. First a heads-up card, and the page stays usable;
+    /// the pause only comes if it's still open ten seconds later. The user's call
+    /// (26 Nov 2026): a warning lets people turn back on their own before Shift steps in.
+    private func reach(reachKey: String, verdict: Verdict, context: ScreenContext) {
+        let now = Date()
+        if let current = warning {
+            if current.reachKey == reachKey {
+                if current.leftAt == nil {
+                    // Still on it: whatever looked like leaving was only a flash.
+                    leaving.reset()
+                    clearBlank()
+                    // Still inside the heads-up: theirs to use until the deadline.
+                    guard now >= current.deadline else { return }
+                    endWarning()
+                    beginReach(reachKey: reachKey, verdict: verdict, context: context)
+                    return
+                }
+                if let left = current.leftAt, now.timeIntervalSince(left) < Self.returnGrace {
+                    endWarning()
+                    beginReach(reachKey: reachKey, verdict: verdict, context: context)
+                    return
+                }
+            } else if current.leftAt == nil {
+                // Hopped from one blocked thing to another during the heads-up.
+                endWarning()
+                beginReach(reachKey: reachKey, verdict: verdict, context: context)
+                return
+            }
+        }
+        startWarning(reachKey: reachKey, verdict: verdict, context: context)
+    }
+
+    private func startWarning(reachKey: String, verdict: Verdict, context: ScreenContext) {
+        let now = Date()
+        let recent = (warnings[reachKey] ?? []).filter { now.timeIntervalSince($0) < Self.reachWindow } + [now]
+        warnings[reachKey] = recent
+
+        let name = verdict.ruleTarget?.displayName(appName: context.appName) ?? (context.host ?? context.appName)
+        // A website rule in a browser means a tab to close; anything else, an app to quit.
+        var closesTab = Browser(bundleID: context.bundleID) != nil
+        if case .app = verdict.ruleTarget { closesTab = false }
+        warningTask?.cancel()
+        leaving.reset()
+        clearBlank()
+        warning = ReachWarning(
+            reachKey: reachKey, verdict: verdict, context: context, name: name,
+            started: now, deadline: now.addingTimeInterval(TimeInterval(Self.warningSeconds)),
+            count: recent.count
+        )
+
+        let copy = PauseCopy.warning(name: name, blockName: verdict.blockName ?? "Shift", count: recent.count,
+                                     closesTab: closesTab)
+        nudgeHUD.warning(headline: copy.headline, detail: copy.detail, mood: copy.mood, seconds: Self.warningSeconds)
+        log("Heads-up · \(name)", symbol: "hand.raised")
+
+        warningTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.warningSeconds))
+            guard !Task.isCancelled else { return }
+            self?.warningRanOut(reachKey)
+        }
+    }
+
+    /// Time's up: read the screen again. Still on the blocked page means the pause (`reach`
+    /// sees the deadline has passed); anywhere else, nothing.
+    private func warningRanOut(_ reachKey: String) {
+        guard let current = warning, current.reachKey == reachKey, current.leftAt == nil else { return }
+        hysteresis.reset()
+        monitor.resampleSoon()
+    }
+
+    /// Something other than the blocked page is in front during a heads-up: a closed tab,
+    /// another site, another app, or a quit app. That's turning back on their own, and it's
+    /// praised the moment it's seen, not when the ten seconds run out.
+    ///
+    /// Another page or app counts after two matching readings, 150 ms apart. A browser
+    /// showing no page at all (Safari's Start Page, an empty tab, a window that closed with
+    /// its last tab) counts once that has lasted a second: the same blank also flashes by
+    /// between two pages, and that isn't leaving. Until 26 Nov 2026 a blank never counted,
+    /// so closing a tab onto the Start Page went unnoticed until something else changed.
+    private func noteLeaving(_ context: ScreenContext) {
+        guard let current = warning, current.leftAt == nil else { return }
+        let blank = context.processID == current.context.processID
+            && Browser(bundleID: context.bundleID) != nil && context.url == nil
+        if blank {
+            leaving.reset()
+            let since = blankSince ?? Date()
+            blankSince = since
+            if Date().timeIntervalSince(since) >= 1 {
+                Self.log.notice("Heads-up: left \(current.name, privacy: .public) for a blank page")
+                turnedBackDuringWarning()
+            } else if blankCheck == nil {
+                blankCheck = Task { [weak self] in
+                    try? await Task.sleep(for: .milliseconds(1050))
+                    guard let self, !Task.isCancelled else { return }
+                    self.blankCheck = nil
+                    self.monitor.resampleSoon()
+                }
+            }
+            return
+        }
+        clearBlank()
+        guard leaving.register(context.signature) else {
+            monitor.resampleSoon()
+            return
+        }
+        Self.log.notice("Heads-up: left \(current.name, privacy: .public) for \(context.host ?? context.appName, privacy: .public) after \(Date().timeIntervalSince(current.started), format: .fixed(precision: 2)) s")
+        turnedBackDuringWarning()
+    }
+
+    private func clearBlank() {
+        blankSince = nil
+        blankCheck?.cancel()
+        blankCheck = nil
+    }
+
+    /// Praise, a journal line and no pause: the best way a reach can end.
+    private func turnedBackDuringWarning() {
+        guard var current = warning, current.leftAt == nil else { return }
+        let now = Date()
+        current.leftAt = now
+        warning = current
+        warningTask?.cancel()
+        warningTask = nil
+        leaving.reset()
+        clearBlank()
+
+        reward(PauseCopy.rewardForTurningBackEarly())
+        log("Turned back early · \(current.name)", symbol: "arrow.uturn.backward")
+
+        let context = current.context
+        ReachJournal.shared.begin(ReachEntry(
+            id: UUID(),
+            startedAt: current.started,
+            endedAt: now,
+            blockID: current.verdict.blockID,
+            blockName: current.verdict.blockName ?? "Shift",
+            rule: current.name,
+            target: context.host ?? context.appName,
+            appName: context.appName,
+            bundleID: context.bundleID,
+            url: context.url?.absoluteString,
+            windowTitle: context.windowTitle,
+            visit: current.count,
+            waitSeconds: 0,
+            outcome: .leftEarly
+        ))
+    }
+
+    private func endWarning() {
+        warningTask?.cancel()
+        warningTask = nil
+        warning = nil
+        leaving.reset()
+        clearBlank()
     }
 
     private func closeMatchingTab(_ verdict: Verdict, context: ScreenContext) {
@@ -416,7 +775,7 @@ final class AppModel {
             guard result != .targetUnavailable else { return }
             lastFilteredTab = live
             lastFilteredAt = Date()
-            guard result == .posted else {
+            guard result == .closed else {
                 showManualTabClose()
                 return
             }
@@ -442,7 +801,6 @@ final class AppModel {
 
         guard let blockID = verdict.blockID else { return }
         store.recordTrigger(id: blockID, now: now)
-        let breaks = store.block(id: blockID)?.breaks
         let copy = PauseCopy.pause(visit: recent.count)
         let request = PauseRequest(
             blockName: verdict.blockName ?? "Shift",
@@ -452,13 +810,29 @@ final class AppModel {
             appName: context.appName,
             isBrowser: Browser(bundleID: context.bundleID) != nil,
             visit: recent.count,
-            breaksLeft: breaks.flatMap { $0.isEnabled ? $0.remaining(at: now) : nil },
             title: copy.title,
             subtitle: copy.subtitle
         )
         nudgeHUD.hide()
-        if playNudgeSounds { request.visit >= 3 ? NudgeSound.playDeep() : NudgeSound.playPause() }
+        if playNudgeSounds { NudgeSound.playPause() }
         log("Paused · \(target)", symbol: "wind")
+        finishOpenReach(.dismissed)
+        openReachID = request.journalID
+        ReachJournal.shared.begin(ReachEntry(
+            id: request.journalID,
+            startedAt: now,
+            blockID: blockID,
+            blockName: request.blockName,
+            rule: request.blockedTarget,
+            target: target,
+            appName: context.appName,
+            bundleID: context.bundleID,
+            url: context.url?.absoluteString,
+            windowTitle: context.windowTitle,
+            visit: request.visit,
+            waitSeconds: request.waitSeconds,
+            outcome: .open
+        ))
         pause.present(request) { [weak self] event in
             self?.handlePause(event, request: request, context: context)
         }
@@ -466,61 +840,79 @@ final class AppModel {
 
     private func handlePause(_ event: PauseEvent, request: PauseRequest, context: ScreenContext) {
         hysteresis.reset()
+        let journalID = request.isPreview ? nil : request.journalID
+        if openReachID == journalID { openReachID = nil }
 
         switch event {
-        case .close(let reason):
-            let closesBrowserTab = request.isBrowser && !request.isPreview
+        case .close(let reason, let reflection):
+            // Journaled at the decision, whether or not the tab close lands.
+            if let journalID {
+                ReachJournal.shared.finish(id: journalID, outcome: .closed, feeling: reason, reflection: reflection)
+            }
+            let closesBrowserTab = request.closesTab && !request.isPreview
             pause.dismiss(animated: !closesBrowserTab)
             if closesBrowserTab {
                 let pid = context.processID
                 closingBrowserPIDs.insert(pid)
                 Task {
                     defer { closingBrowserPIDs.remove(pid) }
-                    switch await TabCloser.closeFrontTab(for: context, monitor: monitor) {
-                    case .posted:
+                    // Still blocked means any rule still matches, wherever the page has
+                    // redirected to since the pause went up.
+                    let result = await TabCloser.closeFrontTab(for: context) { [weak self] live in
+                        self?.currentEvaluator.ruleVerdict(for: live)?.kind == .block
+                    }
+                    switch result {
+                    case .closed:
                         pauseBlockingAfterCloseAttempt(pid: pid)
                         recordTurnBack(reason, request: request)
                     case .keyboardAccessUnavailable:
                         pauseBlockingAfterCloseAttempt(pid: pid, seconds: 5)
                         showManualTabClose()
                     case .targetUnavailable:
-                        nudgeHUD.status(headline: "Couldn’t close the tab.", detail: "Shift couldn’t confirm the blocked tab was active.", mood: .sorry)
+                        nudgeHUD.status(headline: "Couldn’t close that tab.", detail: "Please close it yourself this time.", mood: .worried)
                         monitor.resampleSoon()
                     }
                 }
             } else {
                 if !request.isPreview {
                     pauseBlockingAfterCloseAttempt(pid: context.processID)
-                    TabCloser.quit(pid: context.processID)
+                    let pid = context.processID
+                    Task { await TabCloser.quit(pid: pid) }
                 }
                 recordTurnBack(reason, request: request)
             }
 
         case .takeBreak(let minutes, let note):
             pause.dismiss()
-            let headline = "\(minutes) minutes of access."
+            let ends = Date().addingTimeInterval(TimeInterval(minutes) * 60)
             guard !request.isPreview else {
-                nudgeHUD.status(headline: headline, detail: note)
+                nudgeHUD.access(target: request.blockedTarget, note: note, until: ends)
                 return
             }
 
             // The process, rule or schedule may have changed during the wait.
-            guard BreakPlan.accessMinutes.contains(minutes),
+            guard AccessPlan.minutes.contains(minutes),
                   let app = NSRunningApplication(processIdentifier: context.processID),
                   !app.isTerminated, app.bundleIdentifier == context.bundleID,
                   let blockID = request.blockID, let block = store.block(id: blockID),
                   let verdict = BlockEvaluator(blocks: [block], driftKeywords: []).ruleVerdict(for: context),
-                  verdict.ruleTarget == request.ruleTarget, let reachKey = reachKey(for: verdict),
-                  store.spendBreak(id: blockID) else {
+                  verdict.ruleTarget == request.ruleTarget, let reachKey = reachKey(for: verdict) else {
+                if let journalID {
+                    ReachJournal.shared.finish(id: journalID, outcome: .dismissed, feeling: .needed, reflection: note)
+                }
                 monitor.resampleSoon()
-                nudgeHUD.status(headline: "Break didn’t start.", detail: "Access is no longer available for \(request.blockedTarget).", mood: .sorry)
+                nudgeHUD.status(headline: "Access didn’t start.", detail: "\(request.blockedTarget) wasn’t open anymore.", mood: .worried)
                 return
             }
 
+            if let journalID {
+                ReachJournal.shared.finish(id: journalID, outcome: .breakTaken, feeling: .needed, reflection: note, breakMinutes: minutes)
+            }
             allow(reachKey: reachKey, minutes: minutes)
             NSApp.yieldActivation(to: app)
             app.activate()
-            nudgeHUD.status(headline: headline, detail: note)
+            // Counts down for the whole access, so the end never comes as a surprise.
+            nudgeHUD.access(target: request.blockedTarget, note: note, until: ends)
             log("\(minutes) min on \(request.target) · \(note)", symbol: "cup.and.saucer")
         }
     }
@@ -543,7 +935,7 @@ final class AppModel {
 
     private func showManualTabClose() {
         let path = PermissionsManager.BrowserAccessPane.current.settingsPath
-        nudgeHUD.status(headline: "Close the tab manually.", detail: "Review Shift’s browser access in \(path).", mood: .sorry)
+        nudgeHUD.status(headline: "Please close the tab yourself.", detail: "To do it for you, I need access in \(path).", mood: .worried)
     }
 
     private func pauseBlockingAfterCloseAttempt(pid: pid_t, seconds: TimeInterval = 1.5) {
@@ -552,6 +944,13 @@ final class AppModel {
     }
 
     // MARK: Reward
+
+    /// Marks the pause on screen as ended without an answer, when Shift takes it down itself.
+    private func finishOpenReach(_ outcome: ReachEntry.Outcome) {
+        guard let id = openReachID else { return }
+        openReachID = nil
+        ReachJournal.shared.finish(id: id, outcome: outcome)
+    }
 
     private func recordTurnBack(_ reason: UrgeReason?, request: PauseRequest) {
         reward(PauseCopy.reward(for: reason, visit: request.visit))
@@ -563,10 +962,11 @@ final class AppModel {
     /// behaviour that's rewarded straight away repeats, and before this, turning back got
     /// nothing at all.
     ///
-    /// Over a hundred lines in `PauseCopy`, specific to what they named where possible and
-    /// dealt so none repeats soon, because the same line every time stops being heard.
-    private func reward(_ message: PauseCopy.Line) {
-        nudgeHUD.reward(headline: message.title, detail: message.subtitle)
+    /// Close to two hundred lines in `PauseCopy`, specific to the moment and to what they
+    /// named, each with its mood, and dealt so none repeats soon: the same line every time
+    /// stops being heard.
+    private func reward(_ line: PauseCopy.Reward) {
+        nudgeHUD.reward(headline: line.title, detail: line.subtitle, mood: line.mood)
         if playNudgeSounds { NudgeSound.playReward() }
     }
 
@@ -589,6 +989,8 @@ final class AppModel {
 
     private func considerNudge(_ verdict: Verdict, on context: ScreenContext) {
         guard showNudges else { return }
+        // A hint never covers the heads-up, praise or the access countdown.
+        if let kind = nudgeHUD.showingKind, kind == .warning || kind == .reward || kind == .access { return }
 
         let isRepeat = context.signature == lastNudgeSignature
         let withinCooldown = Date().timeIntervalSince(lastNudgeAt) < nudgeCooldown
@@ -598,7 +1000,16 @@ final class AppModel {
         lastNudgeAt = Date()
 
         let location = context.host ?? context.appName
-        nudgeHUD.hint(reason: verdict.reason, detail: location)
+        // Curious the first time, cheeky the second, worried after that: the same drift
+        // coming back should read differently from the first.
+        let now = Date()
+        recentHints = recentHints.filter { now.timeIntervalSince($0) < 30 * 60 } + [now]
+        let mood: MascotMood = switch recentHints.count {
+        case 1: .curious
+        case 2: .cheeky
+        default: .worried
+        }
+        nudgeHUD.hint(reason: verdict.reason, detail: location, mood: mood)
         log("Nudged · \(location)", symbol: "arrow.turn.up.left")
     }
 
@@ -662,11 +1073,11 @@ final class AppModel {
         let copy = PauseCopy.pause(visit: visit)
         let request = PauseRequest(
             blockName: "Deep work", blockID: nil, ruleTarget: .website(site), target: site, appName: "Safari",
-            isBrowser: true, visit: visit, breaksLeft: BreakPlan.dailyAllowance,
+            isBrowser: true, visit: visit,
             title: copy.title, subtitle: copy.subtitle, isPreview: true
         )
         let context = ScreenContext(bundleID: "com.apple.Safari", appName: "Safari", processID: 0)
-        if playNudgeSounds { visit >= 3 ? NudgeSound.playDeep() : NudgeSound.playPause() }
+        if playNudgeSounds { NudgeSound.playPause() }
         pause.present(request) { [weak self] event in
             self?.handlePause(event, request: request, context: context)
         }
@@ -674,6 +1085,25 @@ final class AppModel {
 
     func previewReward() {
         reward(PauseCopy.reward(for: nil, visit: 1))
+    }
+
+    /// Settings → Previews: every mascot mood in turn on the nudge card, with its name and
+    /// where it's used.
+    func previewMoods() {
+        moodTour?.cancel()
+        moodTour = Task { [weak self] in
+            for mood in MascotMood.allCases {
+                guard let self, !Task.isCancelled else { return }
+                self.nudgeHUD.status(headline: mood.title, detail: mood.use, mood: mood)
+                try? await Task.sleep(for: .seconds(2.6))
+            }
+        }
+    }
+
+    /// Settings → Previews: the heads-up card as it appears before a pause.
+    func previewWarning() {
+        let copy = PauseCopy.warning(name: "instagram.com", blockName: "Distractions", count: 1, closesTab: true)
+        nudgeHUD.warning(headline: copy.headline, detail: copy.detail, mood: copy.mood, seconds: Self.warningSeconds)
     }
 
     func previewHint() {
@@ -847,4 +1277,19 @@ enum Preferences {
         get { UserDefaults.standard.bool(forKey: Key.keepBackgroundBlockingEnabled) }
         set { UserDefaults.standard.set(newValue, forKey: Key.keepBackgroundBlockingEnabled) }
     }
+}
+
+/// The heads-up before the pause: what was reached for, when, and whether they left it.
+private struct ReachWarning {
+    let reachKey: String
+    let verdict: Verdict
+    let context: ScreenContext
+    /// The rule as the person reads it: "x.com", "Steam".
+    let name: String
+    let started: Date
+    let deadline: Date
+    /// Which heads-up this is for the rule within the hour: 1, 2, 3 or more.
+    let count: Int
+    /// When they turned back during it, if they did.
+    var leftAt: Date?
 }

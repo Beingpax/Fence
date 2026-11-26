@@ -17,7 +17,6 @@ struct Block: Identifiable, Codable, Equatable {
     var list = BlockList()
     var schedule: BlockSchedule = .always
     var lock: BlockLock = BlockLock()
-    var breaks: BreakPlan = BreakPlan()
 
 
     /// When a `.manual` block is running, the instant it stops. Runtime state, persisted
@@ -32,7 +31,6 @@ struct Block: Identifiable, Codable, Equatable {
     /// Is this block policing the screen right now?
     func isActive(at date: Date = Date()) -> Bool {
         guard isEnabled || lock.isLocked(at: date) else { return false }
-        guard !breaks.isOnBreak(at: date) else { return false }
 
         switch schedule {
         case .always:
@@ -357,44 +355,15 @@ struct ScheduleWindow: Codable, Equatable, Identifiable {
     }
 }
 
-// MARK: - Breaks
+// MARK: - Access
 
-/// Cold Turkey's "breaks": a block can let you off the hook briefly, on your terms,
-/// set in advance rather than in the moment of weakness.
-struct BreakPlan: Codable, Equatable {
-    var isEnabled: Bool = false
-    static let accessMinutes = [2, 5]
-    static let waitMinutes = 1
-    static let waitSeconds = waitMinutes * 60
-    static let dailyAllowance = 2
-
-    /// Runtime: when the current break ends.
-    var currentBreakEndsAt: Date?
-    var breaksTakenToday: Int = 0
-    var lastResetDay: Date?
-
-    func isOnBreak(at date: Date = Date()) -> Bool {
-        guard isEnabled, let currentBreakEndsAt else { return false }
-        return date < currentBreakEndsAt
-    }
-
-    func remaining(at date: Date = Date()) -> Int {
-        guard isEnabled else { return 0 }
-        let usedToday = lastResetDay.map { Calendar.current.isDate($0, inSameDayAs: date) } == true
-            ? breaksTakenToday : 0
-        return max(0, Self.dailyAllowance - usedToday)
-    }
-
-    /// Uses one of today's breaks.
-    ///
-    /// The daily allowance is spent when access starts for the matched rule.
-    mutating func spend(at date: Date) -> Bool {
-        let available = remaining(at: date)
-        guard available > 0 else { return false }
-        breaksTakenToday = Self.dailyAllowance - available + 1
-        lastResetDay = date
-        return true
-    }
+/// "I need it" at the pause: a few minutes on the one matched site or app, after a wait.
+/// Always offered, on every block. It replaced the per-block breaks switch and its two a
+/// day on 26 Nov 2026; the twenty written words and the wait are the friction. The wait
+/// was a minute until the user cut it to 15 seconds the same day.
+enum AccessPlan {
+    static let minutes = [2, 5]
+    static let waitSeconds = 15
 }
 
 // MARK: - Locking

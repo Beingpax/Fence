@@ -2,8 +2,9 @@ import SwiftUI
 
 /// The pause: one breath, one honest question, and a reason to close it.
 ///
-/// The only full-screen surface in Shift. Each reach within the hour waits longer before
-/// the question opens: 10, then 20, then 30 seconds. The opening copy comes from
+/// The only full-screen surface in Shift, and the same every time: one breath, then the
+/// question, then a few written words, then the way back. No escalating waits (removed on
+/// 26 Nov 2026: one version is easier to trust than a ladder). The opening copy comes from
 /// `PauseCopy` and the matched rule explains why the screen appeared.
 ///
 /// Design rules for this screen, worth keeping if it's changed:
@@ -19,8 +20,11 @@ import SwiftUI
 /// 4. **Words arrive, they don't switch on.** Each line fades in at its own pace
 ///    (`revealOnAppear`). Text that changes in place (`SwapText`) fully leaves
 ///    before the next line arrives, never overlapping.
-/// 5. **Keep the close button visible.** It sits outside the panel and answers to Return
-///    outside the reason form.
+/// 5. **The way back is earned with a few words.** Close isn't offered during the breath or
+///    the question. Picking an answer asks what, why or how (`UrgeReason.prompt`), and
+///    Close appears once they've written `UrgeReason.minimumWords`: 10, or 20 for "I need
+///    it", which also unlocks the access buttons. Return closes once enough is written.
+///    Everything goes to `ReachJournal`, so every reach leaves its reason behind.
 struct PauseView: View {
     let request: PauseRequest
     let wallpaper: PauseWallpaper
@@ -35,11 +39,12 @@ struct PauseView: View {
 
     @State private var phase: Phase = .breathing
     @State private var secondsLeft: Int
-    @State private var accessWaitSecondsLeft = BreakPlan.waitSeconds
+    @State private var accessWaitSecondsLeft = AccessPlan.waitSeconds
     @State private var breathStart: Date?
     /// The fraction remaining in the current wait.
     @State private var drain: Double = 1
     @State private var hovered: UrgeReason?
+    /// What they write once a feeling is picked. For "I need it", it's what the access is for.
     @State private var note = ""
     @State private var appeared = false
     @State private var questionShown = false
@@ -87,6 +92,7 @@ struct PauseView: View {
                     panel { question }
                 case .answering(let reason):
                     panel { answer(for: reason) }
+                        .overlay(alignment: .topTrailing) { backButton }
                 case .waitingForAccess(let minutes, _):
                     panel { accessWait(minutes: minutes) }
                 }
@@ -95,6 +101,10 @@ struct PauseView: View {
             .entrance(appeared, delay: 0.5, distance: 24, reduceMotion: reduceMotion)
 
             closeButton
+                // Kept in the layout so nothing jumps when it arrives.
+                .opacity(closeOffered ? 1 : 0)
+                .allowsHitTesting(closeOffered)
+                .animation(.easeOut(duration: 0.3), value: closeOffered)
                 .entrance(appeared, delay: 0.7, reduceMotion: reduceMotion)
 
             if request.isPreview {
@@ -235,9 +245,8 @@ struct PauseView: View {
 
     // MARK: 2. The question
 
-    private var choices: [UrgeReason] {
-        UrgeReason.allCases.filter { $0 != .needed || request.breaksLeft != nil }
-    }
+    /// All six, on every block: "I need it" no longer depends on a breaks setting.
+    private var choices: [UrgeReason] { UrgeReason.allCases }
 
     private var question: some View {
         VStack(spacing: Theme.Space.wide) {
@@ -273,18 +282,11 @@ struct PauseView: View {
     }
 
     private var helperText: String {
-        guard let hovered else {
-            return request.breaksLeft == 0 ? "No breaks left today." : ""
-        }
-        if hovered == .needed, let left = request.breaksLeft {
-            return left == 0 ? "No breaks left today." : "\(hovered.feeling). \(left) break\(left == 1 ? "" : "s") left today."
-        }
-        return hovered.feeling
+        hovered?.feeling ?? ""
     }
 
     private func feelingChip(_ reason: UrgeReason, index: Int) -> some View {
-        let disabled = reason == .needed && request.breaksLeft == 0
-        return Button {
+        Button {
             note = ""
             hovered = nil
             withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .spring(response: 0.5, dampingFraction: 0.86)) {
@@ -294,8 +296,6 @@ struct PauseView: View {
             FeelingChip(reason: reason, highlighted: hovered == reason)
         }
         .buttonStyle(PressScaleStyle())
-        .disabled(disabled)
-        .opacity(disabled ? 0.4 : 1)
         .onHover { inside in
             if inside { hovered = reason } else if hovered == reason { hovered = nil }
         }
@@ -314,25 +314,26 @@ struct PauseView: View {
     // MARK: 3. The answer
 
     private func suggestion(for reason: UrgeReason) -> (title: String, body: String) {
+        // Shown above the writing box, so they lead into it: name it here, act on it after.
         switch reason {
         case .bored:
-            ("Give your mind something real.",
-             "Stand up, stretch, or look out a window for a minute.")
+            ("Boredom is allowed.",
+             "Say what made it dull, then go find something real to do.")
         case .tired:
-            ("Give yourself a rest.",
-             "Close your eyes and let your shoulders drop for two minutes.")
+            ("You need rest, not more input.",
+             "Name what wore you out. Then close your eyes for a minute.")
         case .stuck:
             ("Make it smaller.",
-             "Hard work feels like a wall. A tiny next step is a door. Close this and write down one thing you could do in the next two minutes.")
+             "Hard work feels like a wall. The way through is the smallest next step.")
         case .anxious:
-            ("Put it on paper.",
-             "Write down what’s on your mind. Start with one sentence.")
+            ("Put it into words.",
+             "Writing a worry down makes it smaller.")
         case .lonely:
-            ("Reach out to someone.",
-             "Send a short message to someone you’d like to talk to.")
+            ("Reach for a person.",
+             "A short message to someone beats any feed.")
         case .needed:
             ("Say what you need it for.",
-             "Your access time starts after a \(BreakPlan.waitMinutes)-minute wait.")
+             "Access starts after a \(AccessPlan.waitSeconds)-second wait.")
         }
     }
 
@@ -356,6 +357,8 @@ struct PauseView: View {
                 .frame(maxWidth: 520)
                 .revealOnAppear(delay: 0.4, duration: 1.2)
 
+            reflectionField(for: reason)
+
             if reason == .needed {
                 needed
             }
@@ -363,15 +366,40 @@ struct PauseView: View {
         .transition(.asymmetric(insertion: .opacity, removal: .opacity))
     }
 
-    private var needed: some View {
-        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        return VStack(spacing: Theme.Space.snug) {
-            TextField("Like “reply to Sam about Friday”", text: $note)
+    private var trimmedNote: String {
+        note.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var wordsLeft: Int {
+        max(0, (chosen?.minimumWords ?? 0) - Reflection.wordCount(note))
+    }
+
+    /// Close appears once an answer has its words. The access countdown has no buttons:
+    /// there's nothing left to decide, only fifteen seconds to wait.
+    private var closeOffered: Bool {
+        switch phase {
+        case .breathing, .asking, .waitingForAccess: false
+        case .answering: wordsLeft == 0
+        }
+    }
+
+    /// The written reason: what set the feeling off, in their own words. Required once a
+    /// feeling is picked, so the journal holds the story and not just the label.
+    private func reflectionField(for reason: UrgeReason) -> some View {
+        VStack(spacing: Theme.Space.snug) {
+            Text(reason.prompt)
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.9))
+                .fixedSize(horizontal: false, vertical: true)
+
+            TextField("Write at least \(reason.minimumWords) words", text: $note, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.body)
+                .lineLimit(3...6)
                 .multilineTextAlignment(.leading)
                 .padding(.horizontal, Theme.Space.base)
                 .padding(.vertical, Theme.Space.snug + 2)
+                .frame(maxWidth: 520)
                 .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -379,14 +407,31 @@ struct PauseView: View {
                 }
                 .focused($noteFocused)
                 .onAppear { noteFocused = true }
+                .onSubmit {
+                    // Return closes once enough is written; "I need it" picks a duration instead.
+                    if reason != .needed, wordsLeft == 0 { close() }
+                }
+                .accessibilityLabel(reason.prompt)
 
+            Text(wordsLeft == 0 ? "Thank you. Ready when you are." : "\(wordsLeft) more word\(wordsLeft == 1 ? "" : "s")")
+                .font(.caption.weight(.medium))
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.8))
+                .contentTransition(.numericText())
+                .animation(.easeOut(duration: 0.2), value: wordsLeft)
+        }
+        .padding(.top, Theme.Space.tight)
+    }
+
+    private var needed: some View {
+        VStack(spacing: Theme.Space.snug) {
             HStack(spacing: Theme.Space.snug) {
-                ForEach(BreakPlan.accessMinutes, id: \.self) { minutes in
+                ForEach(AccessPlan.minutes, id: \.self) { minutes in
                     Button {
                         guard phase == .answering(.needed) else { return }
                         noteFocused = false
                         drain = 1
-                        phase = .waitingForAccess(minutes: minutes, note: trimmed)
+                        phase = .waitingForAccess(minutes: minutes, note: trimmedNote)
                     } label: {
                         Text("Allow for \(minutes) minutes")
                             .frame(minWidth: 130)
@@ -394,17 +439,10 @@ struct PauseView: View {
                             .padding(.vertical, Theme.Space.snug + 3)
                     }
                     .buttonStyle(PauseButtonStyle())
-                    .disabled(trimmed.isEmpty)
+                    .disabled(wordsLeft > 0)
                 }
             }
-
-            if let left = request.breaksLeft {
-                Text("Uses one of today’s breaks when access starts. \(left) left.")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.85))
-            }
         }
-        .padding(.top, Theme.Space.tight)
     }
 
     private func accessWait(minutes: Int) -> some View {
@@ -434,21 +472,43 @@ struct PauseView: View {
     private func waitForAccess(minutes: Int, note: String) async {
         let clock = ContinuousClock()
         let start = clock.now
-        let total = Double(BreakPlan.waitSeconds)
+        let total = Double(AccessPlan.waitSeconds)
         if !reduceMotion {
             withAnimation(.linear(duration: total)) { drain = 0 }
         }
-        for elapsed in 1...BreakPlan.waitSeconds {
+        for elapsed in 1...AccessPlan.waitSeconds {
             do {
                 try await clock.sleep(until: start.advanced(by: .seconds(elapsed)), tolerance: nil)
             } catch {
                 return
             }
             guard !Task.isCancelled else { return }
-            accessWaitSecondsLeft = BreakPlan.waitSeconds - elapsed
+            accessWaitSecondsLeft = AccessPlan.waitSeconds - elapsed
             if reduceMotion { drain = Double(accessWaitSecondsLeft) / total }
         }
         onEvent(.takeBreak(minutes: minutes, note: note))
+    }
+
+    /// Back to the six answers, in the panel's top-right corner.
+    private var backButton: some View {
+        Button {
+            note = ""
+            withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .spring(response: 0.5, dampingFraction: 0.86)) {
+                phase = .asking
+            }
+        } label: {
+            Image(systemName: "chevron.backward")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.white.opacity(0.9))
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(.white.opacity(0.14)))
+                .overlay(Circle().strokeBorder(.white.opacity(0.18)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(PressScaleStyle())
+        .padding(Theme.Space.base)
+        .help("Pick a different answer")
+        .accessibilityLabel("Back to the answers")
     }
 
     // MARK: The way out
@@ -458,17 +518,21 @@ struct PauseView: View {
         return nil
     }
 
-    /// Keep the way out visible in the same place throughout the pause.
+    /// The way back, in the same place once it's offered. Saving and closing are one step:
+    /// the answer and its words go to the journal, then the tab closes or the app quits.
     private var closeButton: some View {
-        Button {
-            onEvent(.close(chosen == .needed ? nil : chosen))
-        } label: {
-            Label(request.closeTitle, systemImage: request.isBrowser ? "xmark" : "power")
+        Button(action: close) {
+            Label(request.closeTitle, systemImage: request.closesTab ? "xmark" : "power")
                 .padding(.horizontal, Theme.Space.loose + 4)
                 .padding(.vertical, Theme.Space.snug + 3)
         }
         .buttonStyle(PauseButtonStyle())
-        .keyboardShortcut(chosen == .needed ? nil : .defaultAction)
+        .disabled(!closeOffered)
+    }
+
+    private func close() {
+        guard closeOffered else { return }
+        onEvent(.close(chosen, reflection: chosen == nil ? nil : trimmedNote))
     }
 }
 

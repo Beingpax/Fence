@@ -6,7 +6,7 @@ import os.log
 /// to change while a lock is engaged.
 ///
 /// Both processes cache the block list. Each committed edit reloads the latest version
-/// under a file lock so a dashboard edit cannot overwrite a break or trigger count.
+/// under a file lock so a dashboard edit cannot overwrite a lock or trigger count.
 @MainActor
 @Observable
 final class BlockStore {
@@ -166,9 +166,6 @@ final class BlockStore {
             if updated.isEnabled && !updated.lock.hasSameSettings(as: current.lock) {
                 engageLock(on: &updated, now: now)
             }
-            updated.breaks.currentBreakEndsAt = current.breaks.currentBreakEndsAt
-            updated.breaks.breaksTakenToday = current.breaks.breaksTakenToday
-            updated.breaks.lastResetDay = current.breaks.lastResetDay
             blocks[index] = updated
             return true
         }
@@ -178,9 +175,7 @@ final class BlockStore {
     /// are purely cosmetic. Anything that could weaken it is refused.
     private func isSafeEditWhileLocked(from existing: Block, to proposed: Block) -> Bool {
         guard existing.schedule == proposed.schedule else { return false }
-        guard existing.lock.hasSameSettings(as: proposed.lock),
-              existing.breaks.isEnabled == proposed.breaks.isEnabled
-        else { return false }
+        guard existing.lock.hasSameSettings(as: proposed.lock) else { return false }
         // Entries may be added but never removed.
         let grew = { (old: [String], new: [String]) in Set(old).isSubset(of: Set(new)) }
         guard grew(existing.list.hosts, proposed.list.hosts),
@@ -269,7 +264,6 @@ final class BlockStore {
         unlockChallenges.removeValue(forKey: block.id)
         block.isEnabled = false
         block.manualRunEndsAt = nil
-        block.breaks.currentBreakEndsAt = nil
         clearEngagement(&block.lock)
     }
 
@@ -304,20 +298,6 @@ final class BlockStore {
             block.isEnabled = true
             block.manualRunEndsAt = now.addingTimeInterval(TimeInterval(minutes) * 60)
             engageLock(on: &block, now: now)
-            blocks[index] = block
-            return true
-        }
-    }
-
-    // MARK: Breaks
-
-    @discardableResult
-    func spendBreak(id: UUID, now: Date = Date()) -> Bool {
-        transaction(or: false) {
-            guard let index = blocks.firstIndex(where: { $0.id == id }) else { return false }
-            var block = blocks[index]
-            guard block.isActive(at: now), block.breaks.spend(at: now) else { return false }
-
             blocks[index] = block
             return true
         }
@@ -361,12 +341,11 @@ final class BlockStore {
         }
     }
 
-    /// Called on the engine's tick to retire finished runs, breaks and locks.
+    /// Called on the engine's tick to retire finished runs and locks.
     func tick(now: Date = Date()) {
         refreshActivity(at: now)
         guard blocks.contains(where: { block in
             block.schedule.isManual && block.isEnabled && !block.lock.isLocked(at: now) && (block.manualRunEndsAt ?? .distantPast) <= now
-                || block.breaks.currentBreakEndsAt.map { $0 <= now } == true
                 || (!block.lock.engagedUntilRestart && block.lock.engagedUntil.map { $0 <= now } == true)
         }) else { return }
         transaction(or: ()) {
@@ -374,9 +353,6 @@ final class BlockStore {
                 var block = blocks[index]
 
                 _ = retireTimedRun(&block, at: now)
-                if let breakEnd = block.breaks.currentBreakEndsAt, breakEnd <= now {
-                    block.breaks.currentBreakEndsAt = nil
-                }
                 if let lockEnd = block.lock.engagedUntil, lockEnd <= now, !block.lock.engagedUntilRestart {
                     block.lock.engagedUntil = nil
                 }

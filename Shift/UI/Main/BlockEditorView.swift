@@ -44,7 +44,6 @@ struct BlockInspector: View {
                 websites
                 Panel { apps }
                 schedule
-                breaks
                 lock
             }
             .padding(Theme.Space.base)
@@ -440,24 +439,7 @@ struct BlockInspector: View {
         }
     }
 
-    // MARK: Breaks and lock
-
-    private var breaks: some View {
-        Panel {
-            HStack(spacing: Theme.Space.tight) {
-                PanelHeading(title: "Breaks", icon: "cup.and.saucer")
-                ShiftSwitch(isOn: $draft.breaks.isEnabled, tint: tint)
-                    .accessibilityLabel("Allow breaks")
-                    .disabled(isLocked)
-            }
-            Text(draft.breaks.isEnabled
-                 ? "Up to \(BreakPlan.dailyAllowance) breaks a day. Each break gives you 2 or 5 minutes of access to the blocked site or app after a \(BreakPlan.waitMinutes)-minute wait."
-                 : "Off: every reach is closed. Turn on to allow \(BreakPlan.dailyAllowance) short breaks a day, for when you really need a site.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
+    // MARK: Lock
 
     private var lock: some View {
         Panel("Lock", icon: "lock") {

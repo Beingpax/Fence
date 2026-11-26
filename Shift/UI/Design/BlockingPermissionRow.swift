@@ -76,8 +76,10 @@ struct BlockingPermissionRow: View {
         case .backgroundBlocking:
             switch model.backgroundServiceStatus {
             case .enabled where model.backgroundServiceOffline:
-                return ("Allowed, but the helper is offline. Keep Shift open for your blocks to work.",
-                        ("Open Login Items", LaunchAtLogin.openLoginItemsSettings))
+                // Login Items can't help here: the switch there is already on. Shift reloads
+                // the helper on its own every two minutes; the button does it now.
+                return ("Allowed, but the helper isn’t running. Shift is bringing it back; keep Shift open until then.",
+                        ("Restart helper", model.restartBackgroundHelper))
             case .enabled:
                 return ("Allowed. Keeps your blocks active if you Force Quit Shift.", nil)
             case .requiresApproval:

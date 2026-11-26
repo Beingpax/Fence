@@ -9,6 +9,7 @@ import SwiftUI
 /// group goes away.
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
+    @State private var showsMascotGallery = false
 
     var body: some View {
         ScrollView {
@@ -33,6 +34,7 @@ struct SettingsView: View {
         }
         .scrollBounceBehavior(.basedOnSize)
         .onAppear { model.refreshSystemState() }
+        .sheet(isPresented: $showsMascotGallery) { MascotGallery() }
     }
 
     // MARK: Permissions
@@ -105,7 +107,7 @@ struct SettingsView: View {
                 MiniSwitch(isOn: $model.showNudges)
             }
             GroupDivider()
-            SettingsRow("Sounds", help: "A soft chime when Shift pauses you, a deeper one from the third time in an hour, and a bright one when you turn back.") {
+            SettingsRow("Sounds", help: "A soft chime when Shift pauses you, and a bright one when you turn back.") {
                 MiniSwitch(isOn: $model.playNudgeSounds)
             }
         }
@@ -113,13 +115,14 @@ struct SettingsView: View {
 
     private var previews: some View {
         SettingsGroup("Previews") {
-            SettingsRow("The pause", help: "10, then 20, then 30 seconds before the choices open, for reaches within an hour.") {
-                HStack(spacing: 6) {
-                    Button("First") { model.previewPause(visit: 1) }
-                    Button("Second") { model.previewPause(visit: 2) }
-                    Button("Third") { model.previewPause(visit: 3) }
-                }
-                .controlSize(.small)
+            SettingsRow("The pause", help: "One breath, then what pulled you and a few words about it. The same every time.") {
+                Button("Show") { model.previewPause() }
+                    .controlSize(.small)
+            }
+            GroupDivider()
+            SettingsRow("Heads-up", help: "The card before the pause: close it within ten seconds and there's no pause.") {
+                Button("Show") { model.previewWarning() }
+                    .controlSize(.small)
             }
             GroupDivider()
             SettingsRow("Turning back", help: "What Shift does when you walk away.") {
@@ -131,22 +134,32 @@ struct SettingsView: View {
                 Button("Show") { model.previewHint() }
                     .controlSize(.small)
             }
+            GroupDivider()
+            SettingsRow("Mascot gallery", help: "Every place the mascot appears, with its words and the mood they call for.") {
+                Button("Open") { showsMascotGallery = true }
+                    .controlSize(.small)
+            }
+            GroupDivider()
+            SettingsRow("Mascot moods", help: "Every mood on the real nudge card, one after another.") {
+                Button("Play") { model.previewMoods() }
+                    .controlSize(.small)
+            }
         }
     }
 
     private var howItWorks: some View {
         SettingsGroup("How blocking works") {
-            StepRow(number: 1, title: "It notices",
-                    detail: "A site, a page or an app on an active block comes up.")
+            StepRow(number: 1, title: "A heads-up",
+                    detail: "A site, a page or an app on an active block comes up, and a card gives you ten seconds to close it yourself.")
             GroupDivider()
             StepRow(number: 2, title: "You pause",
-                    detail: "One breath first: 10 seconds, then 20, then 30 for the same thing within an hour.")
+                    detail: "Still open after ten seconds? The screen pauses for one breath, the same every time.")
             GroupDivider()
-            StepRow(number: 3, title: "You choose",
-                    detail: "Close the tab or quit the app whenever you like. Shift cheers when you do.")
+            StepRow(number: 3, title: "You name it",
+                    detail: "Pick what pulled you and say why in \(UrgeReason.bored.minimumWords) words. Then the tab closes or the app quits, and Shift cheers.")
             GroupDivider()
             StepRow(number: 4, title: "Need it anyway?",
-                    detail: "If the block allows breaks, say why and get 2 or 5 minutes after a \(BreakPlan.waitMinutes)-minute wait. The rest of the block stays on.")
+                    detail: "Pick “I need it”, say why in \(UrgeReason.needed.minimumWords) words and get 2 or 5 minutes after a \(AccessPlan.waitSeconds)-second wait. The rest of the block stays on.")
         }
     }
 

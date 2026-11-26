@@ -226,7 +226,6 @@ private struct BlockRow: View {
     // MARK: Words
 
     private func status(now: Date) -> StatusLabel.Status {
-        if block.breaks.isOnBreak(at: now) { return .quiet("On a break") }
         if isActive {
             if case .manual = block.schedule, let ends = block.manualRunEndsAt {
                 return .on("On until \(ends.formatted(date: .omitted, time: .shortened))")
@@ -312,7 +311,7 @@ private struct EmptyBlocks: View {
     @State private var start = Date()
 
     var body: some View {
-        MascotCard(mood: .happy, start: start, animates: !reduceMotion) {
+        MascotCard(mood: .thinking, start: start, animates: !reduceMotion) {
             VStack(spacing: PlayRhythm.inner) {
                 Text("Let’s make your first block")
                     .font(PlayType.rounded(20, .bold))
