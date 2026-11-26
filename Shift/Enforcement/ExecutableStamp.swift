@@ -16,15 +16,23 @@ struct ExecutableStamp: Equatable, Sendable {
     /// The executable as it is on disk right now, or `nil` while it's missing (mid-update,
     /// or moved to the Trash, which `ShiftInstallation` handles separately).
     static func current() -> ExecutableStamp? {
-        guard let url = Bundle.main.executableURL?.resolvingSymlinksInPath(),
-              let attributes = try? FileManager.default.attributesOfItem(atPath: url.path(percentEncoded: false))
-        else { return nil }
+        guard let path = executablePath else { return nil }
+        // A plain stat. Both processes ask every five seconds; resolving every component of
+        // the path and building a FileManager attribute dictionary each time showed up in
+        // Instruments as most of the helper's idle work.
+        var info = stat()
+        guard stat(path, &info) == 0 else { return nil }
+        let modified = info.st_mtimespec
         return ExecutableStamp(
-            fileNumber: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value,
-            size: (attributes[.size] as? NSNumber)?.uint64Value,
-            modified: attributes[.modificationDate] as? Date
+            fileNumber: UInt64(info.st_ino),
+            size: UInt64(info.st_size),
+            modified: Date(timeIntervalSince1970: TimeInterval(modified.tv_sec) + TimeInterval(modified.tv_nsec) / 1_000_000_000)
         )
     }
+
+    /// Where the executable lives, symlinks resolved once at launch. An update replaces the
+    /// file at this path, which `current()` sees as a new inode.
+    static let executablePath: String? = Bundle.main.executableURL?.resolvingSymlinksInPath().path(percentEncoded: false)
 }
 
 extension ExecutableStamp {

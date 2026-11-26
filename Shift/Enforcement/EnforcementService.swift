@@ -57,14 +57,46 @@ enum EnforcementService {
         return try ProcessLease(url: directory.appending(path: name))
     }
 
+    /// Descriptors kept open for `hasOwner`, by lock name, with the file they were opened on.
+    private static var probes: [String: (descriptor: Int32, file: UInt64)] = [:]
+
+    /// Whether another process holds the named lease. The dashboard asks about the helper
+    /// once a second, so the probe stays open between calls: before 26 Nov 2026 each call
+    /// created the folder, opened the file and closed it again, the largest part of the
+    /// dashboard's idle work in Instruments. A lock file replaced or deleted since is
+    /// opened afresh, so a helper that starts on a new file is never missed.
     static func hasOwner(_ name: String) -> Bool {
-        do {
-            let probe = try lease(name)
-            probe.release()
+        let path = ShiftInstallation.supportDirectory.appending(path: name).path
+        var onDisk = stat()
+        // No file, no owner: every lease creates its file before locking it.
+        guard stat(path, &onDisk) == 0 else {
+            closeProbe(name)
             return false
-        } catch let error as POSIXError {
-            return error.code == .EWOULDBLOCK
-        } catch { return false }
+        }
+        if let probe = probes[name], probe.file != UInt64(onDisk.st_ino) { closeProbe(name) }
+        if probes[name] == nil {
+            let descriptor = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+            guard descriptor >= 0 else { return false }
+            var opened = stat()
+            guard fstat(descriptor, &opened) == 0 else {
+                close(descriptor)
+                return false
+            }
+            probes[name] = (descriptor, UInt64(opened.st_ino))
+        }
+        guard let descriptor = probes[name]?.descriptor else { return false }
+        while flock(descriptor, LOCK_EX | LOCK_NB) != 0 {
+            if errno == EINTR { continue }
+            return errno == EWOULDBLOCK
+        }
+        // Free again at once: holding it would stop the owner from starting.
+        flock(descriptor, LOCK_UN)
+        return false
+    }
+
+    private static func closeProbe(_ name: String) {
+        guard let probe = probes.removeValue(forKey: name) else { return }
+        close(probe.descriptor)
     }
 
     static func notify(_ name: Notification.Name) {

@@ -1,4 +1,5 @@
 import ApplicationServices
+import Synchronization
 import Foundation
 
 /// Accessibility round trips run off the main actor and are bounded per sample.
@@ -69,9 +70,39 @@ enum WindowInspector {
         // The Chromium preparation path retries once before publishing a sample.
         guard !Task.isCancelled, !prepareAccessibility || verifyURL || url != nil else { return .empty }
         let title = window.flatMap { string($0, "AXTitle") }
-        let windowID = title == nil && url == nil ? nil : frontWindowID(pid: pid, bounds: window.flatMap(bounds))
+        let windowID = title == nil && url == nil ? nil : windowNumber(pid: pid, window: window)
         return Snapshot(title: title, url: url, windowID: windowID)
     }
+
+    /// The window server's number for the focused window, from the last reading when it's
+    /// the same window in the same place. Finding it means copying the whole system's window
+    /// list, which Instruments showed as a steady share of every sample, though the answer
+    /// rarely changes while someone stays on a page. A moved, resized or different window,
+    /// or a reading over 30 seconds old, is looked up afresh.
+    private static func windowNumber(pid: pid_t, window: AXUIElement?) -> CGWindowID? {
+        let frame = window.flatMap(bounds)
+        guard let window, let frame else { return frontWindowID(pid: pid, bounds: frame) }
+        let element = CFHash(window)
+        let now = ContinuousClock.now
+        if let known = lastWindow.withLock({ $0 }), known.pid == pid, known.element == element,
+           known.frame == frame, now - known.found < .seconds(30) {
+            return known.number
+        }
+        guard let number = frontWindowID(pid: pid, bounds: frame) else { return nil }
+        lastWindow.withLock { $0 = KnownWindow(pid: pid, element: element, frame: frame, number: number, found: now) }
+        return number
+    }
+
+    private struct KnownWindow: Sendable {
+        let pid: pid_t
+        let element: CFHashCode
+        let frame: CGRect
+        let number: CGWindowID
+        let found: ContinuousClock.Instant
+    }
+
+    /// Readings run on background tasks, so the remembered window sits behind a lock.
+    private static let lastWindow = Mutex<KnownWindow?>(nil)
 
     static func quitDialog(pid: pid_t) async -> QuitDialog {
         await Task.detached(priority: .userInitiated) {

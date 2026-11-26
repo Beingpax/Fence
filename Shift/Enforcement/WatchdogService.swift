@@ -9,13 +9,23 @@ enum WatchdogService {
 
     private static var domain: String { "gui/\(getuid())" }
 
+    /// When the legacy file was last seen to be missing. Only earlier releases wrote it, so
+    /// once it's gone it stays gone; the dashboard asked every second all the same.
+    @MainActor private static var lastSeenAbsent: Date?
+
+    @MainActor
     static var hasConfiguration: Bool {
-        FileManager.default.fileExists(atPath: ShiftInstallation.legacyWatchdogPlist.path)
+        if let lastSeenAbsent, Date().timeIntervalSince(lastSeenAbsent) < 60 { return false }
+        let present = FileManager.default.fileExists(atPath: ShiftInstallation.legacyWatchdogPlist.path)
+        lastSeenAbsent = present ? nil : Date()
+        return present
     }
 
     /// Unloads and deletes the agent.
+    @MainActor
     @discardableResult
     static func remove() -> Bool {
+        lastSeenAbsent = nil
         // Remove the file first so cleanup also works when the agent unloads itself.
         try? FileManager.default.removeItem(at: ShiftInstallation.legacyWatchdogPlist)
         _ = launchctl(["bootout", "\(domain)/\(label)"])

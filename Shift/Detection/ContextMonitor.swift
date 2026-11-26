@@ -90,14 +90,12 @@ final class ContextMonitor {
 
     /// Follows the front app with the address observer. Shift itself is skipped, so a
     /// Shift panel taking focus never unhooks the browser underneath it.
-    private func observeFrontmost() {
+    private func observeFrontmost(_ front: NSRunningApplication? = NSWorkspace.shared.frontmostApplication) {
         guard PermissionsManager.canInspectApp else {
             if addressObserver.pid != nil { addressObserver.stop() }
             return
         }
-        guard let app = NSWorkspace.shared.frontmostApplication,
-              app.bundleIdentifier != Bundle.main.bundleIdentifier
-        else { return }
+        guard let app = front, app.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
         addressObserver.observe(pid: app.processIdentifier)
     }
 
@@ -126,13 +124,15 @@ final class ContextMonitor {
 
     private func sample() {
         guard isRunning else { return }
-        observeFrontmost()
+        // One lookup for both: each asks Launch Services for the front app.
+        let front = NSWorkspace.shared.frontmostApplication
+        observeFrontmost(front)
         guard samplingTask == nil else {
             wantsResample = true
             return
         }
 
-        guard let app = NSWorkspace.shared.frontmostApplication,
+        guard let app = front,
               let bundleID = app.bundleIdentifier,
               bundleID != Bundle.main.bundleIdentifier
         else { return }

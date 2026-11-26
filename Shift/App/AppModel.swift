@@ -54,7 +54,10 @@ final class AppModel {
 
     var showNudges: Bool {
         didSet {
-            if !EnforcementService.isAgent { Preferences.showNudges = showNudges }
+            if !EnforcementService.isAgent {
+                Preferences.showNudges = showNudges
+                Self.tellHelperAboutPreferences()
+            }
             nudgeHysteresis.reset()
             if !showNudges { nudgeHUD.hideHint() }
         }
@@ -62,7 +65,11 @@ final class AppModel {
 
     /// Whether the pause and the reward make their sounds.
     var playNudgeSounds: Bool {
-        didSet { if !EnforcementService.isAgent { Preferences.playNudgeSounds = playNudgeSounds } }
+        didSet {
+            guard !EnforcementService.isAgent else { return }
+            Preferences.playNudgeSounds = playNudgeSounds
+            Self.tellHelperAboutPreferences()
+        }
     }
 
     var showInDock: Bool {
@@ -73,7 +80,11 @@ final class AppModel {
     }
 
     var driftKeywords: [String] {
-        didSet { if !EnforcementService.isAgent { Preferences.driftKeywords = driftKeywords } }
+        didSet {
+            guard !EnforcementService.isAgent else { return }
+            Preferences.driftKeywords = driftKeywords
+            Self.tellHelperAboutPreferences()
+        }
     }
 
     private(set) var hasCompletedOnboarding: Bool
@@ -307,7 +318,9 @@ final class AppModel {
             warnings = prune(warnings)
         }
 
-        reconcileMonitoring()
+        // Read from disk just above, so not again. Preferences every fifth tick: the
+        // dashboard also says when it changes one (`tellHelperAboutPreferences`).
+        reconcileMonitoring(refreshStore: false, readPreferences: tickCount % 5 == 0)
         if tickCount % 5 == 0 {
             restartIfReplaced()
             replaceStaleHelper()
@@ -395,7 +408,7 @@ final class AppModel {
     /// 20 seconds later, it's registered again from this copy.
     private func replaceStaleHelper() {
         guard !EnforcementService.isAgent, backgroundServiceStatus == .enabled,
-              let ownExecutable = Bundle.main.executableURL?.resolvingSymlinksInPath(),
+              let ownExecutable = ExecutableStamp.executablePath,
               let built = ExecutableStamp.currentBuildDate,
               // A build still being written isn't one to restart onto.
               Date().timeIntervalSince(built) >= 5,
@@ -403,7 +416,7 @@ final class AppModel {
         let ownPID = ProcessInfo.processInfo.processIdentifier
         let stale = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).filter { helper in
             guard helper.processIdentifier != ownPID, !helper.isTerminated else { return false }
-            let sameCopy = helper.executableURL?.resolvingSymlinksInPath() == ownExecutable
+            let sameCopy = helper.executableURL?.resolvingSymlinksInPath().path(percentEncoded: false) == ownExecutable
             let started = ExecutableStamp.startDate(of: helper.processIdentifier) ?? .distantPast
             return !sameCopy || started < built
         }
@@ -423,8 +436,8 @@ final class AppModel {
         repairHelperIfDue()
     }
 
-    private func reconcileMonitoring() {
-        store.refreshFromDisk()
+    private func reconcileMonitoring(refreshStore: Bool = true, readPreferences: Bool = true) {
+        if refreshStore { store.refreshFromDisk() }
         let active = store.activeBlocks
         let mayQuit = !store.blocks.contains { $0.protectsQuit() }
         if mayQuit != canQuitApp { canQuitApp = mayQuit }
@@ -432,9 +445,7 @@ final class AppModel {
         let agentReady = agent || EnforcementService.hasOwner("agent.lock")
         if agent {
             // Read dashboard preference changes while the engine is in the other process.
-            if showNudges != Preferences.showNudges { showNudges = Preferences.showNudges }
-            if playNudgeSounds != Preferences.playNudgeSounds { playNudgeSounds = Preferences.playNudgeSounds }
-            if driftKeywords != Preferences.driftKeywords { driftKeywords = Preferences.driftKeywords }
+            if readPreferences { syncPreferencesFromDashboard() }
         } else {
             syncBackgroundService(agentReady: agentReady)
         }
@@ -486,6 +497,19 @@ final class AppModel {
 
         bundleRecovery?.update(protected: !mayQuit)
         if !agent { syncLockProtections(agentReady: agentReady) }
+    }
+
+    /// Helper only: picks up nudge settings changed in the dashboard.
+    private func syncPreferencesFromDashboard() {
+        if showNudges != Preferences.showNudges { showNudges = Preferences.showNudges }
+        if playNudgeSounds != Preferences.playNudgeSounds { playNudgeSounds = Preferences.playNudgeSounds }
+        if driftKeywords != Preferences.driftKeywords { driftKeywords = Preferences.driftKeywords }
+    }
+
+    /// Dashboard only: the helper reads these settings every five seconds, and straight away
+    /// when told, so a switch in Settings still takes effect at once.
+    private static func tellHelperAboutPreferences() {
+        EnforcementService.notify(EnforcementService.rulesChanged)
     }
 
     private func syncBackgroundService(agentReady: Bool) {
