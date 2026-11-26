@@ -59,7 +59,11 @@ final class PauseController {
             let content: AnyView = screen == primaryScreen
                 ? AnyView(PauseView(request: request, wallpaper: wallpaper, onEvent: handleEvent))
                 : AnyView(PauseBackdrop(wallpaper: wallpaper))
-            window.contentView = NSHostingView(rootView: content)
+            let hosting = NSHostingView(rootView: content)
+            // Each window is exactly its screen, so the view never needs to work out size
+            // limits from its contents after every update.
+            hosting.sizingOptions = []
+            window.contentView = hosting
             if screen == primaryScreen { primaryWindow = window }
             window.orderFrontRegardless()
             windows.append(window)

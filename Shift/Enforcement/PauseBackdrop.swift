@@ -157,52 +157,144 @@ struct PauseBackdrop: View {
     static let arrivalZoom: CGFloat = 1.14
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var arrived = false
-    @State private var drifting = false
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                Color(red: 0.06, green: 0.07, blue: 0.09)
+        ZStack {
+            Color(red: 0.06, green: 0.07, blue: 0.09)
 
-                if let image = wallpaper.image {
-                    Image(nsImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .scaleEffect(reduceMotion ? 1 : (arrived ? (drifting ? 1.06 : 1.0) : Self.arrivalZoom))
-                        .offset(x: reduceMotion ? 0 : (drifting ? -geometry.size.width * 0.012 : 0))
-                        .clipped()
-                }
-
-                Color.black.opacity(wallpaper.selection.scrim)
-
-                // Give the text a consistent base as it moves between pause phases.
-                LinearGradient(
-                    stops: [
-                        .init(color: .black.opacity(0.18), location: 0),
-                        .init(color: .black.opacity(0.12), location: 0.32),
-                        .init(color: .black.opacity(0.12), location: 0.72),
-                        .init(color: .black.opacity(0.24), location: 1),
-                    ],
-                    startPoint: .top, endPoint: .bottom
-                )
-
-                // Vignette: holds the eye in the middle and keeps the corners quiet.
-                RadialGradient(
-                    colors: [.clear, .black.opacity(0.28)],
-                    center: .center, startRadius: 380, endRadius: 1200
-                )
+            if let image = wallpaper.image {
+                // The pull-back and the drift run in Core Animation (`DriftingPhoto`). As a
+                // SwiftUI `repeatForever` animation the drift updated and laid out the whole
+                // pause, panel and all, every frame for as long as it was up: about half of
+                // the pause's steady 14% CPU in Instruments (26 Nov 2026).
+                DriftingPhoto(image: image, moves: !reduceMotion)
             }
+
+            Color.black.opacity(wallpaper.selection.scrim)
+
+            // Give the text a consistent base as it moves between pause phases.
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0.18), location: 0),
+                    .init(color: .black.opacity(0.12), location: 0.32),
+                    .init(color: .black.opacity(0.12), location: 0.72),
+                    .init(color: .black.opacity(0.24), location: 1),
+                ],
+                startPoint: .top, endPoint: .bottom
+            )
+
+            // Vignette: holds the eye in the middle and keeps the corners quiet.
+            RadialGradient(
+                colors: [.clear, .black.opacity(0.28)],
+                center: .center, startRadius: 380, endRadius: 1200
+            )
         }
         .ignoresSafeArea()
         .accessibilityHidden(true)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeOut(duration: 1.6)) { arrived = true }
-            withAnimation(.easeInOut(duration: 40).repeatForever(autoreverses: true).delay(1.6)) {
-                drifting = true
-            }
+    }
+}
+
+/// The photo, filling its frame: it arrives zoomed in by `PauseBackdrop.arrivalZoom` and
+/// pulls back over 1.6 s, then drifts (6% closer and 1.2% of the width to the left) and
+/// back every 40 s, for as long as it's on screen. Held still when `moves` is false.
+private struct DriftingPhoto: NSViewRepresentable {
+    let image: NSImage
+    let moves: Bool
+
+    func makeNSView(context: Context) -> DriftingPhotoView {
+        let view = DriftingPhotoView()
+        view.show(image, moves: moves)
+        return view
+    }
+
+    func updateNSView(_ view: DriftingPhotoView, context: Context) {
+        view.show(image, moves: moves)
+    }
+}
+
+final class DriftingPhotoView: NSView {
+    /// Carries the sideways drift; `photo` inside it carries the zoom, as SwiftUI's
+    /// `.scaleEffect(...).offset(x:)` did.
+    private let drift = CALayer()
+    private let photo = CALayer()
+    private var shown: NSImage?
+    private var moves = false
+    private var started = false
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.masksToBounds = true
+        photo.contentsGravity = .resizeAspectFill
+        drift.addSublayer(photo)
+        layer?.addSublayer(drift)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    func show(_ image: NSImage, moves: Bool) {
+        if image !== shown {
+            shown = image
+            photo.contents = image.cgImage(forProposedRect: nil, context: nil, hints: nil) ?? image
+        }
+        self.moves = moves
+        startIfReady()
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        drift.frame = bounds
+        photo.frame = bounds
+        CATransaction.commit()
+        startIfReady()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        photo.contentsScale = window?.backingScaleFactor ?? 2
+        startIfReady()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        photo.contentsScale = window?.backingScaleFactor ?? 2
+    }
+
+    /// Once, when the view first has a size in a window: the same curves and timings the
+    /// SwiftUI version used (`.easeOut(duration: 1.6)`, then `.easeInOut(duration: 40)`
+    /// repeating forever with autoreverse after a 1.6 s delay).
+    private func startIfReady() {
+        guard moves, !started, window != nil, bounds.width > 0 else { return }
+        started = true
+        let now = CACurrentMediaTime()
+
+        let arrival = CABasicAnimation(keyPath: "transform.scale")
+        arrival.fromValue = PauseBackdrop.arrivalZoom
+        arrival.toValue = 1.0
+        arrival.duration = 1.6
+        arrival.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        photo.add(arrival, forKey: "arrival")
+
+        let zoom = CABasicAnimation(keyPath: "transform.scale")
+        zoom.fromValue = 1.0
+        zoom.toValue = 1.06
+        let sideways = CABasicAnimation(keyPath: "transform.translation.x")
+        sideways.fromValue = 0
+        sideways.toValue = -bounds.width * 0.012
+        for (animation, layer, key) in [(zoom, photo, "zoom"), (sideways, drift, "drift")] {
+            animation.beginTime = now + 1.6
+            animation.duration = 40
+            animation.autoreverses = true
+            animation.repeatCount = .infinity
+            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            layer.add(animation, forKey: key)
         }
     }
 }
