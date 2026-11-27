@@ -72,12 +72,6 @@ final class AppModel {
         }
     }
 
-    var showInDock: Bool {
-        didSet {
-            Preferences.showInDock = showInDock
-            applyActivationPolicy()
-        }
-    }
 
     var driftKeywords: [String] {
         didSet {
@@ -134,6 +128,7 @@ final class AppModel {
     @ObservationIgnored private var nudgeHysteresis = Hysteresis(requiredHits: 2)
     @ObservationIgnored private var engineTimer: Timer?
     @ObservationIgnored private var activationObserver: NSObjectProtocol?
+    @ObservationIgnored private var windowCloseObserver: NSObjectProtocol?
     @ObservationIgnored private var tickCount = 0
     /// The handshake file as this process last wrote it. See `syncLockProtections`.
     @ObservationIgnored private var savedGuardState: GuardState?
@@ -152,7 +147,6 @@ final class AppModel {
         store = BlockStore()
         showNudges = Preferences.showNudges
         playNudgeSounds = Preferences.playNudgeSounds
-        showInDock = Preferences.showInDock
         driftKeywords = Preferences.driftKeywords
         hasCompletedOnboarding = Preferences.hasCompletedOnboarding
 
@@ -242,6 +236,10 @@ final class AppModel {
         if let activationObserver {
             NotificationCenter.default.removeObserver(activationObserver)
             self.activationObserver = nil
+        }
+        if let windowCloseObserver {
+            NotificationCenter.default.removeObserver(windowCloseObserver)
+            self.windowCloseObserver = nil
         }
         monitorLease = nil
     }
@@ -1169,11 +1167,13 @@ final class AppModel {
     func presentMainWindow(section: MainSection? = nil) {
         refreshSystemState()
         if let section { mainSection = section }
+        showInDockForWindow()
         mainWindow.present(model: self)
     }
 
     func presentOnboarding() {
         refreshSystemState()
+        showInDockForWindow()
         onboarding.present(model: self)
     }
 
@@ -1202,10 +1202,32 @@ final class AppModel {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.refreshSystemState() }
         }
+        // A window closing may leave none open: back to the menu bar alone. Checked on the
+        // next turn of the run loop, once the closing window has actually gone.
+        windowCloseObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.applyActivationPolicy() }
+        }
     }
 
+    /// Fence is in the Dock (and Cmd-Tab) while one of its windows is open, minimised ones
+    /// included, and only in the menu bar otherwise (27 Nov 2026, the user's call). There's no
+    /// setting for it: the state decides. Panels (the menu bar popover, the nudge card) and the
+    /// borderless pause don't count as windows here.
     private func applyActivationPolicy() {
-        NSApp.setActivationPolicy(showInDock ? .regular : .accessory)
+        let windowOpen = NSApp.windows.contains { window in
+            !(window is NSPanel) && window.styleMask.contains(.titled) && (window.isVisible || window.isMiniaturized)
+        }
+        let policy: NSApplication.ActivationPolicy = windowOpen ? .regular : .accessory
+        if NSApp.activationPolicy() != policy { NSApp.setActivationPolicy(policy) }
+    }
+
+    /// Called just before a window opens, so it arrives with its Dock icon and menu bar.
+    private func showInDockForWindow() {
+        if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
     }
 
     func refreshPermissions() {
@@ -1274,7 +1296,6 @@ final class AppModel {
 enum Preferences {
     private enum Key {
         static let showNudges = "Fence.showNudges"
-        static let showInDock = "Fence.showInDock"
         static let playNudgeSounds = "Fence.playNudgeSounds"
         static let driftKeywords = "Fence.driftKeywords"
         static let hasCompletedOnboarding = "Fence.hasCompletedOnboarding.v1"
@@ -1291,10 +1312,6 @@ enum Preferences {
         set { UserDefaults.standard.set(newValue, forKey: Key.playNudgeSounds) }
     }
 
-    static var showInDock: Bool {
-        get { UserDefaults.standard.bool(forKey: Key.showInDock) }
-        set { UserDefaults.standard.set(newValue, forKey: Key.showInDock) }
-    }
 
     static var driftKeywords: [String] {
         get { UserDefaults.standard.stringArray(forKey: Key.driftKeywords) ?? DriftKeywords.default }

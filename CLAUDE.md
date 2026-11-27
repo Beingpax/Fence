@@ -454,7 +454,7 @@ Rules that are easy to get wrong, and are covered by the tests:
   weeknights". The old `FocusSession`, `BlockRules` and `Strictness` types are gone.
 - **Locking and friction are different things.** The lock decides whether the switch works.
   Friction decides what the pause does when you hit it. Don't merge them.
-- **The app icon is generated, not drawn by hand.** `Tools/make-icon.swift` renders every size and rewrites the appiconset's `Contents.json`. Edit the script, not the PNGs.
+- **The app icon** is the PNG set in `Fence/Assets.xcassets/AppIcon.appiconset`, the same in light and dark mode.
 - **The mascot is Lumi** (since 25 Nov 2026). It is the "Classic" creature from the HTML
   studies (`Studies/mascot-compare.html`): a marigold (`#ffad33`) soft-rectangle body with round
   ears, an ink outline, white mitten hands and an antenna. `UI/MascotView.swift` draws it in one
@@ -514,7 +514,7 @@ Rules that are easy to get wrong, and are covered by the tests:
 
 - **Name:** "Fence", listed as "Fence – App & Website Blocker" (27 Nov 2026, the user's pick
   after a long naming search). Don't reopen the naming without being asked. The mascot is Lumi (`Mascot.name`).
-- **No Dock icon by default,** but there is a "Show Fence in the Dock" switch in Settings → General that flips the activation policy at runtime. `LSUIElement` keeps the default as menu-bar-only.
+- **In the Dock only while a window is open** (27 Nov 2026, the user's call). Opening the main window or setup switches to `.regular` first (`showInDockForWindow`), so the window arrives with a Dock icon and Cmd-Tab; when the last titled window closes (`NSWindow.willCloseNotification`, checked a turn later), `applyActivationPolicy` drops back to `.accessory`, menu bar only. Minimised windows count as open; panels (the popover, the nudge card) and the borderless pause don't. **There's no Dock setting** (the user's call, the same day): the state decides, and the old "Show Fence in the Dock" switch and its `showInDock` preference were removed. `LSUIElement` keeps launch menu-bar-only until a window opens.
 - **Platform:** Apple Silicon Macs running macOS 26 or later.
 - **Detection stays local.** Read browser addresses through Accessibility. Match enabled app, website, and path rules before considering a title-based nudge.
 - **The pause is the only full-screen surface.** It replaced two things. The three-nudge

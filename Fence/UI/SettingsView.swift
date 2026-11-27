@@ -82,20 +82,20 @@ struct SettingsView: View {
 
     // MARK: Groups
 
+    /// Only Open at login lives here. The Dock icon has no setting: Fence is in the Dock while
+    /// a window is open and in the menu bar otherwise (27 Nov 2026, the user's call). While
+    /// Open at login still needs approval, the row moves to "Needs your attention" and this
+    /// group is left out.
+    @ViewBuilder
     private var general: some View {
-        @Bindable var model = model
-        return SettingsGroup("General") {
-            if !model.launchAtLoginNeedsApproval {
+        if !model.launchAtLoginNeedsApproval {
+            SettingsGroup("General") {
                 SettingsRow("Open Fence at login", help: "Your blocks are ready the moment you sign in.") {
                     MiniSwitch(isOn: Binding(
                         get: { model.launchAtLoginEnabled },
                         set: { model.setLaunchAtLogin($0) }
                     ))
                 }
-                GroupDivider()
-            }
-            SettingsRow("Show Fence in the Dock", help: "Open the main window from the Dock as well as the menu bar.") {
-                MiniSwitch(isOn: $model.showInDock)
             }
         }
     }
