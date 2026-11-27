@@ -93,7 +93,7 @@ private final class SQLIndex {
 
     static func main() throws {
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("Shift/Resources/Filtering")
+            .appendingPathComponent("Fence/Resources/Filtering")
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }

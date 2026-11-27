@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fence · Mascot study (glossy)</title>
+<!--
+  Fence's mascot, glossy vinyl-toy direction. Original design: a soft purple pear with huge
+  glossy eyes, heavy soft brows and an antenna whose light carries the mood (Fence's ◎ mark
+  glows inside it). Two poses are first-class: standing, and peeking over a Fence card.
+  Every expression is a set of numbers the face springs between; everything is Canvas 2D
+  gradients so it can blink and move, and ports to a SwiftUI Canvas.
+-->
+<style>
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{font:13px/1.4 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;color:#1d1d1f;background:#ecebe7;
+       display:grid;grid-template-columns:1fr 300px;grid-template-rows:1fr auto;overflow:hidden}
+  #stage{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px 14px 0;min-height:0}
+  .pane{position:relative;border-radius:18px;overflow:hidden;min-height:0;
+        background:radial-gradient(120% 90% at 50% 30%,#faf9f6 0%,#e2ded6 100%)}
+  .pane.peek{background:radial-gradient(130% 100% at 30% 0%,#a9b9e6 0%,#6d7fbf 55%,#3c4a86 100%)}
+  .pane canvas{width:100%;height:100%;display:block}
+  .pane .tag{position:absolute;left:14px;top:12px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:rgba(0,0,0,.45)}
+  .pane.peek .tag{color:rgba(255,255,255,.7)}
+  #cap{grid-column:1;text-align:center;padding:10px 0 4px}
+  #cap b{font-size:20px;font-weight:600}
+  #cap span{color:#6e6e73;margin-left:8px}
+  aside{grid-row:1 / span 2;grid-column:2;background:rgba(250,249,246,.92);border-left:1px solid rgba(0,0,0,.08);padding:16px;overflow:auto}
+  h2{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#6e6e73;margin:18px 2px 8px}
+  h2:first-child{margin-top:0}
+  .swatches{display:flex;gap:10px}
+  .sw{width:40px;height:40px;border-radius:50%;cursor:pointer;border:1px solid rgba(0,0,0,.1)}
+  .sw.on{box-shadow:0 0 0 2px #fff,0 0 0 4px #1d1d1f}
+  .row{display:flex;align-items:center;justify-content:space-between;margin:8px 2px}
+  .moods{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .moods button{border:1px solid rgba(0,0,0,.08);background:#fff;border-radius:12px;padding:0 0 6px;cursor:pointer;font:inherit;font-size:11.5px}
+  .moods button.on{box-shadow:inset 0 0 0 2px #1d1d1f}
+  .moods canvas{width:100%;aspect-ratio:1;display:block}
+  .play{width:100%;border:0;border-radius:10px;padding:10px;font:inherit;font-weight:600;background:#1d1d1f;color:#fff;cursor:pointer}
+  .play.on{background:#7a3cff}
+  .note{color:#8e8e93;font-size:11.5px;margin:6px 2px}
+  kbd{font:11px ui-monospace,monospace;background:rgba(0,0,0,.06);border-radius:4px;padding:1px 4px}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="pane"><span class="tag">Standing</span><canvas id="stand"></canvas></div>
+  <div class="pane peek"><span class="tag">Peeking over a card</span><canvas id="peek"></canvas></div>
+</div>
+<div id="cap"><b></b><span></span></div>
+<aside>
+  <h2>Mood</h2>
+  <div class="moods" id="moods"></div>
+  <p class="note"><kbd>←</kbd> <kbd>→</kbd> step through moods.</p>
+  <h2>Story</h2>
+  <button class="play" id="play">▶ Play a day with Fence</button>
+  <h2>Colour</h2>
+  <div class="swatches" id="colours"></div>
+  <h2>Details</h2>
+  <div class="row"><label for="outline">Bold outline</label><input type="checkbox" id="outline"></div>
+  <p class="note">The antenna light is the mood you can read from the corner of your eye: warm when calm, teal when curious, amber when worried, red when you reach for something blocked, deep red when annoyed, blue and drooping when sad, gold when proud, dim when asleep.</p>
+</aside>
+
+<script>
+"use strict";
+const TAU = Math.PI * 2, D = Math.PI / 180;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const mix = (a, b, t) => '#' + rgb(a).map((v, i) => Math.round(lerp(v, rgb(b)[i], clamp(t, 0, 1))).toString(16).padStart(2, '0')).join('');
+const rgba = (h, a) => `rgba(${rgb(h).join(',')},${a})`;
+const DEEP = '#1c0f3a';
+function poly(pts) { const P = new Path2D(); pts.forEach(([x, y], i) => i ? P.lineTo(x, y) : P.moveTo(x, y)); P.closePath(); return P; }
+function ellPath(cx, cy, rx, ry, rot = 0) { const P = new Path2D(); P.ellipse(cx, cy, rx, ry, rot, 0, TAU); return P; }
+
+/* A soft pear: a slightly narrower head, wider at the feet. */
+const BODY = (() => { const o = [], n = 200; for (let i = 0; i < n; i++) { const a = i / n * TAU, c = Math.cos(a), s = Math.sin(a), p = 2.3;
+  let x = 90 * Math.sign(c) * Math.abs(c) ** (2 / p), y = 98 * Math.sign(s) * Math.abs(s) ** (2 / p); x *= 1 + .08 * s; o.push([x, y + 10]); } return o; })();
+const BODY_PATH = poly(BODY), BODY_BOX = { x: -97, y: -88, w: 194, h: 196 };
+
+/* ── moods ──
+   lidTilt > 0 drops the inner corner of the lid (cross), < 0 drops the outer corner (sad).
+   brow r > 0 lifts the inner end (worry, sorrow), < 0 pulls it down (anger).
+   armAng: degrees outward from hanging; hands/raise/wave/tap/handIn/sink are the peek pose. */
+const GLOW = { warm: '#ffd25a', teal: '#5fe6d4', gold: '#ffc23a', amber: '#ff9a3c', red: '#ff4a4a', crimson: '#e0203a', blue: '#7aa8ff', dim: '#9c8f74', bright: '#fff27a' };
+const BASE = { lid: .22, lidTilt: 0, low: 0, lookX: 0, lookY: 0, pupil: 1, bLy: 0, bLr: 0, bRy: 0, bRr: 0,
+  curve: .5, open: 0, mw: 14, asym: 0, mx: 0, wobble: 0, blush: .4, flush: 0, glow: .85, droop: 0,
+  tilt: 0, faceY: 0, bounce: 0, shake: 0, armAng: -14, armWave: 0,
+  raise: 0, wave: 0, tap: 0, handIn: 0, sink: 0,
+  zzz: 0, sweat: 0, tear: 0, steam: 0, q: 0, sparkle: 0 };
+const MOODS = [
+  { id: 'calm', label: 'Calm', use: 'Fence is on, nothing to do', glow: 'warm', p: {} },
+  { id: 'curious', label: 'Curious', use: 'A feed keyword in the title', glow: 'teal', p: { lid: .05, lookX: .6, lookY: -.25, bRy: -13, bRr: .08, bLy: -1, curve: .15, mw: 7, open: .18, tilt: 8, q: 1, armAng: -6, handIn: .2 } },
+  { id: 'cheeky', label: 'Cheeky', use: 'Back again within the hour', glow: 'warm', p: { lid: .45, lidTilt: .06, lookX: .65, bLy: 4, bLr: -.12, bRy: -13, bRr: .2, curve: .55, mw: 13, asym: 1, mx: 8, tilt: 6, glow: 1 } },
+  { id: 'worried', label: 'Worried', use: 'Drifting toward a blocked list', glow: 'amber', p: { lid: 0, lookX: -.25, lookY: .15, pupil: .88, bLy: -8, bRy: -8, bLr: .36, bRr: .36, curve: -.25, mw: 9, wobble: 1, blush: .15, glow: .65, sweat: 1, armAng: -30, handIn: .55 } },
+  { id: 'holdon', label: 'Hold on', use: 'Reaching for a blocked site', glow: 'red', p: { lid: 0, pupil: .6, bLy: -13, bRy: -13, bLr: .12, bRr: .12, curve: -.2, open: .55, mw: 8, blush: 0, glow: 1.3, shake: .8, armAng: 135, raise: 1 } },
+  { id: 'angry', label: 'Annoyed', use: 'Third reach in an hour', glow: 'crimson', p: { lid: .32, lidTilt: .38, pupil: .78, bLy: 3, bRy: 3, bLr: -.42, bRr: -.42, curve: -.6, mw: 11, blush: 0, flush: 1, glow: 1.15, steam: 1, armAng: 42, tap: 1, tilt: -2 } },
+  { id: 'sad', label: 'Sad', use: 'No breaks left today', glow: 'blue', p: { lid: .42, lidTilt: -.32, lookY: .45, bLy: -2, bRy: -2, bLr: .42, bRr: .42, curve: -.75, mw: 9, blush: .2, glow: .45, droop: 1, tear: 1, tilt: -4, faceY: 3, armAng: -4, sink: .32, handIn: .55 } },
+  { id: 'happy', label: 'Happy', use: 'You turned back', glow: 'bright', p: { lid: .06, low: .6, lookY: -.1, bLy: -10, bRy: -10, bLr: -.05, bRr: -.05, curve: 1, open: .7, mw: 16, blush: .8, glow: 1.3, tilt: -2, bounce: 1, armAng: 150, armWave: 1, wave: 1, sparkle: .7 } },
+  { id: 'proud', label: 'Proud', use: 'A block held all week', glow: 'gold', p: { lid: .72, low: .25, lookY: -.3, bLy: -5, bRy: -5, bLr: -.06, bRr: -.06, curve: .85, mw: 16, blush: .6, glow: 1.15, tilt: -3, faceY: -5, armAng: 38, sparkle: .5 } },
+  { id: 'sleepy', label: 'Sleepy', use: 'On a break · 5 min', glow: 'dim', p: { lid: .82, lookY: .3, bLy: 5, bRy: 5, bLr: .08, bRr: .08, curve: .2, open: .2, mw: 6, blush: .45, glow: .25, droop: .8, tilt: -7, zzz: 1, armAng: -8, sink: .18 } },
+];
+const MOOD = Object.fromEntries(MOODS.map(m => [m.id, m]));
+const CARD = {
+  calm: ['Fence is on', 'Weeknights list until 18:00.'], curious: ['That title looks like a feed.', 'Still what you came for?'],
+  cheeky: ['Back so soon?', 'That\'s twice in an hour.'], worried: ['This one tends to pull.', 'Maybe a different tab?'],
+  holdon: ['Hold on a second.', 'This is on your Weeknights list.'], angry: ['Third time this hour.', 'Let\'s actually close it this time.'],
+  sad: ['No breaks left today.', 'They come back tomorrow morning.'], happy: ['You turned back.', 'That\'s the whole habit, right there.'],
+  proud: ['Seven days held.', 'The block barely had to work.'], sleepy: ['Break started', '5 minutes. I\'ll be here after.'],
+};
+const COLOURS = [{ id: 'violet', body: '#8a6bff' }, { id: 'lilac', body: '#a88cff' }, { id: 'grape', body: '#6a4cd6' }, { id: 'orchid', body: '#b56cf0' }];
+
+class Mascot {
+  constructor(mood = 'calm', seed = Math.random() * 40) { this.mood = mood; this.p = { ...BASE, ...MOOD[mood].p }; this.glowC = GLOW[MOOD[mood].glow]; this.t = seed; this.seed = seed; this.kick = 9; }
+  set(m) { if (m !== this.mood) { this.mood = m; this.kick = 0; } }
+  update(dt) { const tg = { ...BASE, ...MOOD[this.mood].p }, k = 1 - Math.exp(-dt * 8); for (const key in tg) this.p[key] += (tg[key] - this.p[key]) * k;
+    this.glowC = mix(this.glowC, GLOW[MOOD[this.mood].glow], k * 1.5); this.t += dt; this.kick += dt; }
+  blink(t) { const base = 3.6, d = .14, i = Math.floor(t / base), n = Math.abs((Math.sin(i * 12.9898 + this.seed) * 43758.5453) % 1), l = t - i * base - n * 2.4;
+    let a = 0; if (l >= 0 && l <= d) a = Math.sin(l / d * Math.PI); if (n > .66) { const s = l - d * 1.9; if (s >= 0 && s <= d) a = Math.max(a, Math.sin(s / d * Math.PI)); } return a; }
+  saccade(t) { const b = 2.4, i = Math.floor(t / b), l = t - i * b, nx = (Math.sin(i * 91.17 + this.seed) * 7919.3) % 1, ny = (Math.sin(i * 47.31) * 3571.7) % 1,
+    tr = Math.min(1, l / .07), se = l > b * .6 ? Math.max(0, 1 - (l - b * .6) / .5) : 1; return [nx * .22 * tr * se, ny * .14 * tr * se]; }
+
+  /* Glossy vinyl: key light up-left, a darker turn at the far edge, occlusion underneath,
+     floor bounce, a fresnel rim, one soft and one crisp highlight and a window streak. */
+  gloss(ctx, path, base, b, o = {}) {
+    const lx = b.x + b.w * .32, ly = b.y + b.h * .24, R = Math.max(b.w, b.h) * .95;
+    const g = ctx.createRadialGradient(lx, ly, R * .04, lx, ly, R);
+    g.addColorStop(0, mix(base, '#ffffff', .34)); g.addColorStop(.45, base); g.addColorStop(.82, mix(base, DEEP, .35)); g.addColorStop(1, mix(base, DEEP, .55));
+    ctx.fillStyle = g; ctx.fill(path);
+    ctx.save(); ctx.clip(path);
+    const ao = ctx.createLinearGradient(0, b.y + b.h * .6, 0, b.y + b.h); ao.addColorStop(0, 'rgba(20,10,50,0)'); ao.addColorStop(1, 'rgba(20,10,50,.25)'); ctx.fillStyle = ao; ctx.fill(path);
+    const bx = b.x + b.w * .78, by = b.y + b.h * .95, bl = ctx.createRadialGradient(bx, by, 0, bx, by, b.w * .5);
+    bl.addColorStop(0, rgba(mix(base, '#ffb8f0', .5), .45)); bl.addColorStop(1, rgba(base, 0)); ctx.fillStyle = bl; ctx.fill(path);
+    ctx.lineWidth = b.w * .06; ctx.strokeStyle = rgba(mix(base, '#ffffff', .6), .2); ctx.stroke(path);
+    if (!o.flat) {
+      ctx.save(); ctx.translate(b.x + b.w * .3, b.y + b.h * .2); ctx.rotate(-.55); ctx.scale(1, .55);
+      const s = ctx.createRadialGradient(0, 0, 0, 0, 0, b.w * .27); s.addColorStop(0, 'rgba(255,255,255,.8)'); s.addColorStop(.45, 'rgba(255,255,255,.28)'); s.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = s; ctx.beginPath(); ctx.arc(0, 0, b.w * .27, 0, TAU); ctx.fill(); ctx.restore();
+      ctx.fillStyle = 'rgba(255,255,255,.95)'; ctx.beginPath(); ctx.ellipse(b.x + b.w * .23, b.y + b.h * .16, b.w * .055, b.w * .028, -.6, 0, TAU); ctx.fill();
+      if (o.streak) { ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = b.w * .025; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.arc(b.x + b.w * .5, b.y + b.h * .52, b.w * .42, -1.25, -.55); ctx.stroke(); }
+    }
+    ctx.restore();
+  }
+  outline(ctx, path, ink, o, w = 9) { if (!o.outline) return; ctx.lineWidth = w; ctx.strokeStyle = ink; ctx.lineJoin = 'round'; ctx.stroke(path); }
+
+  draw(ctx, W, H, o) {
+    const p = this.p, t = this.t, base = o.colour, ink = mix(base, '#000000', .74), peek = o.pose === 'peek';
+    const u = Math.min(W, H * (peek ? 1.05 : 1)) / (o.frame || 430);
+    ctx.save(); ctx.translate(W / 2, H / 2 + (peek ? 30 : 28) * u); ctx.scale(u, u);
+    const bob = Math.sin(t * 2) * 2.5 - Math.abs(Math.sin(t * 5)) * 15 * p.bounce;
+    const shake = Math.sin(t * 42) * 2.2 * p.shake;
+    const sq = Math.exp(-this.kick * 5) * Math.cos(this.kick * 16) * .07 + Math.sin(t * 2) * .012;
+    const sink = peek ? p.sink * 62 : 0;
+
+    if (!peek) { ctx.save(); ctx.scale(1, .16); const g = ctx.createRadialGradient(0, 124 / .16, 4, 0, 124 / .16, 92); g.addColorStop(0, 'rgba(30,15,60,.3)'); g.addColorStop(1, 'rgba(30,15,60,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 124 / .16, 92 + bob * .4, 0, TAU); ctx.fill(); ctx.restore(); }
+
+    if (peek) { ctx.save(); ctx.beginPath(); ctx.rect(-400, -400, 800, 400 + 70); ctx.clip(); }
+    ctx.save(); ctx.translate(shake, bob * (peek ? .5 : 1) + sink); ctx.translate(0, 108); ctx.rotate(p.tilt * D + Math.sin(t * .6) * .015); ctx.scale(1 + sq, 1 - sq); ctx.translate(0, -108);
+    const ant = this.antennaTip(t, p);
+    this.stalk(ctx, ant, base, ink, o);
+    if (!peek) this.feet(ctx, base, ink, o);
+    if (!peek) this.arms(ctx, base, ink, o, p, t, -1);
+    this.outline(ctx, BODY_PATH, ink, o, 11);
+    this.gloss(ctx, BODY_PATH, base, BODY_BOX, { streak: true });
+    if (!peek) this.arms(ctx, base, ink, o, p, t, 1);
+    ctx.save(); ctx.translate(p.lookX * 6, p.faceY + p.lookY * 4); this.face(ctx, base, ink, o, p, t); ctx.restore();
+    this.orb(ctx, ant, p, t);
+    this.fx(ctx, p, t);
+    ctx.restore();
+    if (peek) { ctx.restore(); this.card(ctx, base, ink, o, p, t); }
+    ctx.restore();
+  }
+
+  feet(ctx, base, ink, o) { for (const s of [-1, 1]) { const P = ellPath(s * 40, 108, 27, 15); this.outline(ctx, P, ink, o, 9); this.gloss(ctx, P, mix(base, DEEP, .2), { x: s * 40 - 27, y: 93, w: 54, h: 30 }); } }
+
+  // Standing arms are glossy mittens hung from the shoulders. The back arm (s=-1) draws behind the body only when it is down.
+  arms(ctx, base, ink, o, p, t, which) {
+    for (const s of [-1, 1]) {
+      if (which === -1) continue; // both arms sit in front; the hook stays for a future behind-the-body pose
+      const ang = p.armAng + (s > 0 ? Math.sin(t * 9) * 25 * p.armWave : Math.sin(t * 9 + 1.5) * 10 * p.armWave) + Math.sin(t * 2 + s) * 3;
+      ctx.save(); ctx.translate(s * 78, 22); ctx.rotate(-s * ang * D);
+      const P = new Path2D(); P.ellipse(0, 24, 16, 27, 0, 0, TAU);
+      this.outline(ctx, P, ink, o, 9); this.gloss(ctx, P, base, { x: -16, y: -3, w: 32, h: 54 });
+      if (p.tap > .1 && ang > 30) { ctx.fillStyle = rgba(ink, .25); ctx.beginPath(); ctx.ellipse(0, 44, 9, 4, 0, 0, TAU); ctx.fill(); }
+      ctx.restore();
+    }
+  }
+
+  antennaTip(t, p) { const droop = clamp(p.droop, 0, 1), sway = Math.sin(t * 1.6) * 6 * (1 - droop * .6) + p.lookX * 4;
+    return { base: [8, -72], ctrl: [10 + sway * .3 + droop * 10, -118 + droop * 8], tip: [22 + sway + droop * 40, -150 + droop * 46] }; }
+  stalk(ctx, a, base, ink, o) {
+    const P = new Path2D(); P.moveTo(...a.base); P.quadraticCurveTo(...a.ctrl, ...a.tip); ctx.lineCap = 'round';
+    if (o.outline) { ctx.lineWidth = 17; ctx.strokeStyle = ink; ctx.stroke(P); }
+    ctx.lineWidth = 9; ctx.strokeStyle = mix(base, DEEP, .3); ctx.stroke(P);
+    ctx.lineWidth = 3.5; ctx.strokeStyle = rgba(mix(base, '#ffffff', .45), .8); ctx.save(); ctx.translate(-1.8, -1); ctx.stroke(P); ctx.restore();
+  }
+  orb(ctx, a, p, t) {
+    const [x, y] = a.tip, c = this.glowC, fast = this.mood === 'holdon' || this.mood === 'angry';
+    const pulse = fast ? .72 + .28 * Math.sin(t * (this.mood === 'angry' ? 7 : 11)) : .9 + .1 * Math.sin(t * 2.4), I = clamp(p.glow * pulse, 0, 1.4);
+    const h = ctx.createRadialGradient(x, y, 4, x, y, 74); h.addColorStop(0, rgba(c, .6 * I)); h.addColorStop(1, rgba(c, 0)); ctx.fillStyle = h; ctx.beginPath(); ctx.arc(x, y, 74, 0, TAU); ctx.fill();
+    const g = ctx.createRadialGradient(x - 5, y - 6, 1, x, y, 19); g.addColorStop(0, '#ffffff'); g.addColorStop(.35, mix(c, '#ffffff', .55 * Math.min(1, I))); g.addColorStop(1, mix(c, '#2a1a40', .35 + (1 - Math.min(1, I)) * .3));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 18, 0, TAU); ctx.fill();
+    ctx.strokeStyle = rgba('#ffffff', .5 + .35 * Math.min(1, I)); ctx.lineWidth = 2.4; ctx.beginPath(); ctx.arc(x, y, 8, 0, TAU); ctx.stroke();
+    ctx.fillStyle = ctx.strokeStyle; ctx.beginPath(); ctx.arc(x, y, 3, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.beginPath(); ctx.ellipse(x - 7, y - 8, 4, 2.4, -.6, 0, TAU); ctx.fill();
+  }
+
+  face(ctx, base, ink, o, p, t) {
+    const blink = this.blink(t), sac = this.saccade(t), lx = clamp(p.lookX + sac[0], -1, 1), ly = clamp(p.lookY + sac[1], -1, 1);
+    // anger flush rises from the brow
+    if (p.flush > .02) { ctx.save(); ctx.clip(BODY_PATH); const g = ctx.createLinearGradient(0, -90, 0, 10); g.addColorStop(0, `rgba(255,40,70,${.38 * p.flush})`); g.addColorStop(1, 'rgba(255,40,70,0)'); ctx.fillStyle = g; ctx.fillRect(-120, -100, 240, 120); ctx.restore(); }
+    for (const s of [-1, 1]) { const g = ctx.createRadialGradient(s * 58, 18, 0, s * 58, 18, 22); g.addColorStop(0, `rgba(255,110,170,${.5 * p.blush})`); g.addColorStop(1, 'rgba(255,110,170,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(s * 58, 18, 22, 0, TAU); ctx.fill(); }
+
+    for (const s of [-1, 1]) {
+      const ex = s * 35, ey = -18, R = 30, E = ellPath(ex, ey, R, R * 1.05);
+      if (o.outline) { ctx.lineWidth = 8; ctx.strokeStyle = ink; ctx.stroke(E); }
+      // a soft socket so the eye sits in the head rather than on it
+      ctx.save(); ctx.clip(BODY_PATH); ctx.fillStyle = rgba(DEEP, .14); ctx.beginPath(); ctx.ellipse(ex + 1, ey + 3, R + 4, R * 1.05 + 4, 0, 0, TAU); ctx.fill(); ctx.restore();
+      const w = ctx.createRadialGradient(ex - 9, ey - 11, 2, ex, ey, R * 1.05); w.addColorStop(0, '#ffffff'); w.addColorStop(.72, '#f0f0f7'); w.addColorStop(1, '#bfc0d6');
+      ctx.fillStyle = w; ctx.fill(E);
+      ctx.save(); ctx.clip(E);
+      const ir = 15.5 * (.74 + .26 * p.pupil), ix = ex + lx * (R - ir - 3), iy = ey + ly * (R - ir - 3);
+      const ig = ctx.createRadialGradient(ix - 3, iy - 4, 1, ix, iy, ir); ig.addColorStop(0, '#6a4b9a'); ig.addColorStop(.55, '#2b1847'); ig.addColorStop(1, '#120a1f');
+      ctx.fillStyle = ig; ctx.beginPath(); ctx.arc(ix, iy, ir, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#05030a'; ctx.beginPath(); ctx.arc(ix, iy, ir * .55 * p.pupil, 0, TAU); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.96)'; ctx.beginPath(); ctx.ellipse(ix - ir * .38, iy - ir * .42, ir * .32, ir * .24, -.5, 0, TAU); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.beginPath(); ctx.arc(ix + ir * .36, iy + ir * .38, ir * .13, 0, TAU); ctx.fill();
+      const sh = ctx.createLinearGradient(0, ey - R, 0, ey - R * .25); sh.addColorStop(0, 'rgba(40,20,70,.3)'); sh.addColorStop(1, 'rgba(40,20,70,0)'); ctx.fillStyle = sh; ctx.fill(E);
+      // upper lid: mood plus blink, tilted for anger or sorrow
+      const lid = clamp(p.lid + blink * (1 - p.lid), 0, 1), top = ey - R * 1.05, edge = top + lid * R * 2.1;
+      const inY = edge + p.lidTilt * R * (lid > .03 ? 1 : 0), outY = edge - p.lidTilt * R * (lid > .03 ? 1 : 0);
+      if (lid > .02) { const ix0 = ex - s * (R + 2), ox0 = ex + s * (R + 2), L = new Path2D(); L.moveTo(ix0, top - 6); L.lineTo(ox0, top - 6); L.lineTo(ox0, outY); L.lineTo(ix0, inY); L.closePath();
+        this.gloss(ctx, L, base, { x: ex - R, y: top - 6, w: R * 2, h: R * 2 }, { flat: true });
+        ctx.strokeStyle = rgba(mix(base, DEEP, .6), .9); ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(ex - s * R, inY); ctx.lineTo(ex + s * R, outY); ctx.stroke(); }
+      if (p.low > .02) { const lo = ey + R * 1.05 - p.low * R * 1.2, L = new Path2D(); L.moveTo(ex - R - 2, ey + R + 4); L.lineTo(ex - R - 2, lo + 6); L.quadraticCurveTo(ex, lo - 10 * p.low, ex + R + 2, lo + 6); L.lineTo(ex + R + 2, ey + R + 4); L.closePath();
+        ctx.fillStyle = mix(base, '#ffffff', .1); ctx.fill(L); }
+      ctx.restore();
+      if (o.outline) { ctx.lineWidth = 3; ctx.strokeStyle = rgba(ink, .6); ctx.stroke(E); }
+    }
+    for (const s of [-1, 1]) {
+      const y = s < 0 ? p.bLy : p.bRy, r = s < 0 ? p.bLr : p.bRr;
+      ctx.save(); ctx.translate(s * 36, -63 + y); ctx.scale(s, 1); ctx.rotate(r);
+      const B = new Path2D(); B.moveTo(-20, 4); B.quadraticCurveTo(0, -9, 21, 2); B.quadraticCurveTo(23, 9, 15, 8); B.quadraticCurveTo(0, 0, -16, 11); B.quadraticCurveTo(-25, 10, -20, 4); B.closePath();
+      const g = ctx.createLinearGradient(0, -8, 0, 11); g.addColorStop(0, mix(ink, '#ffffff', .22)); g.addColorStop(1, ink); ctx.fillStyle = g; ctx.fill(B);
+      ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.beginPath(); ctx.ellipse(-2, -2, 9, 2, -.1, 0, TAU); ctx.fill();
+      ctx.restore();
+    }
+    ctx.save(); ctx.translate(p.mx, 30);
+    const w = p.mw, c = p.curve, op = p.open, a = p.asym * 6;
+    ctx.strokeStyle = ink; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    if (op < .08) {
+      ctx.lineWidth = 5; ctx.beginPath();
+      if (p.wobble > .3) { for (let i = 0; i <= 16; i++) { const x = -w + i / 16 * 2 * w, y = c * 6 * (1 - (x / w) ** 2) + Math.sin(i / 16 * TAU * 1.5 + t * 6) * 2.2 * p.wobble; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } }
+      else { ctx.moveTo(-w, a * .4); ctx.quadraticCurveTo(a * .5, c * 11, w, -a); }
+      ctx.stroke();
+    } else { const M = new Path2D(); M.moveTo(-w, 0); M.quadraticCurveTo(0, c * 4, w, 0); M.quadraticCurveTo(0, c * 8 + op * 26, -w, 0); M.closePath();
+      ctx.fillStyle = '#3a1230'; ctx.fill(M); ctx.save(); ctx.clip(M); ctx.fillStyle = '#ff7da6'; ctx.beginPath(); ctx.ellipse(0, c * 6 + op * 18, w * .6, op * 9 + 2, 0, 0, TAU); ctx.fill(); ctx.restore();
+      ctx.lineWidth = 4; ctx.stroke(M); }
+    ctx.restore();
+  }
+
+  card(ctx, base, ink, o, p, t) {
+    const y = 70;
+    ctx.save(); ctx.shadowColor = 'rgba(10,10,40,.3)'; ctx.shadowBlur = 34 * (o.dpr || 1) * (ctx.getTransform().a / (o.dpr || 1)); ctx.shadowOffsetY = 12;
+    const C = new Path2D(); C.roundRect(-200, y, 400, 124, 28); ctx.fillStyle = 'rgba(248,248,252,.94)'; ctx.fill(C); ctx.restore();
+    ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 1.5; ctx.stroke(C);
+    ctx.textAlign = 'left'; ctx.fillStyle = '#8e8e93'; ctx.font = '600 13px -apple-system, system-ui'; ctx.fillText('FENCE', -170, y + 38);
+    ctx.fillStyle = '#8e8e93'; ctx.textAlign = 'right'; ctx.fillText('now', 170, y + 38); ctx.textAlign = 'left';
+    ctx.fillStyle = '#1d1d1f'; ctx.font = '600 21px -apple-system, system-ui'; ctx.fillText(CARD[this.mood][0], -170, y + 70);
+    ctx.fillStyle = '#48484a'; ctx.font = '17px -apple-system, system-ui'; ctx.fillText(CARD[this.mood][1], -170, y + 96);
+    // hands: grip the edge, lift palm-out to stop you, wave when you turn back, tap when annoyed
+    for (const s of [-1, 1]) {
+      const raise = p.raise, wave = s > 0 ? p.wave : 0, tap = p.tap * Math.max(0, Math.sin(t * 12 + (s > 0 ? 0 : 1.8))) * 6;
+      const gx = s * lerp(66, 38, p.handIn), up = Math.max(raise, wave);
+      const hx = lerp(gx, s * 118, up) + p.lookX * 3 + Math.sin(t * 42) * 2 * p.shake, hy = lerp(y + 1 - tap, y - 78, up) + Math.sin(t * 2 + s) * 1.5;
+      const rot = up * s * (.25 + Math.sin(t * 9) * .35 * wave);
+      ctx.save(); ctx.translate(hx, hy); ctx.rotate(rot);
+      if (up > .5) {
+        // palm toward you: three fingers up
+        for (const f of [-11, 0, 11]) { const F = ellPath(f, -20 - (f === 0 ? 3 : 0), 7, 12); this.outline(ctx, F, ink, o, 7); this.gloss(ctx, F, base, { x: f - 7, y: -32, w: 14, h: 24 }, { flat: true }); }
+        const P = ellPath(0, 0, 24, 21); this.outline(ctx, P, ink, o, 8); this.gloss(ctx, P, base, { x: -24, y: -21, w: 48, h: 42 });
+      } else {
+        const P = ellPath(0, 0, 25, 15); this.outline(ctx, P, ink, o, 8); this.gloss(ctx, P, base, { x: -25, y: -15, w: 50, h: 30 });
+        // fingers curl over the front of the card
+        for (const f of [-11, 0, 11]) { const F = ellPath(f, 13, 6.5, 8); this.outline(ctx, F, ink, o, 6); this.gloss(ctx, F, base, { x: f - 6.5, y: 5, w: 13, h: 16 }, { flat: true });
+          ctx.strokeStyle = rgba(DEEP, .25); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(f, 13, 6, .3, Math.PI - .3); ctx.stroke(); }
+      }
+      ctx.restore();
+    }
+  }
+
+  fx(ctx, p, t) {
+    const font = s => `800 ${s}px "SF Pro Rounded", ui-rounded, system-ui`;
+    if (p.zzz > .05) for (let i = 0; i < 3; i++) { const ph = (t * .35 + i / 3) % 1; ctx.globalAlpha = p.zzz * Math.sin(ph * Math.PI);
+      ctx.fillStyle = '#b9b0ff'; ctx.font = font(16 + ph * 18); ctx.fillText('z', 70 + ph * 40, -92 - ph * 60); }
+    if (p.q > .05) { ctx.globalAlpha = p.q; ctx.save(); ctx.translate(-86, -96 + Math.sin(t * 2.2) * 4); ctx.rotate(-.2); ctx.fillStyle = '#5fe6d4'; ctx.strokeStyle = '#1c3a40'; ctx.lineWidth = 5; ctx.font = font(44); ctx.textAlign = 'center'; ctx.strokeText('?', 0, 0); ctx.fillText('?', 0, 0); ctx.restore(); }
+    ctx.globalAlpha = 1;
+    const drop = (x, y, s, c) => { const g = ctx.createRadialGradient(x - 2, y - 3, 1, x, y, 12 * s); g.addColorStop(0, '#ffffff'); g.addColorStop(1, c);
+      ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(x, y - 16 * s); ctx.bezierCurveTo(x + 4 * s, y - 8 * s, x + 10 * s, y, x, y + 6 * s); ctx.bezierCurveTo(x - 10 * s, y, x - 4 * s, y - 8 * s, x, y - 16 * s); ctx.fill(); };
+    if (p.sweat > .05) { ctx.globalAlpha = p.sweat; drop(92, -72 + ((t * .5) % 1) * 22, 1, '#7cc8ff'); ctx.globalAlpha = 1; }
+    if (p.tear > .05) { const ph = (t * .45) % 1; ctx.globalAlpha = p.tear * (1 - ph * .6); drop(-58, 8 + ph * 34, .8, '#8ab8ff'); ctx.globalAlpha = 1; }
+    if (p.steam > .05) for (const s of [-1, 1]) for (let i = 0; i < 2; i++) { const ph = (t * .8 + i * .5 + (s > 0 ? .25 : 0)) % 1;
+      ctx.globalAlpha = p.steam * (1 - ph) * .8; ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(s * (72 + ph * 18), -76 - ph * 40, 7 + ph * 10, 0, TAU); ctx.fill(); }
+    ctx.globalAlpha = 1;
+    if (p.sparkle > .05) for (let i = 0; i < 5; i++) { const a = i / 5 * TAU + t * .5, r = 132 + Math.sin(t * 2 + i) * 6, sz = (7 + 4 * Math.sin(t * 5 + i * 1.7)) * p.sparkle;
+      if (sz < 1) continue; const x = Math.cos(a) * r, y = -20 + Math.sin(a) * r * .72; ctx.fillStyle = '#ffd84d'; ctx.beginPath();
+      for (let k = 0; k < 8; k++) { const aa = k / 8 * TAU, rr = k % 2 ? sz * .3 : sz; ctx.lineTo(x + Math.cos(aa) * rr, y + Math.sin(aa) * rr); } ctx.fill(); }
+  }
+}
+
+/* ── app ── */
+const state = { mood: 'calm', colour: '#8a6bff', outline: false };
+const dpr = Math.min(2, devicePixelRatio || 1), views = [];
+const standM = new Mascot('calm', 2), peekM = new Mascot('calm', 9);
+views.push({ el: document.getElementById('stand'), m: standM, pose: 'stand', frame: 430 });
+views.push({ el: document.getElementById('peek'), m: peekM, pose: 'peek', frame: 470 });
+const moodsEl = document.getElementById('moods');
+for (const md of MOODS) { const b = document.createElement('button'); b.dataset.id = md.id; b.innerHTML = `<canvas></canvas>${md.label}`; b.onclick = () => { stop(); setMood(md.id); }; moodsEl.appendChild(b);
+  views.push({ el: b.querySelector('canvas'), m: new Mascot(md.id), pose: 'stand', frame: 480, thumb: true }); }
+const cols = document.getElementById('colours');
+for (const c of COLOURS) { const d = document.createElement('div'); d.className = 'sw'; d.dataset.v = c.body; d.title = c.id;
+  d.style.background = `radial-gradient(circle at 35% 30%, ${mix(c.body, '#ffffff', .4)}, ${c.body} 50%, ${mix(c.body, DEEP, .45)})`; d.onclick = () => { state.colour = c.body; sync(); }; cols.appendChild(d); }
+document.getElementById('outline').onchange = e => state.outline = e.target.checked;
+addEventListener('keydown', e => { if (!['ArrowLeft', 'ArrowRight'].includes(e.key)) return; stop(); const i = MOODS.findIndex(m => m.id === state.mood), n = MOODS.length; setMood(MOODS[(i + (e.key === 'ArrowRight' ? 1 : n - 1)) % n].id); });
+function setMood(id) { state.mood = id; standM.set(id); peekM.set(id); document.querySelector('#cap b').textContent = MOOD[id].label; document.querySelector('#cap span').textContent = MOOD[id].use; sync(); }
+function sync() { for (const b of moodsEl.children) b.classList.toggle('on', b.dataset.id === state.mood); for (const d of cols.children) d.classList.toggle('on', d.dataset.v === state.colour); }
+
+const STORY = ['calm', 'curious', 'cheeky', 'worried', 'holdon', 'angry', 'happy', 'proud', 'sleepy', 'sad', 'calm'];
+let story = null; const playBtn = document.getElementById('play');
+function stop() { story = null; playBtn.classList.remove('on'); playBtn.textContent = '▶ Play a day with Fence'; }
+playBtn.onclick = () => { if (story) return stop(); story = { t: 0, i: -1 }; playBtn.classList.add('on'); playBtn.textContent = '■ Stop'; };
+
+let last = performance.now();
+function frame(now) { const dt = Math.min(.05, (now - last) / 1000); last = now;
+  if (story) { story.t += dt; const i = Math.floor(story.t / 2.6); if (i !== story.i) { if (i >= STORY.length) stop(); else { story.i = i; setMood(STORY[i]); } } }
+  for (const v of views) { const w = Math.round(v.el.clientWidth * dpr), h = Math.round(v.el.clientHeight * dpr); if (!w || !h) continue;
+    if (v.el.width !== w || v.el.height !== h) { v.el.width = w; v.el.height = h; }
+    const ctx = v.el.getContext('2d'); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, w, h);
+    v.m.update(dt); v.m.draw(ctx, w, h, { colour: state.colour, outline: state.outline, pose: v.pose, frame: v.frame, thumb: v.thumb, dpr }); }
+  requestAnimationFrame(frame); }
+setMood('calm'); sync(); requestAnimationFrame(frame);
+</script>
+</body>
+</html>

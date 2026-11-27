@@ -1,0 +1,560 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fence · Dashboard ideas</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  Dashboard directions, round two (26 Nov 2026). Kept: Sundial and Bento. Rebuilt: the notebook
+  idea as a modern timeline in Bento's type and colour. New: Dial bento and Spotlight, each a mix
+  of the parts that were liked (the coral "now" tile with its clock, the greeting tile with
+  New block, Pulls today and Up next). Removed: The hill, Departures, Forecast.
+
+  Same sample day in every window: Thursday 26 November, 2:40 PM.
+    Social media  always on, locked until restart
+    Deep work     9:00–12:00 and 1:00–5:00 PM (on now)
+    Wind-down     9:00 PM – 7:00 AM (overnight, starts later)
+    News          switched off
+    Pulls today   9:48 AM, 11:52 AM, 1:15 PM
+-->
+<style>
+  :root {
+    --cream: #FFF6EE; --card: #fff; --ink: #2A1E17; --sub: #8C7B70; --faint: #B9AAA0;
+    --coral: #F4573F; --coral-text: #D4432C; --coral-soft: rgba(244, 87, 63, .12); --coral-deep: #C93A25;
+    --mint: #17A877; --mint-soft: rgba(23, 168, 119, .12);
+    --hair: rgba(0, 0, 0, .08); --tile: rgba(0, 0, 0, .05); --accent: #007AFF;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #EEE5DC; color: var(--ink); -webkit-font-smoothing: antialiased; padding-bottom: 120px;
+  }
+
+  /* ───────── Page chrome ───────── */
+  .intro { max-width: 1120px; margin: 0 auto; padding: 56px 28px 10px; }
+  .intro .kicker { font-size: 12px; font-weight: 800; letter-spacing: .12em; color: var(--coral-text); text-transform: uppercase; }
+  .intro h1 { font-size: 44px; font-weight: 800; letter-spacing: -.025em; margin: 6px 0 10px; }
+  .intro p { font-size: 15px; color: var(--sub); max-width: 700px; line-height: 1.5; }
+  nav.jump {
+    position: sticky; top: 0; z-index: 20; display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+    padding: 12px; margin-top: 22px; background: rgba(238, 229, 220, .86);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--hair);
+  }
+  nav.jump a { font-size: 13px; font-weight: 700; color: var(--ink); text-decoration: none; padding: 7px 14px; border-radius: 999px; background: rgba(255, 255, 255, .7); }
+  nav.jump a:hover { background: var(--coral); color: #fff; }
+  nav.jump a b { color: var(--coral-text); margin-right: 5px; }
+  nav.jump a:hover b { color: #fff; }
+
+  section.idea { max-width: 1120px; margin: 0 auto; padding: 72px 28px 0; scroll-margin-top: 60px; }
+  .idea > header { display: grid; grid-template-columns: 74px 1fr; gap: 4px 18px; margin-bottom: 22px; align-items: start; }
+  .idea .num { grid-row: span 3; font-size: 64px; font-weight: 800; color: var(--coral); line-height: .9; letter-spacing: -.04em; }
+  .idea h2 { font-size: 28px; font-weight: 800; letter-spacing: -.015em; }
+  .idea h2 small { font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; vertical-align: 6px; margin-left: 8px; padding: 3px 9px; border-radius: 999px; background: #fff; color: var(--coral-text); }
+  .idea .pitch { font-size: 15px; color: var(--sub); max-width: 780px; line-height: 1.5; }
+  .idea .notes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .idea .notes span { font-size: 12px; font-weight: 700; padding: 5px 11px; border-radius: 999px; background: rgba(255, 255, 255, .75); }
+  .idea .notes span i { font-style: normal; color: var(--coral-text); margin-right: 4px; }
+
+  /* ───────── A Fence window ───────── */
+  .win {
+    display: flex; height: 700px; border-radius: 14px; overflow: hidden; background: var(--cream);
+    box-shadow: 0 30px 70px rgba(70, 35, 15, .18), 0 0 0 1px rgba(0, 0, 0, .1);
+  }
+  .side { width: 196px; flex: none; padding: 14px 10px; border-radius: 0 16px 16px 0; background: rgba(255, 255, 255, .58); box-shadow: 1px 0 0 var(--hair), 6px 0 24px rgba(80, 40, 20, .05); }
+  .lights { display: flex; gap: 7px; padding: 2px 6px 22px; }
+  .lights i { width: 12px; height: 12px; border-radius: 50%; background: #FF5F57; }
+  .lights i:nth-child(2) { background: #FEBC2E; } .lights i:nth-child(3) { background: #28C840; }
+  .srow { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 8px; font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+  .srow.sel { background: rgba(0, 0, 0, .07); }
+  .srow .ti { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; color: #fff; }
+  .srow .ti svg { width: 13px; height: 13px; }
+  .srow .badge { margin-left: auto; font-size: 11px; font-weight: 700; color: #fff; background: var(--accent); border-radius: 999px; padding: 1px 7px; }
+  .main { flex: 1; min-width: 0; overflow: auto; padding: 28px 34px 34px; position: relative; }
+
+  /* ───────── Shared pieces ───────── */
+  .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+  .eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .09em; color: var(--coral-text); text-transform: uppercase; }
+  .greet { font-size: 30px; font-weight: 800; letter-spacing: -.015em; margin-top: 2px; }
+  .newbtn { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: #fff; background: var(--coral); padding: 8px 15px 8px 12px; border-radius: 999px; white-space: nowrap; box-shadow: 0 2px 0 var(--coral-deep); }
+  .newbtn svg { width: 12px; height: 12px; }
+  .paper { background: var(--card); border-radius: 20px; border: 1px solid var(--hair); box-shadow: 0 6px 18px rgba(80, 40, 20, .05); }
+  .sw { width: 32px; height: 19px; border-radius: 99px; background: rgba(0, 0, 0, .13); position: relative; flex: none; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .25); }
+  .sw.on { background: var(--accent); } .sw.on::after { left: 15px; }
+  .sw.locked { opacity: .55; }
+  .fact { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; padding: 7px 12px; border-radius: 999px; background: #fff; border: 1px solid var(--hair); }
+  .fact b { font-weight: 800; }
+  .fact svg { width: 13px; height: 13px; color: var(--coral); }
+  .facts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .bubble { position: relative; background: #fff; border: 1px solid var(--hair); border-radius: 16px; padding: 10px 14px; font-size: 13.5px; font-weight: 650; line-height: 1.35; box-shadow: 0 6px 16px rgba(80, 40, 20, .08); }
+  .bubble::after { content: ""; position: absolute; width: 12px; height: 12px; background: #fff; transform: rotate(45deg); border: 1px solid var(--hair); border-top: 0; border-left: 0; }
+  .bubble.tail-right::after { right: -7px; top: 50%; margin-top: -6px; transform: rotate(-45deg); }
+  .icon-tile { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: var(--tile); color: var(--ink); flex: none; }
+  .icon-tile.on { background: var(--coral); color: #fff; }
+  .icon-tile svg { width: 15px; height: 15px; }
+  .status { font-size: 12px; font-weight: 650; color: var(--sub); }
+  .status.on { color: var(--mint); }
+  .status.lock { color: var(--coral-text); }
+  .lockglyph { display: inline-block; width: 11px; color: var(--coral-text); vertical-align: -1px; margin-left: 3px; }
+
+  /* Bento tiles, shared by every idea after Sundial */
+  .bento { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+  .t { border-radius: 24px; padding: 20px; position: relative; overflow: hidden; background: #fff; border: 1px solid var(--hair); box-shadow: 0 6px 18px rgba(80, 40, 20, .05); }
+  .t.coral { background: var(--coral); color: #fff; border: 0; box-shadow: 0 14px 30px rgba(244, 87, 63, .28); }
+  .t.coral .eyebrow { color: rgba(255, 255, 255, .85); }
+  .span2 { grid-column: span 2; } .span4 { grid-column: span 4; } .rows2 { grid-row: span 2; }
+  .clock { font-size: 104px; font-weight: 800; letter-spacing: -.05em; line-height: .95; }
+  .clock small { font-size: 26px; letter-spacing: 0; margin-left: 6px; opacity: .8; }
+  .clock.m { font-size: 64px; } .clock.m small { font-size: 20px; }
+  .what { font-size: 19px; font-weight: 800; }
+  .nowbar { height: 10px; border-radius: 99px; background: rgba(255, 255, 255, .28); overflow: hidden; }
+  .nowbar i { display: block; height: 100%; width: 42%; border-radius: 99px; background: #fff; animation: grow 1.1s .2s cubic-bezier(.2, .9, .3, 1) both; transform-origin: left; }
+  @keyframes grow { from { transform: scaleX(0); } }
+  .meta { display: flex; justify-content: space-between; font-size: 12.5px; font-weight: 700; opacity: .85; }
+  .also { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 750; padding: 5px 10px; border-radius: 999px; background: rgba(255, 255, 255, .2); }
+  .also svg { width: 11px; height: 11px; }
+  .orbit { position: absolute; right: -70px; top: -70px; width: 260px; height: 260px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .18); pointer-events: none; }
+  .orbit::after { content: ""; position: absolute; inset: 36px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .12); }
+  .big { font-size: 46px; font-weight: 800; letter-spacing: -.03em; line-height: 1; margin-top: 10px; }
+  .lbl { font-size: 12.5px; font-weight: 700; color: var(--sub); margin-top: 3px; }
+  .daystrip { position: relative; height: 18px; border-radius: 6px; background: var(--tile); }
+  .daystrip i { position: absolute; top: 3px; bottom: 3px; width: 4px; margin-left: -2px; border-radius: 2px; background: var(--coral); }
+  .daystrip u { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--ink); text-decoration: none; border-radius: 1px; }
+  .stripaxis { display: flex; justify-content: space-between; font-size: 10px; font-weight: 750; color: var(--faint); margin-top: 5px; }
+  .moon { position: absolute; right: 18px; top: 18px; width: 34px; height: 34px; color: var(--coral); }
+  .hello { display: flex; align-items: flex-end; gap: 14px; padding-bottom: 0; }
+  .hello .say { flex: 1; padding-bottom: 20px; align-self: center; }
+  .hello .say .greet { font-size: 26px; }
+  .hello .say p { font-size: 13.5px; color: var(--sub); margin-top: 4px; line-height: 1.4; }
+
+  /* Mascot: the only marigold on the page. Breathing and blinking are the only idle motion. */
+  .mascot { overflow: visible; }
+  .mascot .breath { transform-box: fill-box; transform-origin: 50% 100%; animation: breath 4.6s ease-in-out infinite; }
+  .mascot .eyes { transform-box: fill-box; transform-origin: center; animation: blink 5.4s infinite; }
+  @keyframes breath { 50% { transform: scale(1.014, .986); } }
+  @keyframes blink { 0%, 93%, 100% { transform: none; } 95% { transform: scaleY(.12); } }
+  .hand { transform-origin: 0 0; animation: settle 1.2s cubic-bezier(.2, 1.4, .4, 1) both; }
+  @keyframes settle { from { transform: rotate(-30deg); opacity: 0; } }
+
+  /* ───────── 01 Sundial ───────── */
+  .c1 { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+  .c1 .dialcard { padding: 14px; }
+  .dial { width: 100%; display: block; }
+  .c1 .now { padding: 20px 22px; margin-bottom: 14px; }
+  .c1 .now .bigline { font-size: 21px; font-weight: 800; letter-spacing: -.01em; line-height: 1.25; margin: 8px 0 6px; }
+  .c1 .now .sub { font-size: 13px; color: var(--sub); line-height: 1.45; }
+  .c1 .list { padding: 6px 16px; margin-bottom: 14px; }
+  .row { display: flex; align-items: center; gap: 11px; padding: 10px 0; }
+  .row + .row { border-top: 1px solid var(--hair); }
+  .row .nm { font-size: 13.5px; font-weight: 700; }
+  .row .grow { flex: 1; min-width: 0; }
+  .ringkey { width: 26px; height: 26px; flex: none; }
+
+  /* ───────── 02 Bento ───────── */
+  .c2 .t-now { display: flex; flex-direction: column; gap: 0; }
+  .c2 .t-now .clock { margin-top: 14px; }
+  .c2 .t-now .what { margin-top: auto; }
+  .c2 .t-now .nowbar { margin: 12px 0 8px; }
+  .c2 .t-now .also { margin-top: 14px; align-self: flex-start; }
+  .c2 .mini { border-radius: 18px; background: var(--cream); padding: 13px; display: flex; flex-direction: column; gap: 10px; }
+  .c2 .mini .top { display: flex; justify-content: space-between; align-items: center; }
+  .c2 .mini .nm { font-size: 13.5px; font-weight: 800; }
+  .c2 .t-blocks { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding: 14px; }
+  .track { position: relative; height: 8px; border-radius: 99px; background: rgba(0, 0, 0, .06); }
+  .track i { position: absolute; top: 0; bottom: 0; border-radius: 99px; background: var(--coral); }
+  .track i.past { background: rgba(244, 87, 63, .28); }
+  .track i.later { background: transparent; box-shadow: inset 0 0 0 1.5px var(--coral); }
+  .track u { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--ink); text-decoration: none; }
+  .track.offtrack { background: repeating-linear-gradient(90deg, rgba(0, 0, 0, .1) 0 4px, transparent 4px 9px); }
+
+  /* ───────── 03 Timeline ───────── */
+  .c3 .tlcard { padding: 18px 20px 20px; }
+  .c3 .tlhead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .c3 .legend { display: flex; gap: 14px; font-size: 11.5px; font-weight: 700; color: var(--sub); }
+  .c3 .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .c3 .legend i { width: 18px; height: 8px; border-radius: 99px; display: inline-block; }
+  .c3 .tl { display: flex; gap: 14px; }
+  .c3 .names { width: 148px; flex: none; padding-top: 26px; }
+  .c3 .names .nm { height: 40px; margin-bottom: 8px; display: flex; align-items: center; gap: 9px; }
+  .c3 .names .nm b { font-size: 13.5px; font-weight: 800; display: block; }
+  .c3 .names .nm .status { font-size: 11px; }
+  .c3 .names .icon-tile { width: 28px; height: 28px; border-radius: 8px; }
+  .c3 .tracks { flex: 1; min-width: 0; position: relative; padding-top: 26px; }
+  .c3 .hours { position: absolute; top: 0; left: 0; right: 0; height: 18px; font-size: 10.5px; font-weight: 750; color: var(--faint); }
+  .c3 .hours span { position: absolute; transform: translateX(-50%); }
+  .c3 .hours span:first-child { transform: none; } .c3 .hours span:last-child { transform: translateX(-100%); }
+  .c3 .lane { position: relative; height: 40px; margin-bottom: 8px; border-radius: 12px; background: #FAF3EC; overflow: hidden; }
+  .c3 .lane .night { position: absolute; top: 0; bottom: 0; background: rgba(60, 40, 25, .035); }
+  .c3 .bar { position: absolute; top: 6px; bottom: 6px; border-radius: 9px; display: flex; align-items: center; padding: 0 10px; font-size: 11.5px; font-weight: 800; white-space: nowrap; overflow: hidden;
+    transform-origin: left; animation: grow .8s var(--d, 0s) cubic-bezier(.2, .9, .3, 1) both; }
+  .c3 .bar.now { background: var(--coral); color: #fff; box-shadow: 0 4px 10px rgba(244, 87, 63, .3); }
+  .c3 .bar.past { background: rgba(244, 87, 63, .16); color: var(--coral-text); }
+  .c3 .bar.later { background: rgba(244, 87, 63, .06); color: var(--coral-text); box-shadow: inset 0 0 0 1.5px var(--coral); }
+  .c3 .lane .offnote { position: absolute; left: 12px; top: 0; bottom: 0; display: flex; align-items: center; font-size: 12px; font-weight: 700; color: var(--faint); }
+  .c3 .lane.off { background: repeating-linear-gradient(90deg, #FAF3EC 0 8px, #F6EDE5 8px 16px); }
+  .c3 .pull { position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: var(--ink); opacity: .7; box-shadow: 0 0 0 3px #FAF3EC; }
+  .c3 .nowline { position: absolute; top: 20px; bottom: 0; width: 2px; margin-left: -1px; background: var(--coral); border-radius: 1px; z-index: 2; }
+  .c3 .nowline span { position: absolute; top: -20px; left: 50%; transform: translateX(-50%); font-size: 11px; font-weight: 800; color: #fff; background: var(--coral); padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .c3 .t-now { display: flex; flex-direction: column; }
+  .c3 .t-now .row1 { display: flex; justify-content: space-between; align-items: flex-start; }
+  .c3 .t-now .what { margin-top: auto; }
+  .c3 .t-now .nowbar { margin: 10px 0 7px; }
+
+  /* ───────── 04 Dial bento ───────── */
+  .c4 .t-dial { padding: 18px 20px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .c4 .t-dial .dial { max-width: 310px; }
+  .c4 .t-dial .cap { align-self: stretch; }
+  .c4 .t-dial .cap2 { font-size: 17px; font-weight: 800; text-align: center; line-height: 1.3; }
+  .c4 .t-list { padding: 6px 18px; }
+
+  /* ───────── 05 Spotlight ───────── */
+  .c5 { padding-top: 54px; }
+  .c5 .hero { overflow: visible; padding: 26px 28px 22px; }
+  .c5 .hero .grid { display: grid; grid-template-columns: auto 1fr; gap: 30px; align-items: end; }
+  .c5 .hero .what { font-size: 22px; margin-top: 8px; }
+  .c5 .hero .sub { font-size: 13px; font-weight: 650; opacity: .85; margin-top: 4px; }
+  .c5 .hero .peek { position: absolute; right: 40px; top: -63px; }
+  .c5 .hero .say { position: absolute; right: 150px; top: -54px; color: var(--ink); }
+  .c5 .rails { display: grid; grid-template-columns: 92px 1fr; gap: 9px 12px; align-items: center; position: relative; }
+  .c5 .rails .rn { font-size: 11.5px; font-weight: 750; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .c5 .rail { position: relative; height: 8px; border-radius: 99px; background: rgba(255, 255, 255, .18); }
+  .c5 .rail i { position: absolute; top: 0; bottom: 0; border-radius: 99px; background: #fff; }
+  .c5 .rail i.past { background: rgba(255, 255, 255, .4); }
+  .c5 .rail i.later { background: transparent; box-shadow: inset 0 0 0 1.5px #fff; }
+  .c5 .rail.offrail { background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .25) 0 4px, transparent 4px 9px); }
+  .c5 .railnow { position: absolute; top: -8px; bottom: -8px; width: 2px; margin-left: -1px; background: #fff; border-radius: 1px; }
+  .c5 .railnow::before { content: ""; position: absolute; top: -5px; left: -4px; width: 10px; height: 10px; border-radius: 50%; background: #fff; }
+  .c5 .railaxis { grid-column: 2; display: flex; justify-content: space-between; font-size: 10px; font-weight: 750; opacity: .7; }
+  .c5 .t-list { padding: 6px 18px; }
+
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="intro">
+  <div class="kicker">Fence · Studies · Round two</div>
+  <h1>Dashboards for your day</h1>
+  <p>Kept Sundial and Bento. Rebuilt the notebook idea as a modern timeline in Bento's type and colours. Added two new ones that mix the parts you liked: the coral "now" tile with its clock, the greeting tile with New block, Pulls today and Up next. Every window shows the same sample day: Thursday at 2:40 PM.</p>
+</div>
+<nav class="jump">
+  <a href="#i1"><b>01</b>Sundial</a>
+  <a href="#i2"><b>02</b>Bento</a>
+  <a href="#i3"><b>03</b>Timeline</a>
+  <a href="#i4"><b>04</b>Dial bento</a>
+  <a href="#i5"><b>05</b>Spotlight</a>
+</nav>
+
+<section class="idea" id="i1">
+  <header>
+    <div class="num">01</div>
+    <h2>Sundial <small>Kept</small></h2>
+    <p class="pitch">The whole day on one 24-hour clock face. Noon is at the top, midnight at the bottom, and night is shaded. Each block is a ring, a coral hand points at the time, and the mascot sits in the middle.</p>
+    <div class="notes"><span><i>Moves</i>The hand settles in once. Mascot breathes.</span></div>
+  </header>
+  <div class="win" data-win="1"></div>
+</section>
+
+<section class="idea" id="i2">
+  <header>
+    <div class="num">02</div>
+    <h2>Bento <small>Improved</small></h2>
+    <p class="pitch">The parts you liked stay as they were: the big coral clock with "has your back", the greeting with New block, Pulls today and Up next. The coral tile now also notes the other block that's on. The block tiles along the bottom, the weakest part before, each get a small bar for their day, so you can see when every block guards you without opening it.</p>
+    <div class="notes"><span><i>Moves</i>The bar fills once on open.</span></div>
+  </header>
+  <div class="win" data-win="2"></div>
+</section>
+
+<section class="idea" id="i3">
+  <header>
+    <div class="num">03</div>
+    <h2>Timeline <small>Notebook, made modern</small></h2>
+    <p class="pitch">The notebook's idea with Bento's type and colours. Each block gets a lane across the day: solid coral while it's on, faded once it's done, outlined when it's coming up later. A coral line with the time marks now, and each pull is a dot on its own lane. The coral clock and the greeting sit on top.</p>
+    <div class="notes"><span><i>Moves</i>Bars grow in once.</span></div>
+  </header>
+  <div class="win" data-win="3"></div>
+</section>
+
+<section class="idea" id="i4">
+  <header>
+    <div class="num">04</div>
+    <h2>Dial bento <small>New</small></h2>
+    <p class="pitch">Sundial inside Bento. The dial becomes the big coral tile, drawn in white, with the mascot in the middle and the time beside it. The greeting, Pulls today and Up next sit beside it, and the block list follows.</p>
+    <div class="notes"><span><i>Moves</i>The hand settles in once.</span></div>
+  </header>
+  <div class="win" data-win="4"></div>
+</section>
+
+<section class="idea" id="i5">
+  <header>
+    <div class="num">05</div>
+    <h2>Spotlight <small>New</small></h2>
+    <p class="pitch">The coral clock tile as a wide hero across the page, with the timeline folded into it: one white rail per block, and a white line for now. The mascot peeks over the hero's top edge. Pulls today, Up next and the block list sit underneath.</p>
+    <div class="notes"><span><i>Moves</i>The bar fills once. Mascot breathes.</span></div>
+  </header>
+  <div class="win" data-win="5"></div>
+</section>
+
+<script>
+// ───────── Sample day ─────────
+const NOW = 14 * 60 + 40;               // 2:40 PM
+const PULLS = [9 * 60 + 48, 11 * 60 + 52, 13 * 60 + 15];
+const BLOCKS = [
+  { name: 'Social media', icon: 'chat',   spans: [[0, 1440]],               enabled: true,  active: true,  locked: true, status: 'On · locked till restart', short: 'All day, locked' },
+  { name: 'Deep work',    icon: 'laptop', spans: [[540, 720], [780, 1020]], enabled: true,  active: true,  status: 'On until 5:00 PM', short: 'On until 5:00 PM' },
+  { name: 'Wind-down',    icon: 'moon',   spans: [[0, 420], [1260, 1440]],  enabled: true,  active: false, status: 'Starts 9:00 PM', short: 'Starts 9:00 PM' },
+  { name: 'News',         icon: 'paper',  spans: [],                        enabled: false, active: false, status: 'Off', short: 'Off' },
+];
+
+const fmt = m => { m = ((m % 1440) + 1440) % 1440; const h = Math.floor(m / 60), mm = m % 60, ap = h < 12 ? 'AM' : 'PM';
+  return `${h % 12 || 12}:${String(mm).padStart(2, '0')} ${ap}`; };
+const pct = m => `${(m / 1440 * 100).toFixed(2)}%`;
+const state = (b, a, c) => b.active && a <= NOW && NOW < c ? 'now' : c <= NOW ? 'past' : 'later';
+
+// ───────── Icons ─────────
+const I = {
+  chat:   '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M2.5 3.5h11v7h-6l-3.5 3v-3h-1.5z"/></svg>',
+  laptop: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3" y="3.5" width="10" height="7" rx="1.2"/><path d="M1.5 12.5h13"/></svg>',
+  moon:   '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M10.5 1.8a6.3 6.3 0 1 0 3.7 10.4A5.2 5.2 0 0 1 10.5 1.8z"/></svg>',
+  paper:  '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="2.5" y="2.5" width="11" height="11" rx="1.6"/><path d="M5 6h6M5 8.5h6M5 11h3.5"/></svg>',
+  plus:   '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 1.5v9M1.5 6h9"/></svg>',
+  lock:   '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="7" width="10" height="7" rx="1.6"/><path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>',
+  clock:  '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 4.8V8l2.2 1.6"/></svg>',
+  hand:   '<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.6" opacity=".45"/></svg>',
+  arrow:  '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg>',
+  grid:   '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="2" y="2" width="5.2" height="5.2" rx="1.4"/><rect x="8.8" y="2" width="5.2" height="5.2" rx="1.4"/><rect x="2" y="8.8" width="5.2" height="5.2" rx="1.4"/><rect x="8.8" y="8.8" width="5.2" height="5.2" rx="1.4"/></svg>',
+  stack:  '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="2" y="5.5" width="12" height="8.5" rx="1.8"/><rect x="4" y="2" width="8" height="2.5" rx="1"/></svg>',
+  book:   '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 3c2.2-.8 4.2-.6 5.5.6v10c-1.3-1.1-3.3-1.3-5.5-.6zM14 3c-2.2-.8-4.2-.6-5.5.6v10c1.3-1.1 3.3-1.3 5.5-.6z"/></svg>',
+  gear:   '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M7 1h2l.4 2 1.5.7 1.7-1.2 1.4 1.4-1.2 1.7.7 1.5 2 .4v2l-2 .4-.7 1.5 1.2 1.7-1.4 1.4-1.7-1.2-1.5.7L9 15H7l-.4-2-1.5-.7-1.7 1.2L2 12.1l1.2-1.7-.7-1.5L.5 8.5v-2l2-.4.7-1.5L2 2.9 3.4 1.5l1.7 1.2 1.5-.7z"/><circle cx="8" cy="8" r="2.4" fill="#fff"/></svg>',
+};
+
+// ───────── The mascot ─────────
+// A flat stand-in for the real Canvas mascot, in its real colours. The bulb carries the mood.
+function mascot({ mood = 'idle', peek = false, attrs = '', cls = '' } = {}) {
+  const ink = '#3B1F11', bulb = { idle: '#FFD25A', happy: '#FFC93C' }[mood];
+  const h = peek ? 66 : 80;
+  const eyes = mood === 'happy'
+    ? `<path d="M27 37.5 Q31 31.5 35 37.5 M45 37.5 Q49 31.5 53 37.5" fill="none" stroke="${ink}" stroke-width="2.5" stroke-linecap="round"/>`
+    : `<g class="eyes"><ellipse cx="31" cy="36" rx="3.2" ry="4.2" fill="${ink}"/><ellipse cx="49" cy="36" rx="3.2" ry="4.2" fill="${ink}"/>
+       <circle cx="32" cy="34.6" r="1.1" fill="#fff"/><circle cx="50" cy="34.6" r="1.1" fill="#fff"/></g>`;
+  const mouth = mood === 'happy'
+    ? `<path d="M33 44 Q40 55 47 44 Z" fill="#5E2410" stroke="${ink}" stroke-width="2" stroke-linejoin="round"/><ellipse cx="40" cy="49.4" rx="3.4" ry="1.8" fill="#FF7A63"/>`
+    : `<path d="M34.5 44.5 Q40 49.5 45.5 44.5" fill="none" stroke="${ink}" stroke-width="2.2" stroke-linecap="round"/>`;
+  const mitt = (x, y) => `<ellipse cx="${x}" cy="${y}" rx="7.2" ry="5.4" fill="#FFFAF0" stroke="${ink}" stroke-width="2.2"/>`;
+  const id = 'c' + Math.random().toString(36).slice(2, 8);
+  return `<svg class="mascot ${cls}" viewBox="0 0 80 ${h}" ${attrs}>
+    ${peek ? `<defs><clipPath id="${id}"><rect x="-10" y="-10" width="100" height="68"/></clipPath></defs>` : ''}
+    <g ${peek ? `clip-path="url(#${id})"` : ''}><g class="breath">
+      <line x1="40" y1="16" x2="40" y2="5" stroke="${ink}" stroke-width="2.4" stroke-linecap="round"/>
+      <circle cx="40" cy="5" r="7" fill="${bulb}" opacity=".4"/><circle cx="40" cy="5" r="3.6" fill="${bulb}" stroke="${ink}" stroke-width="1.7"/>
+      <circle cx="17" cy="24" r="7" fill="#FFAD33" stroke="${ink}" stroke-width="2.4"/><circle cx="17" cy="24" r="3.4" fill="#FF9A72"/>
+      <circle cx="63" cy="24" r="7" fill="#FFAD33" stroke="${ink}" stroke-width="2.4"/><circle cx="63" cy="24" r="3.4" fill="#FF9A72"/>
+      <rect x="12" y="15" width="56" height="54" rx="21" fill="#FFAD33" stroke="${ink}" stroke-width="2.6"/>
+      <path d="M15 52 Q14 66 30 68.5 L50 68.5 Q66 66 65 52 Q60 64 40 64.5 Q20 64 15 52Z" fill="#E59420" opacity=".45"/>
+      <ellipse cx="40" cy="56" rx="15" ry="8.5" fill="#FFF1C4" opacity=".85"/>
+      <ellipse cx="22" cy="24" rx="5" ry="3" fill="#fff" opacity=".5" transform="rotate(-30 22 24)"/>
+      ${eyes}
+      <ellipse cx="23.5" cy="44" rx="4" ry="2.4" fill="#FF8F73" opacity=".55"/><ellipse cx="56.5" cy="44" rx="4" ry="2.4" fill="#FF8F73" opacity=".55"/>
+      ${mouth}
+    </g></g>
+    ${peek ? mitt(25, 59) + mitt(55, 59) : mitt(12, 54) + mitt(68, 54)}
+  </svg>`;
+}
+
+// ───────── Window shell and shared tiles ─────────
+function shell(content) {
+  const row = (icon, name, color, sel, badge) =>
+    `<div class="srow ${sel ? 'sel' : ''}"><span class="ti" style="background:${color}">${I[icon]}</span>${name}${badge ? `<span class="badge">${badge}</span>` : ''}</div>`;
+  return `<aside class="side"><div class="lights"><i></i><i></i><i></i></div>
+    ${row('grid', 'Dashboard', '#FF9500', true)}${row('stack', 'Blocks', '#5856D6', false, 2)}${row('book', 'Journal', '#30B0C7')}${row('gear', 'Settings', '#8E8E93')}
+  </aside><div class="main">${content}</div>`;
+}
+const head = () => `<div class="head"><div><div class="eyebrow">Thursday, 26 November</div><div class="greet">Good afternoon</div></div>
+  <span class="newbtn">${I.plus}New block</span></div>`;
+const sw = b => `<span class="sw ${b.enabled ? 'on' : ''} ${b.locked ? 'locked' : ''}"></span>`;
+const statusClass = b => b.locked ? 'lock' : b.active ? 'on' : '';
+const lockGlyph = b => b.locked ? `<span class="lockglyph">${I.lock}</span>` : '';
+const factPills = () => `<div class="facts">
+  <span class="fact">${I.hand}Paused <b>3 times</b> today</span>
+  <span class="fact">${I.clock}Last pause <b>1:15 PM</b></span>
+  <span class="fact">${I.arrow}Next <b>Wind-down at 9:00 PM</b></span></div>`;
+
+const helloTile = (cls = 'span2', line = 'Social media is locked till restart, so that one\'s handled.') =>
+  `<div class="t hello ${cls}">${mascot({ attrs: 'width="96" height="96" style="flex:none;margin-bottom:-14px"' })}
+    <div class="say"><div class="greet">Good afternoon</div><p>${line}</p><span class="newbtn" style="margin-top:12px">${I.plus}New block</span></div></div>`;
+const pullsTile = (cls = '') => `<div class="t ${cls}"><div class="eyebrow">Pulls today</div><div class="big">3</div><div class="lbl">Last at 1:15 PM</div>
+  <div style="margin-top:18px"><div class="daystrip">${PULLS.map(m => `<i style="left:${pct(m)}"></i>`).join('')}<u style="left:${pct(NOW)}"></u></div>
+  <div class="stripaxis"><span>12a</span><span>6a</span><span>12p</span><span>6p</span><span>12a</span></div></div></div>`;
+const nextTile = (cls = '') => `<div class="t ${cls}"><div class="moon">${I.moon}</div><div class="eyebrow">Up next</div><div class="big">9:00</div><div class="lbl">PM · Wind-down until 7 AM</div></div>`;
+const blockList = () => BLOCKS.map(b => `<div class="row"><span class="icon-tile ${b.active ? 'on' : ''}">${I[b.icon]}</span>
+  <div class="grow"><div class="nm">${b.name}${lockGlyph(b)}</div><div class="status ${statusClass(b)}">${b.status}</div></div>${sw(b)}</div>`).join('');
+
+// ───────── The dial, light or on coral ─────────
+function dial(onCoral = false) {
+  const pt = (m, r) => { const t = m / 1440 * 2 * Math.PI; return [(-Math.sin(t) * r).toFixed(2), (Math.cos(t) * r).toFixed(2)]; };
+  const arc = (a, b, r) => {
+    if (b - a >= 1440) return `M 0 ${r} A ${r} ${r} 0 1 1 0 ${-r} A ${r} ${r} 0 1 1 0 ${r}`;
+    const [x1, y1] = pt(a, r), [x2, y2] = pt(b, r);
+    return `M ${x1} ${y1} A ${r} ${r} 0 ${b - a > 720 ? 1 : 0} 1 ${x2} ${y2}`;
+  };
+  const C = onCoral
+    ? { face: 'rgba(255,255,255,.07)', edge: 'rgba(255,255,255,.18)', night: 'rgba(80,20,10,.08)', star: 'rgba(255,255,255,.55)', tick: 'rgba(255,255,255,', label: 'rgba(255,255,255,.85)',
+        track: 'rgba(255,255,255,.16)', arc: '#fff', inner: '#F4573F', pull: 'rgba(60,20,10,.5)', hand: '#fff', knobEdge: '#F4573F', center: '#FFF6EE', time: '#D4432C' }
+    : { face: '#FFFBF7', edge: 'rgba(0,0,0,.06)', night: 'rgba(60,40,25,.045)', star: 'rgba(60,40,25,.3)', tick: 'rgba(0,0,0,', label: '#8C7B70',
+        track: 'rgba(0,0,0,.045)', arc: '#F4573F', inner: '#FFFBF7', pull: 'rgba(42,30,23,.5)', hand: '#F4573F', knobEdge: '#fff', center: '#FFF6EE', time: '#D4432C' };
+  const R = [148, 126, 104, 82], W = 13;
+  let s = `<svg class="dial" viewBox="-205 -205 410 410"><circle r="178" fill="${C.face}" stroke="${C.edge}"/>`;
+  const [a1, b1] = pt(1260, 177), [a2, b2] = pt(1830, 177);
+  s += `<path d="M0 0 L${a1} ${b1} A177 177 0 0 1 ${a2} ${b2} Z" fill="${C.night}"/>`;
+  for (const [m, r] of [[1300, 165], [1350, 120], [1395, 160], [1440, 140], [1480, 168], [1550, 125], [1610, 162], [1660, 132], [1720, 168]]) {
+    const [x, y] = pt(m, r); s += `<circle cx="${x}" cy="${y}" r="1.4" fill="${C.star}"/>`;
+  }
+  for (let h = 0; h < 24; h++) { const [x1, y1] = pt(h * 60, 168), [x2, y2] = pt(h * 60, h % 6 ? 172 : 177);
+    s += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${C.tick}${h % 6 ? (onCoral ? .35 : .15) : (onCoral ? .7 : .3)})" stroke-width="${h % 6 ? 1.2 : 2}" stroke-linecap="round"/>`; }
+  for (const [m, t] of [[0, 'MIDNIGHT'], [360, '6 AM'], [720, 'NOON'], [1080, '6 PM']]) { const [x, y] = pt(m, 192);
+    s += `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle" font-size="10.5" font-weight="800" letter-spacing=".8" fill="${C.label}">${t}</text>`; }
+  BLOCKS.forEach((b, i) => {
+    const r = R[i];
+    if (!b.spans.length) { s += `<circle r="${r}" fill="none" stroke="${onCoral ? 'rgba(255,255,255,.35)' : 'rgba(0,0,0,.2)'}" stroke-width="3" stroke-dasharray="1.5 7" stroke-linecap="round"/>`; return; }
+    s += `<circle r="${r}" fill="none" stroke="${C.track}" stroke-width="${W}"/>`;
+    for (const [a, c] of b.spans) {
+      const d = arc(a, c, r), st = state(b, a, c);
+      if (st === 'now') s += `<path d="${d}" fill="none" stroke="${C.arc}" stroke-width="${W}" stroke-linecap="round"/>`;
+      else if (st === 'past') s += `<path d="${d}" fill="none" stroke="${C.arc}" stroke-opacity="${onCoral ? .4 : .26}" stroke-width="${W}" stroke-linecap="round"/>`;
+      else s += `<path d="${d}" fill="none" stroke="${C.arc}" stroke-width="${W}" stroke-linecap="round"/><path d="${d}" fill="none" stroke="${C.inner}" stroke-width="${W - 5}" stroke-linecap="round"/>`;
+    }
+  });
+  for (const m of PULLS) { const [x, y] = pt(m, 160); s += `<circle cx="${x}" cy="${y}" r="3.3" fill="${C.pull}"><title>Paused at ${fmt(m)}</title></circle>`; }
+  const [hx, hy] = pt(NOW, 166), [h0x, h0y] = pt(NOW, 66);
+  s += `<g class="hand"><line x1="${h0x}" y1="${h0y}" x2="${hx}" y2="${hy}" stroke="${C.hand}" stroke-width="3.5" stroke-linecap="round"/>
+        <circle cx="${hx}" cy="${hy}" r="8" fill="${C.hand}" stroke="${C.knobEdge}" stroke-width="3"/></g>`;
+  s += `<circle r="62" fill="${C.center}"/>${mascot({ attrs: 'x="-42" y="-48" width="84" height="84"' })}
+        <text y="48" text-anchor="middle" font-size="13" font-weight="800" fill="${C.time}">${fmt(NOW)}</text></svg>`;
+  return s;
+}
+const ringKey = i => `<svg class="ringkey" viewBox="-13 -13 26 26">${[0, 1, 2, 3].map(j => `<circle r="${11 - j * 2.6}" fill="none" stroke="${i === j ? '#F4573F' : 'rgba(0,0,0,.1)'}" stroke-width="${i === j ? 2.2 : 1.2}"/>`).join('')}</svg>`;
+
+// ───────── 01 Sundial (kept as it was) ─────────
+function sundial() {
+  return head() + `<div class="c1">
+    <div class="paper dialcard">${dial()}</div>
+    <div>
+      <div class="paper now"><div class="eyebrow">Right now</div>
+        <div class="bigline">Deep work and Social media have your back.</div>
+        <div class="sub">Deep work runs until 5:00 PM. Then you're free until Wind-down at 9.</div></div>
+      <div class="paper list">${BLOCKS.map((b, i) => `<div class="row">${ringKey(i)}<div class="grow"><div class="nm">${b.name}</div><div class="status ${statusClass(b)}">${b.status}</div></div>${sw(b)}</div>`).join('')}</div>
+      ${factPills()}
+    </div></div>`;
+}
+
+// ───────── 02 Bento (improved) ─────────
+function bento() {
+  const track = b => b.spans.length
+    ? `<div class="track">${b.spans.map(([a, c]) => `<i class="${state(b, a, c)}" style="left:${pct(a)};width:${pct(c - a)}"></i>`).join('')}<u style="left:${pct(NOW)}"></u></div>`
+    : `<div class="track offtrack"></div>`;
+  return `<div class="c2"><div class="bento" style="grid-auto-rows:minmax(158px,auto)">
+    <div class="t coral t-now span2 rows2"><div class="orbit"></div>
+      <div class="eyebrow">Thursday · Right now</div>
+      <div class="clock">2:40<small>PM</small></div>
+      <span class="also">${I.lock}Social media is on too</span>
+      <div class="what">Deep work has your back</div>
+      <div class="nowbar"><i></i></div>
+      <div class="meta"><span>Since 1:00 PM</span><span>2 h 20 m to go</span></div>
+    </div>
+    ${helloTile()}
+    ${pullsTile()}
+    ${nextTile()}
+    <div class="t span4 t-blocks">${BLOCKS.map(b => `<div class="mini"><div class="top"><span class="icon-tile ${b.active ? 'on' : ''}">${I[b.icon]}</span>${sw(b)}</div>
+      <div><div class="nm">${b.name}${lockGlyph(b)}</div><div class="status ${statusClass(b)}">${b.short}</div></div>${track(b)}</div>`).join('')}</div>
+  </div></div>`;
+}
+
+// ───────── 03 Timeline (the notebook idea, in Bento's style) ─────────
+function timeline() {
+  let d = 0;
+  const label = (a, c, st) => {
+    if (c - a >= 1440) return 'All day · locked till restart';
+    if (c - a < 150) return '';
+    const t = `${fmt(a).replace(':00', '')} – ${fmt(c).replace(':00', '')}`;
+    return st === 'later' ? `From ${fmt(a)}` : t;
+  };
+  const lane = b => b.spans.length
+    ? `<div class="lane"><span class="night" style="left:0;width:${pct(390)}"></span><span class="night" style="left:${pct(1260)};right:0"></span>
+        ${b.spans.map(([a, c]) => { const st = state(b, a, c); return `<span class="bar ${st}" style="left:${pct(a)};width:calc(${pct(c - a)} - 2px);--d:${(d++) * 90}ms">${label(a, c, st)}</span>`; }).join('')}</div>`
+    : `<div class="lane off"><span class="offnote">Off today</span></div>`;
+  const hours = [[0, '12a'], [180, '3a'], [360, '6a'], [540, '9a'], [720, 'noon'], [900, '3p'], [1080, '6p'], [1260, '9p'], [1440, '12a']]
+    .map(([m, t]) => `<span style="left:${pct(m)}">${t}</span>`).join('');
+  return `<div class="c3"><div class="bento" style="grid-auto-rows:auto">
+    ${helloTile('span2', 'Two blocks have your back right now.')}
+    <div class="t coral t-now span2"><div class="orbit"></div>
+      <div class="row1"><div class="eyebrow">Right now</div></div>
+      <div class="clock m" style="margin:6px 0 14px">2:40<small>PM</small></div>
+      <div class="what">Deep work has your back</div>
+      <div class="nowbar"><i></i></div>
+      <div class="meta"><span>Since 1:00 PM</span><span>2 h 20 m to go</span></div>
+    </div>
+    <div class="t span4 tlcard">
+      <div class="tlhead"><span class="eyebrow">Your day</span>
+        <span class="legend"><span><i style="background:var(--coral)"></i>On now</span><span><i style="background:rgba(244,87,63,.22)"></i>Done</span><span><i style="box-shadow:inset 0 0 0 1.5px var(--coral)"></i>Later</span><span><i style="width:8px;background:var(--ink);opacity:.7"></i>A pull</span></span></div>
+      <div class="tl">
+        <div class="names">${BLOCKS.map(b => `<div class="nm"><span class="icon-tile ${b.active ? 'on' : ''}">${I[b.icon]}</span><div><b>${b.name}${lockGlyph(b)}</b><span class="status ${statusClass(b)}">${b.short}</span></div></div>`).join('')}
+          <div class="nm"><span class="icon-tile">${I.hand}</span><div><b>Pulls</b><span class="status">3 today</span></div></div></div>
+        <div class="tracks"><div class="hours">${hours}</div>
+          ${BLOCKS.map(lane).join('')}
+          <div class="lane"><span class="night" style="left:0;width:${pct(390)}"></span><span class="night" style="left:${pct(1260)};right:0"></span>
+            ${PULLS.map(m => `<span class="pull" style="left:${pct(m)}" title="Paused at ${fmt(m)}"></span>`).join('')}</div>
+          <div class="nowline" style="left:${pct(NOW)}"><span>${fmt(NOW)}</span></div>
+        </div>
+      </div>
+    </div>
+  </div></div>`;
+}
+
+// ───────── 04 Dial bento (new) ─────────
+function dialBento() {
+  return `<div class="c4"><div class="bento" style="grid-auto-rows:minmax(160px,auto)">
+    <div class="t coral t-dial span2 rows2">
+      <div class="cap"><div class="eyebrow">Thursday · Right now</div></div>
+      ${dial(true)}
+      <div class="cap2">Deep work has your back <span style="opacity:.75;font-weight:700">· until 5:00 PM</span></div>
+    </div>
+    ${helloTile()}
+    ${pullsTile()}
+    ${nextTile()}
+    <div class="t span4 t-list" style="display:grid;grid-template-columns:1fr 1fr;column-gap:28px">${BLOCKS.map((b, i) =>
+      `<div class="row" style="${i === 1 || i === 3 ? '' : ''}">${ringKey(i)}<div class="grow"><div class="nm">${b.name}${lockGlyph(b)}</div><div class="status ${statusClass(b)}">${b.status}</div></div>${sw(b)}</div>`).join('')}</div>
+  </div></div>`;
+}
+
+// ───────── 05 Spotlight (new) ─────────
+function spotlight() {
+  const rail = b => b.spans.length
+    ? `<div class="rail">${b.spans.map(([a, c]) => `<i class="${state(b, a, c)}" style="left:${pct(a)};width:${pct(c - a)}"></i>`).join('')}</div>`
+    : `<div class="rail offrail"></div>`;
+  return `<div class="c5"><div class="bento" style="grid-auto-rows:auto">
+    <div class="t coral hero span4">
+      <div class="bubble tail-right say">Two blocks on. All calm.</div>
+      ${mascot({ peek: true, cls: 'peek', attrs: 'width="92" height="76"' })}
+      <div class="grid">
+        <div><div class="eyebrow">Thursday, 26 November · Good afternoon</div>
+          <div class="clock" style="margin-top:12px">2:40<small>PM</small></div>
+          <div class="what">Deep work has your back</div>
+          <div class="sub">2 h 20 m to go · Social media is on too, locked till restart</div></div>
+        <div class="rails">
+          ${BLOCKS.map(b => `<span class="rn">${b.name}</span>${rail(b)}`).join('')}
+          <span></span><div class="railaxis"><span>12a</span><span>6a</span><span>noon</span><span>6p</span><span>12a</span></div>
+          <div class="railnow" style="left:calc(104px + (100% - 104px) * ${(NOW / 1440).toFixed(4)});top:-8px;bottom:22px"></div>
+        </div>
+      </div>
+    </div>
+    ${pullsTile()}
+    ${nextTile()}
+    <div class="t span2 t-list"><div class="row" style="padding:12px 0 8px;justify-content:space-between"><span class="eyebrow">Your blocks</span><span class="newbtn">${I.plus}New block</span></div>${blockList()}</div>
+  </div></div>`;
+}
+
+const builders = { 1: sundial, 2: bento, 3: timeline, 4: dialBento, 5: spotlight };
+document.querySelectorAll('[data-win]').forEach(w => { w.innerHTML = shell(builders[w.dataset.win]()); });
+</script>
+</body>
+</html>

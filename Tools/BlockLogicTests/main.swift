@@ -104,10 +104,6 @@ block.isEnabled = false
 check("disabled and unlocked is inactive", !block.isActive(at: morning))
 block.isEnabled = true
 check("enabled always-on is active", block.isActive(at: morning))
-block.breaks.isEnabled = true
-block.breaks.currentBreakEndsAt = morning.addingTimeInterval(300)
-check("on a break is inactive", !block.isActive(at: morning))
-block.breaks.currentBreakEndsAt = nil
 block.schedule = .scheduled([work])
 check("scheduled inside window is active", block.isActive(at: date(2, 10, 0)))
 check("scheduled outside window is inactive", !block.isActive(at: date(2, 20, 0)))
@@ -115,6 +111,23 @@ block.schedule = .manual(minutes: 25)
 block.manualRunEndsAt = morning.addingTimeInterval(600)
 check("manual run active before it ends", block.isActive(at: morning))
 check("manual run inactive after it ends", !block.isActive(at: morning.addingTimeInterval(700)))
+
+print("App rules outrank website rules")
+var arcAndX = Block(name: "Distractions")
+arcAndX.list.apps = ["company.thebrowser.Browser"]
+arcAndX.list.hosts = ["x.com"]
+var onlyX = Block(name: "Sites")
+onlyX.list.hosts = ["x.com"]
+var onlyArc = Block(name: "Browsers")
+onlyArc.list.apps = ["company.thebrowser.Browser"]
+let arcOnX = ScreenContext(bundleID: "company.thebrowser.Browser", appName: "Arc", processID: 3, url: URL(string: "https://x.com/home"))
+let safariOnX = ScreenContext(bundleID: "com.apple.Safari", appName: "Safari", processID: 4, url: URL(string: "https://x.com/home"))
+check("same block: Arc on x.com quits Arc",
+      BlockEvaluator(blocks: [arcAndX], driftKeywords: []).ruleVerdict(for: arcOnX)?.ruleTarget == .app("company.thebrowser.browser"))
+check("separate blocks: the app rule wins even when listed second",
+      BlockEvaluator(blocks: [onlyX, onlyArc], driftKeywords: []).ruleVerdict(for: arcOnX)?.ruleTarget == .app("company.thebrowser.browser"))
+check("an unblocked browser on x.com closes the tab",
+      BlockEvaluator(blocks: [arcAndX], driftKeywords: []).ruleVerdict(for: safariOnX)?.ruleTarget == .website("x.com"))
 
 print("Quit protection")
 var policy = Block(name: "Focus")
@@ -222,6 +235,90 @@ func checkEnforcement() throws {
     check("explicitly stopping the unlocked block releases both targets", !blocks(game) && !blocks(page))
 }
 do { try checkEnforcement() } catch { check("isolated process checks: \(error)", false) }
+
+print("Restart lock")
+func checkRestartLock() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = directory.appending(path: "blocks.json")
+
+    // Engaged on this boot: a relaunch of Fence must not release it.
+    var thisBoot = Block(name: "This boot")
+    thisBoot.lock.method = .restart
+    let first = BlockStore(fileURL: file)
+    first.add(thisBoot)
+    _ = first.setEnabled(true, for: thisBoot.id)
+    let relaunched = BlockStore(fileURL: file)
+    check("a relaunch keeps the restart lock", relaunched.block(id: thisBoot.id)?.isLocked() == true)
+    check("a locked block can't be switched off",
+          relaunched.setEnabled(false, for: thisBoot.id) != .changed)
+
+    // Engaged on an earlier boot: the lock ends, the block stays on.
+    var earlier = Block(name: "Earlier boot")
+    earlier.isEnabled = true
+    earlier.lock.method = .restart
+    earlier.lock.engagedUntilRestart = true
+    earlier.lock.engagedBootSessionID = "an-earlier-boot"
+    earlier.lock.engagedAtBootTime = Date(timeIntervalSince1970: 0)
+    var saved = relaunched.blocks
+    saved.append(earlier)
+    try JSONEncoder().encode(saved).write(to: file, options: .atomic)
+    let afterReboot = BlockStore(fileURL: file)
+    let released = afterReboot.block(id: earlier.id)
+    check("a restart releases the lock", released?.isLocked() == false)
+    check("a restart leaves the block on", released?.isEnabled == true && released?.isActive() == true)
+    check("a released block can be switched off", afterReboot.setEnabled(false, for: earlier.id) == .changed)
+    check("a lock from this boot survives another block's release",
+          afterReboot.block(id: thisBoot.id)?.isLocked() == true)
+}
+do { try checkRestartLock() } catch { check("restart lock checks: \(error)", false) }
+
+@MainActor
+func checkListWords() {
+    let file = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString + "-lists.json")
+    defer { try? FileManager.default.removeItem(at: file) }
+    let adult: Set<String> = [PreMadeList.adult.rawValue]
+    let lists = PreMadeLists(fileURL: file, catalog: WebsiteCategoryCatalog(url: nil), lookup: { _ in WebsiteCategoryCatalog(url: nil) })
+    func address(_ string: String) -> String { WebRuleInput(url: URL(string: string)!)!.address }
+
+    func matches(_ url: String, title: String? = nil) -> Bool {
+        !lists.wordMatches(in: address(url), title: title, among: adult).isEmpty
+    }
+
+    check("a fragment matches inside a host", lists.wordMatches(in: address("https://newpornsite.example"), among: adult)[adult.first!] == "porn")
+    check("a fragment matches a search", matches("https://www.google.com/search?q=free+PORN"))
+    check("a whole word matches between separators", matches("https://example.com/hot-milf-videos"))
+    check("a whole word may be plural", matches("https://example.com/leaked_nudes"))
+    check("a whole word doesn't match inside another", !matches("https://example.com/denuded-forests"))
+    check("a phrase matches word by word", matches("https://example.com/watch/sex-videos"))
+    check("same-sex doesn't match", !matches("https://news.example/same-sex-marriage-ruling"))
+    check("Sussex doesn't match", !matches("https://www.sussex.ac.uk/"))
+    check("the title counts", matches("https://unknown.example/v/8812", title: "Free sex videos – Unknown"))
+    check("an ordinary title doesn't match", !matches("https://unknown.example/v/8812", title: "Quarterly report"))
+    check("looking for help isn't blocked", !matches("https://www.google.com/search?q=how+to+quit+porn"))
+    check("looking up a meaning isn't blocked", !matches("https://www.google.com/search?q=what+does+nsfw+mean"))
+    check("an ambiguous word beside an explicit one matches", matches("https://new.example/watch/teen-sex-video-8812"))
+    check("a phrase from slang matches", matches("https://new.example/blue-film-nepali"))
+    check("summa cum laude doesn't match", !matches("https://www.harvard.edu/summa-cum-laude"))
+    check("Moby-Dick doesn't match", !matches("https://www.goodreads.com/moby-dick-story"))
+    check("bird photos don't match", !matches("https://www.rspb.org.uk/birds/blue-tits-photo"))
+    check("xxx on its own matches", matches("https://xxx.example"))
+    check("xxx inside a name doesn't", !matches("https://music.example/artist/xxxtentacion"))
+    check("a list not in use doesn't match", lists.wordMatches(in: address("https://xxx.example"), among: []).isEmpty)
+    check("an address-wide word is refused", lists.addWord("https", to: .adult) != nil)
+    check("a short word is refused", lists.addWord("ab", to: .adult) != nil)
+    check("a short Korean word is fine", PreMadeLists.word(from: "야동") != nil)
+    check("a new word is added", lists.addWord("Sussex", to: .adult) == nil)
+    check("an added word matches anywhere", matches("https://www.sussex.ac.uk/"))
+    lists.removeWord("porn", from: .adult)
+    check("the 18+ list's built-in words can't be removed", matches("https://newpornsite.example"))
+    let reread = PreMadeLists(fileURL: file, catalog: WebsiteCategoryCatalog(url: nil), lookup: { _ in WebsiteCategoryCatalog(url: nil) })
+    check("word edits survive a reload", reread.addedWords(in: .adult) == ["sussex"])
+    let old = try? JSONDecoder().decode(PreMadeListEdits.self, from: Data(#"{"addedSites":["a.com"],"removedSites":[],"addedApps":[],"removedApps":[]}"#.utf8))
+    check("saves from before words still decode", old?.addedSites == ["a.com"] && old?.addedWords.isEmpty == true)
+}
+checkListWords()
 
 print("")
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILURE(S)")

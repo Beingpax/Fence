@@ -16,44 +16,44 @@ import uuid
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-AGENT = ROOT / "Services/com.beingpax.Shift.enforcement.plist"
+AGENT = ROOT / "Services/com.prakashjoshipax.Fence.enforcement.plist"
 
 
 @unittest.skipUnless(sys.platform == "darwin", "requires macOS launchd")
 class EnforcementLifecycleTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        build = tempfile.TemporaryDirectory(prefix="shift-lifecycle-build-")
+        build = tempfile.TemporaryDirectory(prefix="fence-lifecycle-build-")
         cls.addClassCleanup(build.cleanup)
-        cls.executable = Path(build.name) / "Shift"
+        cls.executable = Path(build.name) / "Fence"
         boundaries = {
-            "App/ShiftApp.swift", "Detection/ContextMonitor.swift",
-            "Enforcement/PauseController.swift", "Enforcement/ShiftInstallation.swift",
+            "App/FenceApp.swift", "Detection/ContextMonitor.swift",
+            "Enforcement/PauseController.swift", "Enforcement/FenceInstallation.swift",
         }
-        source = ROOT / "Shift"
+        source = ROOT / "Fence"
         sources = sorted(p for p in source.rglob("*.swift") if str(p.relative_to(source)) not in boundaries)
         subprocess.run(["swiftc", "-swift-version", "5", "-strict-concurrency=complete", "-warnings-as-errors",
                         "-o", cls.executable, *sources, HERE / "HeadlessBoundaries.swift"], check=True)
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix="shift-lifecycle-", dir="/private/tmp")
+        tmp = tempfile.TemporaryDirectory(prefix="fence-lifecycle-", dir="/private/tmp")
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.domain = f"gui/{os.getuid()}"
-        self.label = "test.shift.lifecycle." + uuid.uuid4().hex
+        self.label = "test.fence.lifecycle." + uuid.uuid4().hex
         self.target = f"{self.domain}/{self.label}"
         self.addCleanup(self.clean_fixture_preferences)
-        app = self.root / "ShiftLifecycle.app"
+        app = self.root / "FenceLifecycle.app"
         job = plistlib.loads(AGENT.read_bytes())
-        self.assertEqual(job["ProgramArguments"], ["Shift", "--enforcement-agent"])
+        self.assertEqual(job["ProgramArguments"], ["Fence", "--enforcement-agent"])
         self.assertIs(job["KeepAlive"], True)
-        self.assertEqual(job["BundleProgram"], "Contents/MacOS/Shift")
+        self.assertEqual(job["BundleProgram"], "Contents/MacOS/Fence")
         self.binary = app / job.pop("BundleProgram")
         self.binary.parent.mkdir(parents=True)
         shutil.copy2(self.executable, self.binary)
         (app / "Contents/Info.plist").write_bytes(plistlib.dumps({
-            "CFBundleIdentifier": self.label, "CFBundleExecutable": "Shift", "CFBundleVersion": "1",
-            "CFBundlePackageType": "APPL", "LSUIElement": True, "ShiftTestDirectory": str(self.root),
+            "CFBundleIdentifier": self.label, "CFBundleExecutable": "Fence", "CFBundleVersion": "1",
+            "CFBundlePackageType": "APPL", "LSUIElement": True, "FenceTestDirectory": str(self.root),
         }))
 
         dashboard_log = (self.root / "dashboard.log").open("w")
@@ -69,7 +69,7 @@ class EnforcementLifecycleTests(unittest.TestCase):
         self.addCleanup(self.remove_test_job)
         self.bootstrap()
         self.initial_pid = self.wait_for(self.job_pid, "launchd to report its first PID")
-        self.probe("game", expected="app:test.shift.game", expected_pid=self.initial_pid)
+        self.probe("game", expected="app:test.fence.game", expected_pid=self.initial_pid)
 
     def wait_for(self, predicate, description, timeout=30):
         end = time.monotonic() + timeout
@@ -135,7 +135,7 @@ class EnforcementLifecycleTests(unittest.TestCase):
         self.assertEqual(self.dashboard.returncode, -9)
         for kind, path, expected in [
             ("browser", "/feed", "path:fixture.invalid/feed"),
-            ("browser", "/inbox", "allow"), ("game", "", "app:test.shift.game"),
+            ("browser", "/inbox", "allow"), ("game", "", "app:test.fence.game"),
         ]:
             with self.subTest(kind=kind, path=path):
                 self.assertEqual(self.probe(kind, path, expected=expected)["pid"], self.initial_pid)
@@ -183,7 +183,7 @@ class EnforcementLifecycleTests(unittest.TestCase):
         self.assertEqual(result["pid"], replacement)
         print(f"\n  launchd replaced PID {self.initial_pid} with {replacement}; "
               f"first confirmed blocked probe after {time.monotonic() - started:.2f}s", flush=True)
-        self.assertEqual(self.probe("game", expected="app:test.shift.game")["pid"], replacement)
+        self.assertEqual(self.probe("game", expected="app:test.fence.game")["pid"], replacement)
         self.assertEqual(self.probe("browser", "/inbox", expected="allow")["pid"], replacement)
 
     def update_rule(self, **changes):
@@ -206,23 +206,23 @@ class EnforcementLifecycleTests(unittest.TestCase):
 
     def test_agent_restores_exact_trashed_app_during_unlocked_block(self):
         self.stop_dashboard()
-        app = self.root / "ShiftLifecycle.app"
+        app = self.root / "FenceLifecycle.app"
         trash = self.root / "FixtureTrash"
         trash.mkdir()
         decoy = trash / app.name
         decoy.mkdir()
         original_inode = app.stat().st_ino
-        moved = trash / "ShiftLifecycle 2.app"
+        moved = trash / "FenceLifecycle 2.app"
         app.rename(moved)
         self.wait_for(app.is_dir, "original bundle to return")
         self.assertEqual(app.stat().st_ino, original_inode)
         self.assertFalse(moved.exists())
         self.assertTrue(decoy.is_dir())
-        self.probe("game", expected="app:test.shift.game", expected_pid=self.initial_pid)
+        self.probe("game", expected="app:test.fence.game", expected_pid=self.initial_pid)
 
     def test_recovery_leaves_ordinary_moves_and_destination_conflicts_alone(self):
         self.stop_dashboard()
-        app = self.root / "ShiftLifecycle.app"
+        app = self.root / "FenceLifecycle.app"
         moved = self.root / "Relocated.app"
         app.rename(moved)
         time.sleep(2.2)
@@ -243,20 +243,20 @@ class EnforcementLifecycleTests(unittest.TestCase):
         self.stop_dashboard()
         self.update_rule(isEnabled=False)
         self.wait_for(self.monitor_is_idle, "unlocked block to stop")
-        app = self.root / "ShiftLifecycle.app"
+        app = self.root / "FenceLifecycle.app"
         trash = self.root / "FixtureTrash"
         trash.mkdir()
         app.rename(trash / app.name)
         self.update_rule(isEnabled=True)
-        self.probe("game", expected="app:test.shift.game", expected_pid=self.initial_pid)
+        self.probe("game", expected="app:test.fence.game", expected_pid=self.initial_pid)
         time.sleep(2.2)
         self.assertFalse(app.exists())
         self.assertTrue((trash / app.name).is_dir())
 
     def test_open_app_restores_from_trash_when_agent_is_unavailable(self):
         self.unload()
-        self.probe("game", expected="app:test.shift.game", expected_pid=self.dashboard.pid)
-        app = self.root / "ShiftLifecycle.app"
+        self.probe("game", expected="app:test.fence.game", expected_pid=self.dashboard.pid)
+        app = self.root / "FenceLifecycle.app"
         trash = self.root / "FixtureTrash"
         trash.mkdir()
         app.rename(trash / app.name)
@@ -268,7 +268,7 @@ class EnforcementLifecycleTests(unittest.TestCase):
         # Foundation's default JSON date is seconds since 2001-01-01 UTC.
         deadline = time.time() + 8
         self.update_rule(schedule={"manual": {}}, manualRunEndsAt=deadline - 978307200)
-        app = self.root / "ShiftLifecycle.app"
+        app = self.root / "FenceLifecycle.app"
         shutil.rmtree(app)
         self.assertFalse(app.exists())
         self.probe("browser", "/feed", expected="path:fixture.invalid/feed", expected_pid=self.initial_pid)
@@ -287,7 +287,7 @@ class EnforcementLifecycleTests(unittest.TestCase):
         self.wait_for(self.monitor_is_idle, "agent to release the monitor")
         self.assertEqual(self.job_pid(), self.initial_pid)
         self.update_rule(isEnabled=True)
-        self.assertEqual(self.probe("game", expected="app:test.shift.game")["pid"], self.initial_pid)
+        self.assertEqual(self.probe("game", expected="app:test.fence.game")["pid"], self.initial_pid)
 
 
 if __name__ == "__main__":
