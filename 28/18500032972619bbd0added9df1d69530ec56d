@@ -1,0 +1,243 @@
+Fence/Models/ScreenContext.swift
+  s_a4498aea0cfd11::t_e093f1b7222c26 1-25
+CREDITS.md
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 5
+  s_a4498aea0cfd11::t_0c1375bd4c02db 11,15
+Services/com.prakashjoshipax.Fence.enforcement.plist
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 1-12
+Tools/run-block-tests.sh
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 9-12
+Fence.xcodeproj/project.pbxproj
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 10-11,21-22,30-32,36,38,57-59,67,75,77,89,91,94-95,113,127,266,275,284-285,297,306,315-316,326,335
+Fence/App/main.swift
+  s_af6a2cf63aa2e5::t_d53dfb000f1c96 1-7
+Fence/UI/Design/Controls.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 1-476
+Fence/UI/Design/Materials.swift
+  s_a4498aea0cfd11::t_c0cc07b342feaf 1-464
+Studies/mascot-3d.html
+  s_af6a2cf63aa2e5::t_15715f56690a9d 269
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 5,7-9,56,92,105,332
+Fence/Detection/ContextMonitor.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 1-175
+Studies/mascot-compare-beats.html
+  s_af6a2cf63aa2e5::t_15715f56690a9d 584
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 5,7,58,93-94,96,629
+Fence/Models/Urge.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 1,35-42
+Studies/character-studio.html
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 6,8,21,145,539,584
+  s_af6a2cf63aa2e5::t_15715f56690a9d 133
+Fence/Enforcement/EnforcementService.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 11-14,19,21,57,71,111,115
+Fence/UI/SettingsView.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 89,97,110,118,128,138,143,159,174,176-177
+Fence/Enforcement/ProcessLease.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 1,4-7,9-16,19-26
+Fence/Enforcement/NudgeSound.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 1-13,15-39
+  s_a4498aea0cfd11::t_c0cc07b342feaf 14
+Fence/Detection/AddressObserver.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 1-162
+Fence/Enforcement/RunningBundleRecovery.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 11,25,33-34,39
+Fence/UI/PermissionsManager.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 24,26,31,37
+Fence/UI/DesignSystem.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 33-35,38-44,226,266-273
+Fence/UI/Main/BlockEditorView.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 30-32,36-37,88-91,102-116,239-243,246-255,258-267,269-276,280,282-301,347,352,360,371-377,383-462,544-546,553-557,566,625-637,640-678,683,937-938,1011-1017,1030-1032,1035-1036,1038,1044-1059,1061,1077,1090,1096-1097,1102-1103,1105,1109,1111,1115,1128-1199,1266,1431,1648,1679-1684,1694,1705-1706,1718,1723,1727-1731,1748,1828,1830-1841,1853-1854,1859-1862,1871,1889-1931,2026-2046,2160-2161,2166,2170,2172-2178,2288,2357
+Fence/UI/Main/JournalView.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 119
+PRD.md
+  s_a4498aea0cfd11::t_e093f1b7222c26 14,27,35,39,56,61,81,103,119,131,152,165,175,191,209,215,218,247,251,253,268,275,277,279,287,305,328,337,342,352,378,380,382,386
+  s_a4498aea0cfd11::t_86094d8b7f802e 335
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 1,3,20,58,92-93,96,207,244-245,249,264,284,314-315,350,374
+CLAUDE.md
+  s_81a07d5e45cdc8::t_c2132e046bd62a 222-223,226-227,229-249
+  s_af6a2cf63aa2e5::t_eaa2962ad05827 34-35
+  s_6a16bc87c8a5bd::t_84dd65e4d81a4e 88-91,109-112,117-120
+  s_af6a2cf63aa2e5::t_5d5758b5eb013f 355-356
+  s_6a16bc87c8a5bd::t_fddf68c8affc86 92-93,95-99,185,190
+  s_a4498aea0cfd11::t_6c502ed24eb37a 1,9,150-151,276-277,324,512,576-580,609,727
+  s_af6a2cf63aa2e5::t_985aecbbca3987 3-7,11,269-270,293,296-298,358,516,600
+  s_af6a2cf63aa2e5::t_907454e7efec15 32,38-39,71,77,590
+  s_81a07d5e45cdc8::t_8cc86ce776a4d4 165-173,219-220
+  s_af6a2cf63aa2e5::t_49ffa2d24bb78e 136,250,274-275,278-280,286-289,292,294-295
+  s_a4498aea0cfd11::t_b50860487c10e0 458,468,521,695
+  s_6a16bc87c8a5bd::t_516302eac48317 102,106
+  s_af6a2cf63aa2e5::t_e272d9f20e1db5 515
+  s_af6a2cf63aa2e5::t_842f7c992e8558 56,60,63-64,461-464,487
+  s_6a16bc87c8a5bd::t_e3c4320d0d2d26 100,113-116,177,180
+  s_6a16bc87c8a5bd::t_b805dbfa54265c 178-179
+  s_a4498aea0cfd11::t_e093f1b7222c26 561,820
+  s_a4498aea0cfd11::t_86094d8b7f802e 224-225,228
+  s_6a16bc87c8a5bd::t_8907fe2e7f1f18 101,181-184
+  s_af6a2cf63aa2e5::t_f474b4c098ad15 37
+  s_af6a2cf63aa2e5::t_85932fb801fc16 33,36
+  s_af6a2cf63aa2e5::t_9309fd7af2443a 55,57-59,61-62,65,67-70
+  s_af6a2cf63aa2e5::t_5bc12d5023e9de 41,53-54,72-76,354
+  s_e298da33fc76c8::t_74392370b17bc9 66,134,140-142,336-337,721-723,726
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 45,52,143,153,186,281-285,290-291,301,304,307-308,316,318,329,351,353,357,398-399,434,436,465,517,532,554,585-586,633-635,679,755,814
+  s_6a16bc87c8a5bd::t_20bce81343d76c 94
+  s_81a07d5e45cdc8::t_e9b69ac50dca2c 221
+  s_af6a2cf63aa2e5::t_ded4ef954d7f77 40,42-44,46-51,305
+  s_6a16bc87c8a5bd::t_bbde52fd187b03 103-105,107-108
+Fence/Enforcement/ExecutableStamp.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 1-52
+Fence/Enforcement/GuardState.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 3-17,19,21,23-25,27-29,32-36,39-41
+Tools/EnforcementLifecycleTests/HeadlessBoundaries.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 5,7-8,11,22,24,34,63,88,95
+Fence/UI/Main/MainWindowView.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 103,228,236
+  s_a4498aea0cfd11::t_c0cc07b342feaf 43
+Fence/UI/Onboarding/OnboardingTour.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 1-704
+Fence/UI/MenuBarView.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 41,58,78,81,92,130
+Fence/Intelligence/WebsiteCategoryCatalog.swift
+  s_a4498aea0cfd11::t_c0cc07b342feaf 109,121
+  s_a4498aea0cfd11::t_7b44126ed8dfaa 150
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 15,22,95,99-108,110-120,122-149,151-199,290-291,293-309,324,339-340,344,347,354,382-398,437-452,457,493-529,533,571-577,580-590,648-727
+Fence/Detection/Browser.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 1-51
+Fence/UI/MascotGallery.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 4,23,159
+Fence/Models/Block.swift
+  s_a4498aea0cfd11::t_c0cc07b342feaf 3-5,153-174
+Fence/UI/Onboarding/OnboardingController.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 6-8,23-24,29-30,32-33,37,40-48,50
+Studies/mascot-compare.html
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 5,7,62,102-103,105,558
+  s_af6a2cf63aa2e5::t_15715f56690a9d 493
+Tools/package-fence.sh
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 5,12-15,23-24,28,33
+Fence/UI/Onboarding/OnboardingView.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 1,4-5,14-17,25,37-39,43,50,60,69-70,77-80,99-116,168,186-188,201,207-210,216-249,253-280,286-287,289-297,305-308,356-357,359,361-364,373,376,389-404,406-419,422-439,441-467,469-472,475-491,493,496-497,499-519,548-550,566,582,595-596,600,602-603,605,633-634,654-655,666-674,821-824,830-837,840,842,844-852,854,856-876,878-889,894-896,898,902-903,912,915-916,921,1021-1026,1030-1031,1034,1036-1039,1041-1053,1056,1058-1059,1061-1062,1068-1072,1076-1120,1122-1124,1128-1136,1138-1156,1158,1160,1162-1170,1173-1190,1192-1245,1247-1296,1300-1301,1303-1397
+Fence/Enforcement/PauseController.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 1-134
+Tools/EnforcementLifecycleTests/test_enforcement_lifecycle.py
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 19,26,28,30-31,33,39,43,46,48,50,55-56,72,138,186,209,215,221,225,246,251,258-259,271,290
+Fence/Resources/Filtering/AdultDomains-Credits.txt
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 2,5,8-9
+  s_a4498aea0cfd11::t_0c1375bd4c02db 1,3-4,6-7
+Fence/UI/Main/BlocksView.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 3,5-9,11-15,18,21-27,30-34,36,39,42,46,63-68,71,73-80,82,85-86,90,92-95,97-99,101-102,104-106,109-116,119-130,132,134,136-138,140,142,144-145,147-148,150-151,153,155,158,160-162,164,166-169,171-172,175,177-185,187-199,203-207,215-218,226,228-231,233-263,266,270-280,283-297,299,301-302,307-311,314-325,327,329,331-332
+Tools/TabCloseTrials/trial.sh
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 6,13,15
+  s_af6a2cf63aa2e5::t_64f91ce97cc94b 16,24,26
+Fence/Intelligence/BlockEvaluator.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 12-14,19,41-42,47,66-68
+Studies/dashboard-ideas.html
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 5,58,236
+  s_6a16bc87c8a5bd::t_4dbcc1d2291dba 8-13,37,43,52-53,60,63,78,89-90,98-128,136-137,142,144,147-203,208-215,217-228,237-238,242-245,251-253,261-263,271-273,281-283,291-293,303-306,311-312,333-342,345-346,360,364,372,374,376,382-393,400-404,406,408,410,413,415,418-419,421-424,427,429-438,440,443,445,450,452-456,459,461,464-468,472-494,496-508,510,513-518,521-548,550-552,556
+  s_6a16bc87c8a5bd::t_156001809b151c 204-207,216,519
+  s_6a16bc87c8a5bd::t_cc5ef25e1fe962 1-4,6-7,14-36,38-42,44-51,54-57,59,61-62,64-77,79-88,91-97,129-135,138-141,143,145-146,229-235,239-241,246-250,254-260,264-270,274-280,284-290,294-302,307-310,313-332,343-344,347-359,361-363,365-371,373,375,377-381,394-399,405,407,409,411-412,414,416-417,420,425-426,428,439,441-442,444,446-449,451,457-458,460,462-463,469-471,495,509,511-512,520,549,553-555,557-560
+Fence/Models/BlockStore.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 13,21,31
+Fence/UI/NudgeHUD.swift
+  s_a4498aea0cfd11::t_c0cc07b342feaf 30
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 340
+Tools/BlockLogicTests/main.swift
+  s_81a07d5e45cdc8::t_c2132e046bd62a 300-305
+  s_81a07d5e45cdc8::t_6839c7b0b86f5a 285-299,311,313,315,317
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 246
+  s_81a07d5e45cdc8::t_e03e5e9f47ece8 277-284,308-310,312,314,316,318-322
+  s_81a07d5e45cdc8::t_fddeec99019564 306-307
+Fence/Enforcement/FenceInstallation.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 3,6
+  s_af6a2cf63aa2e5::t_48a043817fc160 4-5,10
+Tools/benchmark-website-catalogs.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 96
+Fence/UI/Design/BlockingPermissionRow.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 44,56,69,73-74,79,81,84,86,90,97
+Fence/UI/Main/MainWindowController.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 9,19-20,40,55,60-64,89-90,112-126,141
+Fence/UI/MascotView.swift
+  s_a4498aea0cfd11::t_b50860487c10e0 93
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 3-10,17,89,120-121,138-145,149-156,158,168,172-173,180
+Tools/test-package-fence.py
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 1,11,18,20,25,28-29,48,52-54
+Studies/palette-compare.html
+  s_af6a2cf63aa2e5::t_15715f56690a9d 272,287
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 5,135,251,253-255,267
+Fence/Enforcement/PauseView.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 5-6,23-27,386-387,395-396,412,417-419,538
+Tools/README.md
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 3,8,13,25
+Fence/Enforcement/TabCloser.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 14-15,56,127,146-147
+Fence/App/AppIdentity.swift
+  s_af6a2cf63aa2e5::t_693f4b9789560a 6-7,31-33
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 1-5,8-30,34
+Fence/Models/ReachJournal.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 4,8,43,45,48,55,61-62,64,69,75,342-343
+README.md
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 1,3,15,17,27-30,34,37,40,42,44,65,71,73,83,88
+  s_81a07d5e45cdc8::t_362c2eeaebbb95 67
+  s_e298da33fc76c8::t_98eea12d3888e0 9
+  s_af6a2cf63aa2e5::t_64abd4f8f9ebcb 21-26,31,33
+  s_af6a2cf63aa2e5::t_985aecbbca3987 32
+  s_81a07d5e45cdc8::t_c2132e046bd62a 61
+Fence/App/FenceApp.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 3,49,51
+Fence/Models/PauseCopy.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 1-389
+Services/com.prakashjoshipax.Fence.dev.enforcement.plist
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 1-12
+Fence/Enforcement/LaunchAtLogin.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 6,11
+Fence/App/AppModel.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 16,41,46,261-262,272-273,334,375,386,397,403,634,682,767,835,950,977,1086,1276-1281
+Tools/make-icon.swift
+  s_af6a2cf63aa2e5::t_ac7a55925c8b0d 6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2818500032972619bbd0added9df1d69530ec56d",
+  "prompts": {},
+  "sessions": {
+    "s_6a16bc87c8a5bd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e57904e4-44cb-4704-82de-b62d7d6fe673",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Prakash Joshi Pax <101010368+Beingpax@users.noreply.github.com>"
+    },
+    "s_81a07d5e45cdc8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c29f4a1e-9f03-457d-a547-731b6bc9cdb3",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Prakash Joshi Pax <101010368+Beingpax@users.noreply.github.com>"
+    },
+    "s_a4498aea0cfd11": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "687ab2f0-5050-45cf-a552-21334866ce9d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Prakash Joshi Pax <101010368+Beingpax@users.noreply.github.com>"
+    },
+    "s_af6a2cf63aa2e5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1f6362fe-17c3-464f-8f46-1591446d253b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Prakash Joshi Pax <101010368+Beingpax@users.noreply.github.com>"
+    },
+    "s_e298da33fc76c8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a1ebf096-a763-4403-a75a-a0cc33e88fdd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Prakash Joshi Pax <101010368+Beingpax@users.noreply.github.com>"
+    }
+  }
+}
