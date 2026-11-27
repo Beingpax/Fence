@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Shift · Mochi Studio</title>
+<title>Fence · Mochi Studio</title>
 <!--
-  A character engine for Shift's nudge creature, modelled on the way David Hill's
+  A character engine for Fence's nudge creature, modelled on the way David Hill's
   "engine" demo is built (x.com/iamdavidhill/status/2124986830236106897):
 
   1. A RIG: one parameter vector (ears, brows, lids, pupils, mouth, two floating hands,
@@ -18,7 +18,7 @@
   4. SKINS: the rig emits point lists (ellipses, beziers); a style decides how a shape is
      rendered. This page keeps only the vector skin; the variations are in the character
      itself (silhouette, eyes, ears, what sits on top).
-  5. A SCORE: a timeline of {at, pose} cues, like his score.js, that plays the Shift story.
+  5. A SCORE: a timeline of {at, pose} cues, like his score.js, that plays the Fence story.
 
   Every shape is plain geometry, so all of it ports one-to-one to a SwiftUI Canvas.
 -->
@@ -130,7 +130,7 @@
         <div class="win"><div class="bar"><i></i><i></i><i></i><div class="url">www.youtube.com/shorts</div></div>
           <div class="feed"><div></div><div></div><div></div><div></div><div></div><div></div></div></div>
         <div class="hud" id="hud"><canvas id="hudCanvas"></canvas>
-          <div class="card"><div class="app"><span>SHIFT</span><span>now</span></div>
+          <div class="card"><div class="app"><span>FENCE</span><span>now</span></div>
             <div class="t" id="hudT"></div><div class="s" id="hudS"></div></div></div>
       </div>
     </div>
@@ -142,7 +142,7 @@
   <h2>Attitude</h2>
   <div class="moods" id="moods"></div>
   <h2>Score</h2>
-  <button class="play" id="play">▶ Play the Shift story</button>
+  <button class="play" id="play">▶ Play the Fence story</button>
   <p class="note">Hint → concern → reach → turn back → reward → break → no breaks left. <kbd>←</kbd> <kbd>→</kbd> step through attitudes.</p>
   <h2>Tune</h2>
   <div class="row"><label>Line weight</label><input type="range" id="weight" min="0.4" max="1.8" step="0.05" value="1"></div>
@@ -536,7 +536,7 @@ for (const id in CHARS) {
 }
 
 const HUD = {
-  idle: ['Shift is on', 'Instagram and Shorts are blocked until 18:00.'],
+  idle: ['Fence is on', 'Instagram and Shorts are blocked until 18:00.'],
   wave: ['Hi, I\'m here when the pull shows up.', 'I\'ll keep an eye on the lists you choose.'],
   curious: ['That title looks like a feed.', 'Still what you came for?'],
   thinking: ['Hmm.', 'Nothing blocked here. Carry on.'],
@@ -581,7 +581,7 @@ const SCORE = [
 ];
 let score = null;
 const playBtn = document.getElementById('play');
-function stopScore() { score = null; playBtn.classList.remove('on'); playBtn.textContent = '▶ Play the Shift story'; }
+function stopScore() { score = null; playBtn.classList.remove('on'); playBtn.textContent = '▶ Play the Fence story'; }
 playBtn.onclick = () => { if (score) return stopScore(); score = { t: 0, i: 0 }; playBtn.classList.add('on'); playBtn.textContent = '■ Stop'; };
 
 /* render loop */

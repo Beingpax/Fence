@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.prakashjoshipax.Fence.enforcement</string>
+    <key>BundleProgram</key><string>Contents/MacOS/Fence</string>
+    <key>ProgramArguments</key>
+    <array><string>Fence</string><string>--enforcement-agent</string></array>
+    <key>KeepAlive</key><true/>
+    <key>LimitLoadToSessionType</key><string>Aqua</string>
+</dict>
+</plist>

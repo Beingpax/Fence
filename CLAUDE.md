@@ -1,8 +1,14 @@
-# Shift: context for Claude
+# Fence: project notes
 
-Shift is a **macOS-only, local-AI app and website blocker**: Cold Turkey-level strictness, but it understands what's on screen. Read `PRD.md` for the full spec; this file is the working memory of decisions already made.
+**The app is called Fence** ("Fence – App & Website Blocker"). The Xcode project
+(`Fence.xcodeproj`), target and scheme, the `Fence/` source folder, Swift types (`FenceApp`,
+`FenceInstallation`, `fenceProminent`…), UserDefaults keys (`Fence.*`), tools and docs all use
+the name. Earlier working names are gone from the codebase on purpose (27 Nov 2026, the
+user's call): don't reintroduce them, in code, comments or docs. See "Builds and identity".
 
-Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (branch `main`). Owner: Prakash Joshi Pax (`Beingpax`).
+Fence is a **macOS-only, local app and website blocker**: strict when you want it, kind in how it speaks. Read `PRD.md` for the full spec; this file is the working memory of decisions already made.
+
+Owner: Prakash Joshi Pax (`Beingpax`). Branch `main`.
 
 ## Current status (read first)
 
@@ -23,16 +29,52 @@ Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (br
   and lock maths have standalone tests (`./Tools/run-block-tests.sh`, 22 assertions). The
   UI flows have not been walked through by hand.
 - **Onboarding was redesigned on 25 Nov 2026** to be cleaner and more playful, with no
-  stock controls: everything in `UI/Onboarding/OnboardingView.swift` is drawn by hand
-  (progress pebbles, coral step labels, tap-to-pick tiles with a popping check,
-  capsule fields, ink tag pills, permission cards, a twinkling pause preview, lock tiles,
-  app chips, a custom switch, bouncing loading dots, squishy buttons). The window is
-  880×720 with floating Back/Continue buttons and no footer bar. Each lock option shows
-  its own settings under the tiles (duration chips, a time chooser with quick picks, the
-  typing-challenge length), and they are saved into the new block. The mascot peeks over the
-  welcome card (calm) and over the name card on the last step (happy). Pages slide in the
-  direction of travel. Permission wording comes from `BlockingPermissionRow.feedback`, so
-  onboarding and Settings never disagree. Not yet built or seen running.
+  stock controls: everything in `UI/Onboarding/OnboardingView.swift` is drawn by hand. The
+  window **opens filling the screen** (its visible frame, short of the menu bar and Dock;
+  a maximised window, not a full-screen space; it can't be resized, zoomed or dragged,
+  the user's call; `Theme.onboardingMinSize` is only a floor for tiny displays), with floating Back/Continue buttons and no footer bar. Pages
+  sit centred both ways in it; pages slide in
+  the direction of travel; the mascot peeks over the welcome card (hello) and, small, over the name card
+  on the last step (happy). **Reworked on 26 Nov 2026 at the user's request**, five steps:
+  1. **Welcome** (unchanged).
+  2. **What steals your time?** The four Common distractions lists as compact tiles
+     (`ListTile`, 2 × 2 in a centred 640 pt column, solid `coralSolid` once chosen, examples like "Instagram,
+     TikTok, YouTube" as small capsules), plus "Something else?" for one-off sites. The old
+     grid of single apps (WhatsApp, Viber, Discord, Spotify…) and `DistractionPreset` are
+     gone; the block saves the lists as `categoryNames`, so it matches the editor exactly.
+  3. **Let Fence do its job.** Three numbered cards (`PermissionStep`): Browser access,
+     Background blocking and **Open at login** (moved here from the last page). **All three
+     are required**: Continue stays disabled until every one is done. A done card **fills
+     with solid coral** and shows a white disc with a coral tick (`DoneCheck`); the user
+     rejected the green tick tile, the green border and the "All set" meter. Pending wording
+     comes from `BlockingPermissionRow.feedback`. **No Screen Recording**: nothing reads
+     pixels since the AI checks went on 23 Nov 2026.
+  4. **See how Fence works**, an interactive tour (`UI/Onboarding/OnboardingTour.swift`).
+     The page shows a glimpse and a **Start the tour** button; the tour then takes over the
+     whole setup window (footer hidden, "Exit tour" top right, Esc too). The window becomes
+     a browser (`FakeBrowser`). **Every step waits for the person; nothing runs on a clock.**
+     A dark guide card bottom-left (`TourGuide`, "n of 5") speaks as a friend about **Lumi**
+     as a character and says **why** each moment happens (the psychology), never how it's
+     built; **labels are kept to a minimum** (the user's call, 26 Nov 2026). Coral pointers
+     (`PointerLabel`: "Click or swipe right to dismiss", "Close the tab") and pulses mark
+     where to act. Steps: 1 "Reach for a distraction", click Instagram → 2 "Lumi taps you on
+     the shoulder" (real card drawing and copy, `NudgeCardPreview`; ten seconds to leave on
+     your own, because a choice you make yourself sticks); dismiss by click or two-finger
+     swipe (`TrackpadSwipe`) → 3 "Lumi is still counting": close the tab, or "Stay on the
+     page" → 4 "Lumi is cheering" (rewarding the turn builds the habit), or "Lumi steps in":
+     the pause's three asks, each with its why (breathe: urges rise and fade; name the pull:
+     naming a feeling loosens it; turn back: one click, the right choice is the easy one), then the
+     **real `PauseView` on today's photo** → 5 what happens for real, the other path, and
+     "Finish". Nothing is blocked, closed or journaled. Rejected on the way (26 Nov 2026): a
+     real block on example.com, corner tour cards beside a list of stops, a tour whose timer
+     ran by itself, and copy that described a "card that slides in".
+  5. **Make it yours.** Name, the installed apps the chosen lists cover (leaving one out
+     removes it from the list itself), and the lock with its settings. The mascot is small
+     and peeks over the name card's top-right corner into the header's empty space
+     (`CornerMascot`, body behind the card, hands in front), taking no room of its own.
+  Distractions, Permissions, the tour page and the last page are **centred columns**
+  (`page(width:)`, 640 or 680 pt, header included), never content hugging the left.
+  Not yet built or seen running.
 - **Settings follows macOS's own settings layout** (rebuilt 26 Nov 2026, after the user
   found the playful version badly spaced). Titled groups (General, Nudges, Previews, How
   blocking works, Setup) of rows on white rounded cards with inset hairline dividers;
@@ -43,27 +85,39 @@ Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (br
   The shared playful pieces (`PlayType`, `paperCard`, `MascotCard`, `PaperSwitch`,
   `SquishButtonStyle`, `PillButtonStyle`, `PlayRhythm`, `RowDivider`, `PermissionLine`,
   `FloatingButtonStyle`) live in `UI/Design/Playful.swift`.
-- **The Dashboard is "your day"** (26 Nov 2026; the user rejected the earlier greeting
-  and stat-card version and asked for a different idea, not a restyle). Every block is
-  a lane on a midnight-to-midnight ribbon: coral outline where it will guard you, faded
-  once done, dashed while switched off, solid coral while on now. **The mascot sits on the
-  ribbon at the current time**, peeking over the card's top edge and holding on, and
-  moves along through the day with a coral "now" line falling from its hands. A speech
-  bubble beside it says one sentence about right now, on whichever side has room.
-  Above: the date in coral small caps and a greeting (the user loves this header), and
-  "New block". No "Preview a pause" button here: the user removed it. Below: fact pills
-  (times paused, last pause, next start) and the legend. Missing permissions sit in a card
-  above the ribbon, and the mascot turns curious. `DayPlan` works out today's spans
-  (overnight windows split across days). Redraws once a minute (`TimelineView(.everyMinute)`).
-  The user has seen it running and loves it.
-  **It must shrink as well as grow** (fixed 26 Nov 2026): `DayStage` measures its own
-  width, so nothing inside it may take a width worked out from that measurement. Lanes and
-  the axis are flexible frames, segments ride in an overlay, and the stage's frame has
-  `minWidth: 0`. Before this the card widened with the window and then held that width,
-  clipping the switches. The fact pills wrap below the legend when one row doesn't fit.
-- **The main window's minimum is 860 × 580** (`Theme.mainWindowMinSize`), set once as the
-  window's `contentMinSize` and the SwiftUI root's min frame. The two used to disagree
-  (820 vs 900), and the hosting view clipped the sidebar and content on both sides.
+- **The Dashboard is tiles over a timeline** (26 Nov 2026, chosen from
+  `Studies/dashboard-ideas.html`, the "Timeline" idea with the Bento tiles; it replaced the
+  ribbon with the mascot walking along it, whose animation the user disliked). Top tiles:
+  a coral **"now" tile** with a big clock; the **greeting tile** (date in coral small caps,
+  greeting and one sentence; New block in its top-right corner; the mascot an overlay in
+  the bottom-right corner, standing behind the edge at `pointScale` 0.72, taking no room); **Pulls today** (today's journal entries, a day strip; click opens
+  the Journal); **Up next**. Side by side from 700 pt of page width (greeting, Pulls and
+  Up next on the left, the now tile on the right), stacked below it. **Height is fixed,
+  width follows the window** (the user's call): side by side the tiles are 300 pt tall
+  (336 with several blocks on), the clock follows the column's width (60 to 100 pt), and
+  the page grows up to 1180 pt wide, then stays centred. Growing the tiles into the
+  window's height was tried and rejected the same day.
+  Below: **Your day**, one lane per block (solid coral on now, neutral grey done, outlined
+  later, dashed off; label and status; a window running through now is one continuous bar
+  whose colour changes at the now line, never two pieces), a lane of today's pulls as **24 hourly squares shaded by
+  count** (four coral steps relative to the busiest hour, like a contribution chart; no numbers
+  on them: hovering a square shows a card with its hour and count, a click keeps it open;
+  thin lines per pull ran into a barcode on busy days),
+  and a coral line with the time. The Pulls today tile's strip uses the same squares. **Your day is display only** (the user's call): no switches,
+  no clicking into a block, no menu, no hover and no tooltips on the block lanes. The pull
+  squares are the one exception. **Several blocks on:** the now tile says "N blocks have your back" and
+  lists up to three (soonest to end first), each with "until …" and a bar through its
+  current window; one block gets the big line, a bar, "Since …" and time to go; none turns
+  the tile white ("All quiet" and what starts next). `DayPlan.guardInfo` works this out;
+  `currentEnd` gives an overnight window's real end, not midnight. Only the bars grow in
+  once and the mascot breathes. The now tile, the bars and the calendar use
+  `Paper.coralSolid` with white text in both appearances: dark mode's coral is a pale
+  salmon that looked washed out as a big fill (the user's call). Not yet built or seen
+  running.
+- **The main window's minimum is 900 × 620** (`Theme.mainWindowMinSize`, raised from
+  860 × 580 on 26 Nov 2026 for the new Dashboard), set once as the window's
+  `contentMinSize` and the SwiftUI root's min frame. The two used to disagree (820 vs 900),
+  and the hosting view clipped the sidebar and content on both sides.
 - **The Blocks page is one calm list** (26 Nov 2026, `UI/Main/BlocksView.swift`). Same
   header voice as the Dashboard (coral small caps such as "1 OF 3 ON RIGHT NOW", then
   "Your blocks", New block). Every block is a row in a single paper card, **in the user's
@@ -77,25 +131,26 @@ Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (br
   status follows the clock. **Rows hold only the main things**: no list of apps and
   sites, no schedule line and no hint text (the user asked; the editor has the details).
   Not yet built or seen running.
-- **Every pause is journaled, and the way back needs a few written words** (26 Nov 2026,
+- **Every pause is journaled; only the way in needs written words** (26 Nov 2026,
   the user's call). `ReachJournal` (`Models/ReachJournal.swift`) writes each reach to SQLite
-  at `~/Library/Application Support/Shift/journal.sqlite`: time, local day, hour, block,
+  at `~/Library/Application Support/<bundle ID>/journal.sqlite`: time, local day, hour, block,
   rule, site or app, URL, window title, visit number, the feeling, what they wrote, and the
   outcome (`closed`, `break` for "I need it" access, `dismissed`, `left_early`, `open`). The schema is plain so it can be queried
   from a terminal later; the `daily` view sums each day. Both processes write to it (WAL
-  mode). The pause is one version every time (see "The pause"): Close isn't offered until
-  an answer is picked and `UrgeReason.minimumWords` are written, 10 for a feeling and 20
-  for "I need it". The **Journal** sidebar
+  mode). The pause is one version every time (see "The pause"): Close appears once an answer
+  is picked; words are optional for a feeling and 20 are required for "I need it"
+  (`UrgeReason.minimumWords`). Feelings needed 10 until later on 26 Nov 2026: the user
+  removed them because closing is the behaviour Fence wants, so it must cost nothing. The **Journal** sidebar
   section (`UI/Main/JournalView.swift`, teal tile) shows two weeks of "pulls" as bars, a few
   fact pills and one summary card per day showing **only where and why** (pills, most
   frequent first): no pull count, no turned-back count, no counts on the pills and no hour
   strip (26 Nov 2026, the user's call). No
   per-pull list: the user found it read like a log file (26 Nov 2026); every pull, its time
   and its words stay in `journal.sqlite` for analysis. Information, never a grade:
-  no streaks or scores. Researched in `Research/habit-science-review.md`. The user rejected
-  two ideas from that review: a "Back to work" button after closing, and if-then plans in
+  no streaks or scores. The user rejected
+  two ideas: a "Back to work" button after closing, and if-then plans in
   the person's own words. Don't add either without asking. Not yet built or seen running.
-- **The sidebar is Shift's own and stays exactly as on `main`** (26 Nov 2026, the user's
+- **The sidebar is Fence's own and stays exactly as on `main`** (26 Nov 2026, the user's
   call after it was changed twice): a Liquid Glass panel (`.glassEffect(.regular)`) pinned to
   the window's leading edge, full height, with only its trailing corners rounded; the
   selected row uses `unemphasizedSelectedContentBackgroundColor`; section tiles are system
@@ -107,19 +162,32 @@ Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (br
   sliding panel (now 440 wide), one column in the order people think: a 60 pt badge (click
   it for a colour and icon popover) beside a big name field with a coral small-caps eyebrow
   (focused for a new block); a lock banner with Unlock when locked; then titled sections on
-  frosted white cards (`EditorSection`, `editorCard()`): **Websites** (the add field, then
-  the pre-made lists as pills, then the block's own sites as chips, then Import and an
-  "Always allow" disclosure for single pages), **Apps** (chips with icons, "Choose apps"),
+  frosted white cards (`EditorSection`, `editorCard()`): **Websites** (one add field
+  with a **Block / Allow** switch at its end (`AddModeToggle`) and a live line under it saying
+  what the entry will do ("The whole site, every page", "Already blocked"); then the
+  pre-made lists as pills; then **Blocked** and **Always allowed** chip groups, allowed ones
+  outlined with a check. Import and ? sit in the section's title row. Commas, or spaces
+  between sites, add several at once. An entry is never both: blocking an allowed one drops
+  the exception, allowing a blocked one takes it off. Allow is off while locked. This
+  replaced the "Always allow" disclosure with its own field on 26 Nov 2026, the user's
+  call), **Apps** (chips with icons, "Choose apps"),
   **When it's on** and **Lock**. Since 26 Nov 2026 at the user's request: **no Quick add**;
   **sites and apps are chips** (`ChipCloud`, `EntryChip`), several to a line, never one per
   row; When is a wrapping row of `ModePill`s **drawn exactly like the pre-made list pills**
-  (solid coral once chosen, soft tile otherwise); **Lock is one row that opens Shift's own
+  (solid coral once chosen, soft tile otherwise); **On a schedule opens `WeekCalendar` in a
+  sheet** (`ScheduleSheet`, 26 Nov 2026; Cancel restores the old schedule, the card shows one
+  line, today's window or else the first, then "and N more", with "Edit times"): seven day columns of half-hour cells. Drag on
+  empty cells to add a stretch, drag a stretch to move it (other hours or another day),
+  drag its top or bottom edge to resize it, click it to select it and Delete (button or
+  key) removes it. No Draw / Erase switch and no instructions on screen (both removed the
+  same day at the user's request). Quick picks: Weekends, All week, Clear, in one row with
+  Delete. One summary line per window. Saved as `ScheduleWindow`s:
+  runs with the same hours share a window, evenings carrying on past midnight become one
+  overnight window, times snap to the half hour; **Lock is one row that opens Fence's own
   picker** (`LockPicker`, a popover of five `LockOptionRow`s, each a tile, a title and one
   short line), not every method laid out at once. Their settings follow as solid
   `ChoicePill`s on one line (`InlineChoices`, a compact `UntilTimeChooser`), with **no
-  description lines** in the card: When's tooltips explain each choice. Schedule windows sit
-  on one line of small day letters and time pills, with a "+1" badge for overnight.
-  **Import** (`ListImport`) reads a .txt (one entry per line, `#` comments, hosts files) or a
+  description lines** in the card: When's tooltips explain each choice.   **Import** (`ListImport`) reads a .txt (one entry per line, `#` comments, hosts files) or a
   .json (`["a.com"]` or `{"sites": [...], "apps": [...]}`), up to 5,000 entries; the ? beside
   it shows both formats as examples. **Glass only on
   controls**: the floating close circle and the Cancel / Create Block (Save) buttons
@@ -148,9 +216,38 @@ Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (br
   and Distractions into Social media and drop the rest (`PreMadeList.migrate`). **Each list
   carries Mac apps too** (`builtInApps`, iOS bundle IDs for iPhone apps on the Mac), blocked
   when installed. In the Websites card each list is a `ListPill`: the name puts it in the
-  block, the sliders open `PreMadeListEditor`: a search field, Websites / Apps, an add field
-  and Import, and everything as chips (the user's additions in soft coral). **Edits are to the
-  list itself**, saved as differences from the bundle in `Application Support/Shift/lists.json`
+  block, the sliders open `PreMadeListEditor`: a search field, Websites / Words / Apps, an add field
+  and Import, and everything as chips (the user's additions in soft coral). **Words**
+  (26 Nov 2026, the user's call) block a page with them in its address or title, searches
+  included (`PreMadeLists.wordMatches`, `WordMatcher`). **They do most of the 18+ list's
+  work**: the 29,261 known hosts were replaced the same day by **193 of the most visited
+  18+ sites**, hand-picked across regions (search engines, ad networks and mixed platforms
+  left out). The words alone caught 10,335 of the old hosts by name; titles catch
+  the rest. `Tools/build-adult-catalog.py` is gone; sources are in
+  `Resources/Filtering/AdultDomains-Credits.txt` and CREDITS.md (LDNOOBW phrases, CC BY 4.0).
+  Two kinds of word: `adultFragments` (76) match anywhere, even
+  inside a host (porn, hentai, blowjob, big site names, Russian, Chinese, Japanese, Korean,
+  Arabic, Hindi and Indonesian terms); `adultPhrases` (about 710) match only as separate words
+  with an optional plural s, phrases word by word: a hand-picked set (acts, LDNOOBW phrases,
+  2024's top searches, "blue film" and other South Asian slang) plus generated pairs of an
+  ambiguous subject ("teen", "desi", "stepmom", "hot", "free") with an explicit word ("sex",
+  "pussy", "fucked"), and of an explicit word with what it is ("sex video", "dick pic").
+  **Never alone**, since they block ordinary pages: sex, cum, orgasm, oral, gay, lesbian,
+  teen, mature, asian, breast, anal, naked, tits, pussy, cock, dick, ass, hardcore, escort,
+  sexy, adult. Pairs were trimmed where they clash: no "ass" pairs (Kick-Ass), "dick" and
+  "cock" only with video, pic, gif, cam and tube (Philip K. Dick, roosters), no "tits"
+  pairs (birds), no "free squirt". "xxx" matches only on its own (XXXTentacion). People's
+  own single words match anywhere, their phrases word by word. A page with a **help word**
+  (`WordMatcher.helpWords`: quit, addiction, recovery, nofap, therapy; health, hiv, std,
+  education; news, wikipedia, legislation, offender; mean, meaning, definition) is never
+  matched by words, so "how to quit porn" and "what does nsfw mean" open; known sites still
+  block. None may be common in 18+ titles ("doctor", "police" aren't there). Like a block
+  keyword, a match closes the tab, and the block's Always allowed pages still open. **The
+  18+ list is sealed** (`PreMadeList.isSealed`): its built-in sites and words are hidden,
+  the sheet has no search, and built-ins can't be removed (old removals are dropped on
+  load); people add their own and remove only those. Words need 3+ characters (2 in
+  non-Latin scripts) and never "https", "www" and the like. **Edits are to the
+  list itself**, saved as differences from the bundle in `Application Support/<bundle ID>/lists.json`
   by `PreMadeLists`, which the helper rereads within a second. While a locked block uses a
   list, it can only grow. **Lists can never be allowed**: "Always allow" takes single pages
   and patterns only, and `exceptionCategoryNames` is gone (ignored when decoding). Not yet
@@ -169,20 +266,46 @@ Local folder: `~/Shift Focus`. Repo: https://github.com/Beingpax/Shift-Focus (br
   the full-screen pause with time-of-day wallpapers, reward and hint HUD, onboarding, launch at login,
   watchdog pair, and quit and Trash protection.
 - Active detection uses app, website, and path rules. Optional nudges use window-title keywords.
-- **The binary has two entry points.** `Shift` is the app; `Shift --watchdog` is the
-  headless watchdog. `main.swift` branches, which is why `ShiftApp` has no `@main`.
+- **The binary has two entry points.** `Fence` is the app; `Fence --enforcement-agent` is the
+  background helper launchd runs. `main.swift` branches, which is why `FenceApp` has no `@main`.
 
 ## Build and run
 
+### Builds and identity (26 Nov 2026)
+
+Debug and Release are separate apps that share nothing, data folder included (the user's
+call).
+
+| | Release | Debug |
+|---|---|---|
+| Name (Dock, Finder) | Fence | Fence Dev |
+| Bundle ID | `com.prakashjoshipax.Fence` | `com.prakashjoshipax.Fence.dev` |
+| Executable | `Fence` | `Fence Dev` |
+| Data | `Application Support/com.prakashjoshipax.Fence` | `Application Support/com.prakashjoshipax.Fence.dev` |
+| Helper label and plist | `com.prakashjoshipax.Fence.enforcement` | `com.prakashjoshipax.Fence.dev.enforcement` |
+
+- Set in the target's build settings (`PRODUCT_BUNDLE_IDENTIFIER`, `PRODUCT_NAME`,
+  `INFOPLIST_KEY_CFBundleDisplayName`). Both helper plists live in `Services/` and are both
+  embedded; `EnforcementService` registers `AppIdentity.helperPlistName` for this build.
+- **Everything derives from `AppIdentity`** (`Fence/App/AppIdentity.swift`): data folder
+  (`FenceInstallation.supportDirectory`), helper label, log subsystem
+  (`Logger(subsystem: AppIdentity.bundleID…)`), app-to-helper notifications, the journal
+  queue, and the never-blocked list (every Fence build). Never
+  hard-code a bundle ID. UserDefaults and TCC follow the bundle ID on their own, so each
+  build needs its own Accessibility grant.
+- **No migration code.** Each build starts from its own empty folder and settings. The old
+  watchdog cleanup (`WatchdogService`, `WatchdogRunner`, the `--watchdog` launch) was removed
+  on 27 Nov 2026; the bundled `--enforcement-agent` helper is the only background process.
+
 ```bash
-xcodebuild -project Shift.xcodeproj -scheme Shift -configuration Debug -destination 'platform=macOS' build
+xcodebuild -project Fence.xcodeproj -scheme Fence -configuration Debug -destination 'platform=macOS' build
 ```
 
-- Run from Xcode with Cmd+R. Shift is an `LSUIElement` menu bar app (◎ icon), with no Dock icon.
-- Test without side effects: Settings → Previews has the pause (one button: it's the same every time), the turning-back reward, and the soft drift hint. Settings → How blocking works, the onboarding demo page and the README describe the same flow: change them together with the pause.
+- Run from Xcode with Cmd+R. Fence is an `LSUIElement` menu bar app (◎ icon), with no Dock icon.
+- Test without side effects: Settings → Previews has the pause (one button: it's the same every time), the turning-back reward, and the soft drift hint. Settings → How blocking works, the onboarding tour and the README describe the same flow: change them together with the pause.
 - Real test: switch on a block listing `instagram.com` or `youtube.com/shorts`, then open it in Safari or Chrome. The pause should cover the screen within about a quarter of a second of pressing Return, usually before the page has loaded.
-- Shift requests Accessibility for window titles and browser addresses.
-- **Signing is load-bearing for permissions.** `DEVELOPMENT_TEAM = V6J6A3VWY2` is set on both configurations, so builds are signed with a real identity. Do not let this fall back to ad-hoc. macOS keys TCC grants to the designated requirement, and an ad-hoc signature puts the binary's `cdhash` in that requirement, so **every rebuild silently voids the Accessibility grant** and the app reports "not granted" while System Settings still shows it enabled. Verify with `codesign -d -r- <app>`: the requirement must name the certificate, not a `cdhash`. If a grant ever does go stale, `tccutil reset Accessibility com.beingpax.Shift` and grant it again.
+- Fence requests Accessibility for window titles and browser addresses.
+- **Signing is load-bearing for permissions.** `DEVELOPMENT_TEAM = V6J6A3VWY2` is set on both configurations, so builds are signed with a real identity. Do not let this fall back to ad-hoc. macOS keys TCC grants to the designated requirement, and an ad-hoc signature puts the binary's `cdhash` in that requirement, so **every rebuild silently voids the Accessibility grant** and the app reports "not granted" while System Settings still shows it enabled. Verify with `codesign -d -r- <app>`: the requirement must name the certificate, not a `cdhash`. If a grant ever does go stale, `tccutil reset Accessibility com.prakashjoshipax.Fence.dev` (or the release ID) and grant it again.
 - **Real pauses come from the background helper, not the app Xcode runs.** The
   `--enforcement-agent` process is a `KeepAlive` launch agent that owns the monitor, so
   after a rebuild it kept enforcing with the old code for hours (26 Nov 2026: previews showed
@@ -190,28 +313,28 @@ xcodebuild -project Shift.xcodeproj -scheme Shift -configuration Debug -destinat
   itself: `AppModel.restartIfReplaced` compares `ExecutableStamp` (inode, size, modification
   date) every 5 s and exits once the new executable has been stable for 4 s, with no pause
   on screen and no "I need it" access running; launchd relaunches it on the new build. To
-  restart it by hand: `launchctl kickstart -k gui/$UID/com.beingpax.Shift.enforcement`.
+  restart it by hand: `launchctl kickstart -k gui/$UID/com.prakashjoshipax.Fence.dev.enforcement` (Debug).
   The dashboard also checks the helper (`replaceStaleHelper`): one running another copy of
-  Shift (Xcode's build folder against /Applications) or started before this copy was built
+  Fence (Xcode's build folder against /Applications) or started before this copy was built
   is asked to restart (`restartHelper` notification), and re-registered from this copy if
   it's still stale 20 s later. The dashboard relaunches itself after an update too
   (`relaunchDashboard`), but only while none of its windows is open; the relaunch passes
   `--relaunched-after-update` so it comes back without opening a window. Xcode's debugger
   holds a stopped app as "traced": kill the `debugserver` parent, not the app.
-- Automated GUI testing needs Accessibility and Screen Recording granted to the terminal running Claude Code. Without them, `osascript` UI scripting fails with -1719 and `screencapture` fails outright, so shield verification has to be manual.
+- Automated GUI testing needs Accessibility and Screen Recording granted to the terminal running the tests. Without them, `osascript` UI scripting fails with -1719 and `screencapture` fails outright, so shield verification has to be manual.
 
 ## Verification checklist (not yet walked through by hand)
 
 1. **Menu bar.** Icon appears; the count next to it matches the number of active blocks.
-2. **Main window.** Menu bar → Open Shift. Create a block, add sites and apps, save.
+2. **Main window.** Menu bar → Open Fence. Create a block, add sites and apps, save.
 3. **Blocking.** Switch the block on, visit a listed site in Safari and Chrome. The
    heads-up card (annoyed mascot) should appear almost at once and the page stays usable.
    A click or a two-finger swipe dismisses the card but not the countdown. Close the tab
    within 10 s yourself: a reward, a
    "Before the pause" row in the Journal, no pause. Stay 10 s: the pause should cover
    every display. Come back within 2 minutes of leaving: straight to the pause. After one 5 s breath the six answers
-   appear; there is no Close yet. Pick a feeling, write 10 words, and Close appears (Return
-   works too); it closes only the tab, then shows the reward. The back button in the
+   appear; there is no Close yet. Pick a feeling and Close appears at once, words optional
+   (Return works too); it closes only the tab, then shows the reward. The back button in the
    panel's top-right corner returns to the answers. Each pause should appear on the Journal
    page and in `journal.sqlite`. "I need it" is always there: write 20 words, pick 2 or 5
    minutes, and wait 15 s for access to the matched rule. The countdown has no buttons. A
@@ -225,12 +348,14 @@ xcodebuild -project Shift.xcodeproj -scheme Shift -configuration Debug -destinat
    pause comes back when the time is up.
 8. **Quit protection.** Cmd+Q with a locked block should explain itself. `kill -15` should
    be ignored; `kill -9` is expected to win.
-9. **Watchdog.** With a lock engaged, `pkill -f 'Shift.app/Contents/MacOS/Shift$'`. Shift
+9. **Watchdog.** With a lock engaged, `pkill -f 'Fence Dev.app/Contents/MacOS/Fence Dev$'`. It
    should return within ~5 s. Also try moving the app to the Trash.
-10. **Onboarding.** `defaults delete com.beingpax.Shift Shift.hasCompletedOnboarding.v1`.
-11. **Clean up after testing:** `launchctl bootout gui/$UID/com.beingpax.Shift.watchdog`,
-    delete `~/Library/LaunchAgents/com.beingpax.Shift.watchdog.plist`, and remove
-    `~/Library/Application Support/Shift/`.
+10. **Onboarding.** `defaults delete com.prakashjoshipax.Fence.dev Fence.hasCompletedOnboarding.v1`.
+    Continue on Permissions stays off until all three cards are coral. Take the tour both
+    ways: close the tab (cheer), and skip ahead (the pause, with the photo). Check the card
+    dismisses by click and by a two-finger swipe, and that nothing moves on by itself.
+11. **Clean up after testing:** `launchctl bootout gui/$UID/com.prakashjoshipax.Fence.dev.enforcement`
+    and remove `~/Library/Application Support/com.prakashjoshipax.Fence.dev/`.
 
 Run the model tests any time with `./Tools/run-block-tests.sh`.
 
@@ -270,8 +395,8 @@ Rules that are easy to get wrong, and are covered by the tests:
 - **A blocked app outranks every page inside it**, across all active blocks: Arc on
   x.com, with Arc blocked anywhere, is an app match (quit Arc), not a website match (close
   the tab). Website rules are only looked at when no active block lists the app. Before
-  26 Nov 2026 the website rule won, so Shift closed one tab and paused again on the next.
-- `Finder`, System Settings and Shift itself are never blocked, so a bad allow-list can't
+  26 Nov 2026 the website rule won, so Fence closed one tab and paused again on the next.
+- `Finder`, System Settings and Fence itself are never blocked, so a bad allow-list can't
   lock someone out of fixing it.
 
 ## Threading rules
@@ -306,9 +431,9 @@ Rules that are easy to get wrong, and are covered by the tests:
   model owns the selection, and Cmd+, opens the window at Settings. Don't reintroduce
   `SettingsLink`; it needs a `Settings` scene and there isn't one.
 - **The menu bar popover is one fixed height.** Switching a block on must not resize it.
-  The "What Shift sees" live context panel (`LiveContextView`) and the tinted mark down the
+  The "What Fence sees" live context panel (`LiveContextView`) and the tinted mark down the
   left of an active row were both removed on 23 Nov 2026 at the user's request: the panel
-  made the popover grow the moment Shift started watching, and the mark read as a stray
+  made the popover grow the moment Fence started watching, and the mark read as a stray
   blue bar beside the block's name. The switch and the status line say enough. Don't add
   anything to the popover that appears only while a block is on.
 - **The popover never shows warnings** (25 Nov 2026, at the user's request). Permission
@@ -330,13 +455,17 @@ Rules that are easy to get wrong, and are covered by the tests:
 - **Locking and friction are different things.** The lock decides whether the switch works.
   Friction decides what the pause does when you hit it. Don't merge them.
 - **The app icon is generated, not drawn by hand.** `Tools/make-icon.swift` renders every size and rewrites the appiconset's `Contents.json`. Edit the script, not the PNGs.
-- **The mascot replaced Flop on 25 Nov 2026.** It is the "Classic" creature from the HTML
+- **The mascot is Lumi** (since 25 Nov 2026). It is the "Classic" creature from the HTML
   studies (`Studies/mascot-compare.html`): a marigold (`#ffad33`) soft-rectangle body with round
   ears, an ink outline, white mitten hands and an antenna. `UI/MascotView.swift` draws it in one
-  `Canvas`, no image assets. It has no name in the UI; copy says "Shift".
+  `Canvas`, no image assets. **It's called Lumi** (`Mascot.name`, named on 26 Nov 2026 by the user;
+  Lumi for light, like the glowing antenna bulb). Onboarding speaks of it as a character
+  ("Lumi taps you on the shoulder"), and Settings → Previews says "Lumi’s gallery" and
+  "Lumi’s moods". Use `Mascot.name` in code, never the literal. The nudge cards themselves
+  still speak in the first person, and copy about the app still says "Fence".
   - **Chosen over a glossy 3D direction.** The user compared both side by side (standing,
     peeking over the card, beside the card) and picked the flat cartoon. Don't swap it for
-    shaded 3D or bring Flop back without asking.
+    shaded 3D without asking.
   - **The antenna bulb carries the mood**, readable from the corner of the eye: warm at
     rest, teal when curious, amber when worried, deep red when annoyed, gold when proud,
     blue when sad, dim while "I need it" access runs.
@@ -355,7 +484,7 @@ Rules that are easy to get wrong, and are covered by the tests:
     Onboarding's welcome waves hello, the empty Blocks page is thinking, the Dashboard is
     idle (hello with no blocks, curious when a permission is missing). The heads-up card
     before the pause is annoyed, and sad from the third time in an hour. Shy is unused.
-    Settings → Previews → "Mascot moods" plays them all on the live card, and "Mascot
+    Settings → Previews → "Lumi’s moods" plays them all on the live card, and "Mascot
     gallery" (`UI/MascotGallery.swift`, a sheet) shows every place the mascot appears with
     its real words and mood, side by side. The gallery draws nudges with
     `NudgeCardPreview`, which shares `NudgeMessage` with the live card, and in-app cards
@@ -380,15 +509,16 @@ Rules that are easy to get wrong, and are covered by the tests:
     deep chord marked the third reach until the ladder went on 26 Nov 2026; nothing plays it
     now, and every pause gets the same chime.
     Polished chimes, not creature voices: a cartoon-creature set was tried and rejected.
-    Generated with ElevenLabs sound effects, trimmed and loudness-matched with ffmpeg. Soft
+    Trimmed and loudness-matched with ffmpeg. Soft
     hints stay silent. Settings → Nudges → "Sounds" switches them all off.
 
-- **Name:** "Shift", subtitle "Local App & Website Blocker".
-- **No Dock icon by default,** but there is a "Show Shift in the Dock" switch in Settings → General that flips the activation policy at runtime. `LSUIElement` keeps the default as menu-bar-only.
+- **Name:** "Fence", listed as "Fence – App & Website Blocker" (27 Nov 2026, the user's pick
+  after a long naming search). Don't reopen the naming without being asked. The mascot is Lumi (`Mascot.name`).
+- **No Dock icon by default,** but there is a "Show Fence in the Dock" switch in Settings → General that flips the activation policy at runtime. `LSUIElement` keeps the default as menu-bar-only.
 - **Platform:** Apple Silicon Macs running macOS 26 or later.
 - **Detection stays local.** Read browser addresses through Accessibility. Match enabled app, website, and path rules before considering a title-based nudge.
 - **The pause is the only full-screen surface.** It replaced two things. The three-nudge
-  ladder let the feed pay out for 25 seconds, trained people to tune Flop out, gave nothing
+  ladder let the feed pay out for 25 seconds, trained people to tune the mascot out, gave nothing
   for turning back, and reset on every tab switch. The separate shield (a 10-second wait
   plus 20 typed words on the third reach) was merged into the pause at the user's request:
   one screen. It waited longer each time until 26 Nov 2026; now it's the same every time.
@@ -399,7 +529,7 @@ Rules that are easy to get wrong, and are covered by the tests:
     (`PauseRequest.closesTab`); until 26 Nov 2026 any browser got "Close the tab". Quitting
     never brings the app forward; if it's still open after 1.5 s it's probably asking
     something, so then it comes forward to be answered. Otherwise the next app gets focus,
-    never Shift's own window.
+    never Fence's own window.
   - **The backdrop is a real photograph that follows the clock** (`PauseBackdrop`,
     `DayPeriod`): green landscapes at sunrise (05–09), late morning (09–13), afternoon
     savanna (13–17), sunset (17–20:30) and the Milky Way at night. All Unsplash License, see
@@ -421,14 +551,14 @@ Rules that are easy to get wrong, and are covered by the tests:
   - **No progress indicator anywhere.** No "pause 2 of 3" and no dots. A tally made the
     whole thing read as a machine keeping score.
   - Only confident blocks reach the pause; soft hints never do. Default to allow on work apps when unsure.
-- **Locked mode:** you can't end the session or quit Shift early.
+- **Locked mode:** you can't end the session or quit Fence early.
 - **Honesty:** an admin can always win. We sell friction, not a prison.
 
 ## Hard platform limits (researched, don't rediscover)
 
 - **Screen Time frameworks do not exist on macOS.** FamilyControls, ManagedSettings and DeviceActivity are iOS and iPadOS only. There is no OS-level app shield to borrow, which is exactly why enforcement is app-level plus a watchdog, and why the honesty clause exists.
 - **Socket-level network filtering is hostname-only.** HTTPS hides the path, so a `NEFilterDataProvider` can never do path-aware blocking. It is an M3 backstop, not a detection tier.
-- **The macOS 26 full-URL filter is unusable for us.** It requires a Bloom filter plus a Private Information Retrieval *server* plus a dedicated entitlement. A server contradicts the local-only rule. Rejected, documented in PRD §10.2.
+- **The macOS 26 full-URL filter is unusable for us.** It requires a Bloom filter plus a Private Information Retrieval *server* plus a dedicated entitlement. A server contradicts the local-only rule. Rejected, documented in PRD §9.2.
 - **Foundation Models context is about 4,096 tokens** covering instructions, prompt, output and tool definitions together. Trim page text to roughly 2,500 tokens. Never send a whole page.
 - **An allowed helper can still be unloaded.** `launchctl bootout`, or launchd giving up on
   a crashing job, leaves `SMAppService.status == .enabled` with nothing running, and
@@ -443,36 +573,21 @@ Rules that are easy to get wrong, and are covered by the tests:
   Accessibility (macOS 27 calls the pane Device Control and Data Access). Posting events
   is granted by the same list, so `canPostKeyboardEvents` also accepts `AXIsProcessTrusted`.
 - **Chromium and Electron build accessibility trees lazily.** Chrome needs `AXEnhancedUserInterface` set on its application element; Electron needs `AXManualAccessibility`. Confirm success by reading the attribute back, because Chrome returns not-implemented even when it worked, and retry after about 150 ms because the tree fills asynchronously.
-- **Don't try to render the character live, or in Blender.** Two routes were explored and
-  rejected. Live 3D (RealityKit/SceneKit) means standing up a Metal renderer for a figure
-  that is on screen for five seconds, against the app's whole low-energy argument — and
-  RealityKit cannot load animations from Blender's USD export anyway, so the pipeline would
-  run Blender → FBX → Reality Converter → USDZ by hand. Posing a rig in Blender (the free
-  CC-BY Snow rig was tried end to end, and it does render headlessly) produces a character
-  nobody asked for: Snow is a lean, realistically-proportioned adult in a grey t-shirt, and
-  no amount of lighting turns him into a stylised kid. Flat rendered artwork is the answer.
-- **Continuous screen capture is the expensive path.** Rewind shut down in December 2025 with a reputation for cooking MacBooks, and Screenpipe users report CPU spikes to 700% on an M3 Max. This is why OCR is change-gated and never on a timer.
-
-## Competition (as of Nov 2026)
-
-Intent-aware blocking has shipped elsewhere, so it is not a differentiator on its own. PRD §5 has the full table.
-
-- **FocusDragon:** screenshots judged against your goal, acts after two consecutive off-task checks (the same hysteresis design we built), daemon-level enforcement, $4.99 once for Pro with the AI sold at $3.99–14.99 a month.
-- **Focusing App:** local, judges each page, and removes off-intent *feed items* before they render. Ahead of us on in-page filtering. Subscription with daily focus-time caps.
-- **Fomi:** window titles only, $29 once. **Meoz:** goal vs browser context. **Intentional / Flow State:** intensity varies by app.
-- **Cold Turkey:** still the strictness benchmark at $39–45 once, using a root daemon plus hosts and DNS interception, and it blocks its own uninstall.
-
-**Our wedge:** local-only AI, no subscription for the AI, nothing to download, Cold Turkey strictness, and a defensibly lower energy cost because we prefer exact text over pixels.
+- **Don't render the character live or in 3D.** Live 3D (RealityKit/SceneKit) means
+  standing up a Metal renderer for a figure that is on screen for five seconds, against the
+  app's whole low-energy argument, and a posed 3D rig never looked like the stylised
+  character. Flat artwork drawn in code is the answer.
+- **Continuous screen capture is the expensive path**: it costs real CPU and battery. This is why OCR is change-gated and never on a timer.
 
 ## Architecture
 
 ```
-Shift/
-├── App/            main (entry point branch), ShiftApp (MenuBarExtra + Settings),
+Fence/
+├── App/            main (entry point branch), FenceApp (MenuBarExtra + Settings),
 │                   AppDelegate (quit protection), AppModel (@Observable, @MainActor engine)
 ├── Models/         Block (+ BlockList, BlockSchedule, ScheduleWindow, BlockLock, AccessPlan,
 │                   BlockTint), BlockStore (persistence, locking, CRUD),
-│                   ScreenContext, Verdict, ActivityEvent, DistractionPreset,
+│                   ScreenContext, Verdict, ActivityEvent, DriftKeywords,
 │                   Urge (the reasons shown in the pause),
 │                   ReachJournal (every pause, in SQLite, + Reflection word count),
 │                   PauseCopy (every line at the pause and on turning back, + CopyDeck)
@@ -482,7 +597,7 @@ Shift/
 ├── Intelligence/   BlockEvaluator (tier 0), Hysteresis
 ├── Enforcement/    PauseController + PauseView + PauseBackdrop (DayPeriod), TabCloser,
 │                   NudgeSound, GuardState,
-│                   LaunchAtLogin, WatchdogService, WatchdogRunner
+│                   LaunchAtLogin
 └── UI/             DesignSystem (Theme, BlockBadge), Design/ (Materials, Controls),
                     MenuBarView, SettingsView (a pane, not a scene), NudgeHUD, MascotView,
                     PermissionsManager, Main/ (MainWindowController, MainWindowView +
@@ -491,8 +606,7 @@ Shift/
 ```
 
 ### The design language
-Modelled on IINA: translucent chrome, depth from material weight rather than shadows, and
-generous spacing. Three rules hold it together.
+Translucent chrome, depth from material weight rather than shadows, and generous spacing. Three rules hold it together.
 
 1. **"Sorbet": coral and mint on warm cream; marigold is the mascot's alone.** Chosen by
    the user on 25 Nov 2026 from `Studies/palette-compare.html` (five playful directions,
@@ -516,9 +630,9 @@ generous spacing. Three rules hold it together.
    background-to-card step and a stronger hairline (white 13% vs black 9%). Anything with
    its own dark fill (the pause preview) gets a light edge. Sidebar tiles always draw a
    white icon, so the Dashboard tile uses the light-mode coral in both modes.
-2. **Controls are Shift's own**, in `UI/Design/Controls.swift`: `SegmentedSelector`,
-   `ShiftSwitch`, `OptionCard`, `TimeField`, `NumberStepper`, `DayPicker`, `Chip`,
-   `ShiftTextField`, and the `shiftProminent` / `shiftSoft` button styles. Reach for these
+2. **Controls are Fence's own**, in `UI/Design/Controls.swift`: `SegmentedSelector`,
+   `FenceSwitch`, `OptionCard`, `TimeField`, `NumberStepper`, `DayPicker`, `Chip`,
+   `FenceTextField`, and the `fenceProminent` / `fenceSoft` button styles. Reach for these
    before a stock control, so the app reads as one thing.
 3. **Structure comes from `Panel` and `PanelRow`**, not `Form`, except in onboarding and
    the Dashboard (playful paper cards from `UI/Design/Playful.swift`) and Settings
@@ -562,7 +676,7 @@ relitigate them without asking:
   the tab, or I'll step in." ("Quit the app…" for apps; kept short at the user's request),
   with no button, the annoyed mascot (sad from
   the third time in an hour) and the page left usable. The user wanted people to be able to
-  turn back on their own before Shift steps in, and judged ten seconds of feed an
+  turn back on their own before Fence steps in, and judged ten seconds of feed an
   acceptable price; I recommended hiding the page during the countdown and the user chose
   not to. A Close button on the card was tried and removed the same day: closing is the
   person's own act. Leaving within 10 s (Cmd-W, another page or another app, read twice
@@ -578,7 +692,7 @@ relitigate them without asking:
   away can't restart the clock. Settings → Previews → "Heads-up" shows the card.
 - **Full screen, no mascot.** `PauseController` covers every display with `PauseBackdrop`
   and locks out the Dock, menu bar and Cmd+Tab. An earlier version covered only the
-  browser window with Flop on a frosted panel; the user rejected it because the page
+  browser window with the mascot on a frosted panel; the user rejected it because the page
   stayed visible around it. The mascot appears only afterwards, in the reward card.
 - **One breath, then one honest question, one thing at a time.** During the breath there
   is no panel: only `ConstellationBreath`, chosen by the user from six HTML studies. On
@@ -604,13 +718,13 @@ relitigate them without asking:
   you hoping it would give you?" asked for a reward and left every answer reading like a
   non-sequitur. The question asks what prompted the reach. Each chip has a short label and
   a symbol, with a longer description on hover. Choosing a chip replaces the question with its
-  answer, with a what, why or how prompt (`UrgeReason.prompt`) and a field that needs
-  `UrgeReason.minimumWords` before anything moves on: 10 for a feeling, 20 for "I need it".
+  answer, with a what, why or how prompt (`UrgeReason.prompt`) and a field that's
+  optional for a feeling and needs `UrgeReason.minimumWords` (20) for "I need it":
+  friction on the way in, none on the way back.
   The solid white close button sits outside the panel and is **not offered during the
   breath or the question** (the user's call, 26 Nov 2026, over keeping it always
-  available); it fades in once the words are written, and Return in the field then closes.
-  "Pick a different answer" returns to the chips. Sources: GOV.UK's
-  one-thing-per-page, Hick's law, one sec's breath-then-choice.
+  available); it fades in as soon as a feeling is picked, and Return in the field closes.
+  "Pick a different answer" returns to the chips.
 - **Neutral glass and white action buttons.** The frosted panel has a dark wash for readability.
   The access choices and close action use white capsules with dark text. The feeling choices
   use translucent cards with white labels. Their icons use the same solid system-colour tiles as the sidebar's
@@ -638,7 +752,7 @@ relitigate them without asking:
   (`AccessPlan`). The countdown uses the same frosted panel and
   continuously draining bar as the pause. Closing the target during the wait cancels it.
   When access begins, it temporarily allows the matched rule (`AppModel.allow`, keyed by
-  `reachKey`). When access expires, Shift reads the screen again and restores the pause
+  `reachKey`). When access expires, Fence reads the screen again and restores the pause
   if the current context is still blocked.
 - **Never the same words twice in a row.** `PauseCopy` holds 64 pause headlines (by
   visit), 15 heads-up headlines and about 150 turning-back lines, dealt by `CopyDeck` so
@@ -697,13 +811,13 @@ The standalone semantic classifier and text readers are outside the active detec
 
 - Swift 5 language mode, SwiftUI plus AppKit where needed, `@Observable`, macOS 26 APIs are fine.
 - **Not sandboxed**, Hardened Runtime on. Distribution: Developer ID plus notarization (no Mac App Store).
-- The Xcode project uses **folder-synced groups** (`PBXFileSystemSynchronizedRootGroup`): new files in `Shift/` are picked up automatically, so don't hand-edit file references into `project.pbxproj`.
+- The Xcode project uses **folder-synced groups** (`PBXFileSystemSynchronizedRootGroup`): new files in `Fence/` are picked up automatically, so don't hand-edit file references into `project.pbxproj`.
 - Keep the UI native and calm; the pause is the only full-screen surface.
 - Small, focused commits on `main`, pushed to `origin`.
 - Every verdict carries a human-readable reason naming which tier decided. Nothing shows
   it live any more: the popover's panel is gone, so reasons surface only in the log.
 
-## Roadmap (PRD §16)
+## Roadmap (PRD §15)
 
 - **M0 Skeleton:** done. Builds clean, runs, shield preview wired.
 - **M1 Strict MVP:** done in code, **not yet verified by hand**. Reworked in v0.3 around blocks: main window, block editor, per-block schedules, locks and breaks, launch at login, headless watchdog, quit and Trash protection, onboarding, nudge HUD, settings, screen-text reading.

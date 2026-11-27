@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Shift · Mascot: Classic vs Glossy</title>
+<title>Fence · Mascot: Classic vs Glossy</title>
 <!--
-  Two candidate Shift mascots, side by side, sharing one mood system.
+  Two candidate Fence mascots, side by side, sharing one mood system.
 
   Classic: the yellow antenna creature, flat cartoon with an ink outline, white mitten hands.
   Glossy:  the purple vinyl-toy creature, shaded volume, glossy eyes and body-colour mittens.
@@ -59,7 +59,7 @@
   <div id="moodGroups"></div>
   <p class="note"><kbd>←</kbd> <kbd>→</kbd> step through every mood.</p>
   <h2>Story</h2>
-  <button class="play" id="play">▶ Play a day with Shift</button>
+  <button class="play" id="play">▶ Play a day with Fence</button>
   <h2>Classic · yellows</h2>
   <div class="swatches wrap" id="classicYellows"></div>
   <h2>Classic · other colours</h2>
@@ -99,10 +99,10 @@ const SHARED_BASE = {
   raise: 0, pwave: 0, fist: 0, thumb: 0, chin: 0, shrug: 0, tap: 0, handIn: 0, sink: 0,
 };
 const MOODS = [
-  { id: 'idle', label: 'Idle', group: 'Everyday', use: 'Shift is on, nothing to do', glow: 'warm',
-    card: ['Shift is on', 'Weeknights list until 18:00.'], s: {}, c: {}, g: {} },
+  { id: 'idle', label: 'Idle', group: 'Everyday', use: 'Fence is on, nothing to do', glow: 'warm',
+    card: ['Fence is on', 'Weeknights list until 18:00.'], s: {}, c: {}, g: {} },
   { id: 'hello', label: 'Hello', group: 'Everyday', use: 'Onboarding, first launch', glow: 'bright',
-    card: ['Hi, I\'m Shift.', 'I\'ll keep an eye on the lists you choose.'],
+    card: ['Hi, I\'m Fence.', 'I\'ll keep an eye on the lists you choose.'],
     s: { tilt: -4, lookX: .15, blush: .5, wave: 1, bounce: .15, pwave: 1, ...H('R', { x: 46, y: -32, r: .2, open: 1 }) },
     c: { browL: .45, browR: .45, mouthCurve: .85, mouthOpen: .35, mouthW: 7, earR: -10 },
     g: { lid: .08, low: .25, bLy: -8, bRy: -8, curve: .95, open: .45, mw: 13 } },
@@ -490,7 +490,7 @@ function card(ctx, P, b = { x: -205, y: CARD_Y, w: 410, h: 124, f: 1 }) {
   const [title, sub] = MOOD[P.mood].card, L = b.x + 29, R = b.x + b.w - 29, f = b.f || 1;
   ctx.save(); ctx.shadowColor = 'rgba(10,10,40,.3)'; ctx.shadowBlur = 30; ctx.shadowOffsetY = 10;
   const C = new Path2D(); C.roundRect(b.x, b.y, b.w, b.h, 28); ctx.fillStyle = 'rgba(248,248,252,.95)'; ctx.fill(C); ctx.restore();
-  ctx.textAlign = 'left'; ctx.fillStyle = '#8e8e93'; ctx.font = '600 13px -apple-system, system-ui'; ctx.fillText('SHIFT', L, b.y + 38);
+  ctx.textAlign = 'left'; ctx.fillStyle = '#8e8e93'; ctx.font = '600 13px -apple-system, system-ui'; ctx.fillText('FENCE', L, b.y + 38);
   ctx.textAlign = 'right'; ctx.fillText('now', R, b.y + 38); ctx.textAlign = 'left';
   ctx.fillStyle = '#1d1d1f'; ctx.font = `600 ${21 * f}px -apple-system, system-ui`; ctx.fillText(title, L, b.y + 70);
   ctx.fillStyle = '#48484a'; ctx.font = `${17 * f}px -apple-system, system-ui`; ctx.fillText(sub, L, b.y + 96);
@@ -555,7 +555,7 @@ function sync() { for (const b of groupsEl.querySelectorAll('button')) b.classLi
 
 const STORY = ['idle', 'hello', 'curious', 'thinking', 'cheeky', 'worried', 'holdon', 'annoyed', 'happy', 'cheer', 'proud', 'sleepy', 'sorry', 'sad', 'shy', 'laugh', 'idle'];
 let story = null; const playBtn = document.getElementById('play');
-function stop() { story = null; playBtn.classList.remove('on'); playBtn.textContent = '▶ Play a day with Shift'; }
+function stop() { story = null; playBtn.classList.remove('on'); playBtn.textContent = '▶ Play a day with Fence'; }
 playBtn.onclick = () => { if (story) return stop(); story = { t: 0, i: -1 }; playBtn.classList.add('on'); playBtn.textContent = '■ Stop'; };
 
 let last = performance.now();

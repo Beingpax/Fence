@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Shift · Playful palettes</title>
+<title>Fence · Playful palettes</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -132,7 +132,7 @@
 </head>
 <body class="s-soft">
   <div class="bar">
-    <h1>Shift · playful palettes</h1>
+    <h1>Fence · playful palettes</h1>
     <div class="grp"><span class="label">Mode</span>
       <div class="seg" id="mode"><button class="on" data-v="light">Light</button><button data-v="dark">Dark</button></div></div>
     <div class="grp"><span class="label">Chosen tile</span>
@@ -248,11 +248,11 @@ function screens(p) {
       <div class="grid">${grid}</div></div>${foot(1)}</div>`;
   const s2 = `<div class="win">${top}<div class="page">${mascot}
       <span class="eyebrow">${icon.hand}Permissions</span>
-      <div class="title">Let Shift do its job</div>
+      <div class="title">Let Fence do its job</div>
       <div class="sub">Two quick switches in System Settings. Nothing leaves this Mac.</div>
-      <div class="card perm done"><span class="ptile">${icon.check}</span><div><div class="t">Background blocking</div><div class="d">Allowed. Keeps your blocks active if you Force Quit Shift.</div></div></div>
-      <div class="card perm"><span class="ptile">${icon.safari}</span><div><div class="t">Device Control and Data Access</div><div class="d">Shift uses browser access to read addresses and close blocked tabs.</div></div><span class="pill">Open Settings</span></div>
-      <div class="note"><b>${icon.lock}</b>Nothing Shift reads is written to disk, and nothing leaves this Mac.</div>
+      <div class="card perm done"><span class="ptile">${icon.check}</span><div><div class="t">Background blocking</div><div class="d">Allowed. Keeps your blocks active if you Force Quit Fence.</div></div></div>
+      <div class="card perm"><span class="ptile">${icon.safari}</span><div><div class="t">Device Control and Data Access</div><div class="d">Fence uses browser access to read addresses and close blocked tabs.</div></div><span class="pill">Open Settings</span></div>
+      <div class="note"><b>${icon.lock}</b>Nothing Fence reads is written to disk, and nothing leaves this Mac.</div>
       </div>${foot(2)}</div>`;
   const s3 = `<div class="win">${top}<div class="page">${mascot}
       <span class="eyebrow">${icon.spark}Preview</span>
@@ -264,12 +264,12 @@ function screens(p) {
       <div class="journey">
         <div class="card step"><span class="n">1</span><div class="t">Breathe</div><div class="d">A short pause, before the page has loaded.</div></div><span class="arrow">→</span>
         <div class="card step"><span class="n">2</span><div class="t">Name it</div><div class="d">One honest question about the pull.</div></div><span class="arrow">→</span>
-        <div class="card step"><span class="n">3</span><div class="t">Walk away</div><div class="d">Shift cheers. That’s the new habit forming.</div></div>
+        <div class="card step"><span class="n">3</span><div class="t">Walk away</div><div class="d">Fence cheers. That’s the new habit forming.</div></div>
       </div></div>${foot(3)}</div>`;
   return s1 + s2 + s3;
 }
 
-let mode = "light", chosen = localStorage.getItem("shift.palette.playful") || "";
+let mode = "light", chosen = localStorage.getItem("fence.palette.playful") || "";
 
 function render() {
   const dark = mode === "dark";
@@ -284,7 +284,7 @@ function render() {
       <div class="screens">${screens(p)}</div></section>`;
   }).join("");
   document.querySelectorAll(".pick").forEach(b => b.onclick = () => {
-    chosen = b.dataset.id; localStorage.setItem("shift.palette.playful", chosen); render();
+    chosen = b.dataset.id; localStorage.setItem("fence.palette.playful", chosen); render();
   });
 }
 

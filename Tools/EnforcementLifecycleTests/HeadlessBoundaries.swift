@@ -2,28 +2,26 @@
 // AppModel, BlockStore, ProcessLease and the rule evaluator are production sources.
 import AppKit
 
-enum ShiftInstallation {
+enum FenceInstallation {
     static let supportDirectory: URL = {
-        guard let path = Bundle.main.object(forInfoDictionaryKey: "ShiftTestDirectory") as? String,
-              Bundle.main.bundleIdentifier?.hasPrefix("test.shift.lifecycle.") == true else {
+        guard let path = Bundle.main.object(forInfoDictionaryKey: "FenceTestDirectory") as? String,
+              Bundle.main.bundleIdentifier?.hasPrefix("test.fence.lifecycle.") == true else {
             fatalError("Expected the isolated lifecycle test bundle")
         }
-        UserDefaults.standard.register(defaults: ["Shift.playNudgeSounds": false, "Shift.showNudges": false])
+        UserDefaults.standard.register(defaults: ["Fence.playNudgeSounds": false, "Fence.showNudges": false])
         return URL(fileURLWithPath: path, isDirectory: true)
     }()
     static func isTrashDirectory(_ directory: URL) -> Bool {
         directory.standardizedFileURL.path == supportDirectory.appending(path: "FixtureTrash").standardizedFileURL.path
     }
-
-    static var legacyWatchdogPlist: URL { supportDirectory.appending(path: "unused.plist") }
 }
 
 /// The dashboard registers as an AppKit application so macOS publishes its actual
 /// termination. It never creates a window. Unexpected dashboard launches leave evidence.
 @MainActor
-enum ShiftApp {
+enum FenceApp {
     static func main() {
-        let root = ShiftInstallation.supportDirectory
+        let root = FenceInstallation.supportDirectory
         guard CommandLine.arguments.contains("--fixture-dashboard") else {
             try! Data().write(to: root.appending(path: "unexpected-dashboard"))
             return
@@ -33,7 +31,7 @@ enum ShiftApp {
         let store = BlockStore()
         var block = Block(name: "Integration test")
         block.isEnabled = true
-        block.list.apps = ["test.shift.game"]
+        block.list.apps = ["test.fence.game"]
         block.list.paths = ["fixture.invalid/feed"]
         store.add(block)
         // The test runner owns the temporary launchd job and its registration.
@@ -62,7 +60,7 @@ private enum ProbeResult {
             "canQuit": AppModel.shared.canQuitApp
         ]
         let data = try! JSONSerialization.data(withJSONObject: response)
-        try! data.write(to: ShiftInstallation.supportDirectory.appending(path: "response.json"), options: .atomic)
+        try! data.write(to: FenceInstallation.supportDirectory.appending(path: "response.json"), options: .atomic)
     }
 }
 
@@ -87,14 +85,14 @@ final class ContextMonitor {
     func resampleSoon() { needsResample = true }
 
     private func sample() {
-        let url = ShiftInstallation.supportDirectory.appending(path: "probe.json")
+        let url = FenceInstallation.supportDirectory.appending(path: "probe.json")
         guard let data = try? Data(contentsOf: url),
               let probe = try? JSONDecoder().decode(Probe.self, from: data),
               needsResample || ProbeResult.current?.token != probe.token else { return }
         ProbeResult.current = probe
         needsResample = false
         let browser = probe.kind == "browser"
-        let context = ScreenContext(bundleID: browser ? "com.apple.Safari" : "test.shift.game",
+        let context = ScreenContext(bundleID: browser ? "com.apple.Safari" : "test.fence.game",
                                     appName: browser ? "Safari" : "Fixture game", processID: getpid(),
                                     url: browser ? URL(string: "https://fixture.invalid" + probe.path) : nil)
         onSample?(context)

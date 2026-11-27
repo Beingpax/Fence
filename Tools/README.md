@@ -1,16 +1,16 @@
 # Tools
 
-Scripts that are not part of the app target. They live outside `Shift/` on purpose:
+Scripts that are not part of the app target. They live outside `Fence/` on purpose:
 that folder is a folder-synced group, so anything inside it gets compiled into the app.
 
 ## make-icon.swift
 
-Regenerates every PNG in `Shift/Assets.xcassets/AppIcon.appiconset` and rewrites that
+Regenerates every PNG in `Fence/Assets.xcassets/AppIcon.appiconset` and rewrites that
 catalog's `Contents.json` to match. The icon is drawn in code rather than stored as a
 binary blob, so changing the mark or the palette is a diff rather than a redesign.
 
 ```bash
-swift Tools/make-icon.swift "Shift/Assets.xcassets/AppIcon.appiconset"
+swift Tools/make-icon.swift "Fence/Assets.xcassets/AppIcon.appiconset"
 ```
 
 The palette is keyed to `AccentColor` in the asset catalog, and the mark is the same
@@ -22,7 +22,7 @@ From the repository root, compile the standalone benchmark with optimizations. I
 
 ```sh
 benchdir="$(mktemp -d)"
-swiftc -O -parse-as-library Shift/Intelligence/WebsiteCategoryCatalog.swift Tools/benchmark-website-catalogs.swift -o "$benchdir/catalog-benchmark"
+swiftc -O -parse-as-library Fence/Intelligence/WebsiteCategoryCatalog.swift Tools/benchmark-website-catalogs.swift -o "$benchdir/catalog-benchmark"
 "$benchdir/catalog-benchmark"
 ```
 

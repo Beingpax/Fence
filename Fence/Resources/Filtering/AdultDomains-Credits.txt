@@ -1,0 +1,9 @@
+The 18+ list ("Adult sites" in WebsiteCategories.json) and its words.
+
+Sites: a short, hand-picked list of the most visited 18+ sites. Everything else is caught by
+words in a page's address or title.
+
+Words: written for Fence. Several phrases come from the List of Dirty, Naughty, Obscene,
+and Otherwise Bad Words, © 2012–2020 Shutterstock, Inc., licensed under CC BY 4.0:
+https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words
+https://creativecommons.org/licenses/by/4.0/

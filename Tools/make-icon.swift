@@ -3,7 +3,7 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-// Renders the Shift app icon at each size needed by the asset catalog.
+// Renders the Fence app icon at each size needed by the asset catalog.
 // The mark is the same scope glyph the menu bar uses, so the app reads as one thing.
 
 let outputDirectory = CommandLine.arguments[1]

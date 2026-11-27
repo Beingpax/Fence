@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Shift · Mascot study (glossy)</title>
+<title>Fence · Mascot study (glossy)</title>
 <!--
-  Shift's mascot, glossy vinyl-toy direction. Original design: a soft purple pear with huge
-  glossy eyes, heavy soft brows and an antenna whose light carries the mood (Shift's ◎ mark
-  glows inside it). Two poses are first-class: standing, and peeking over a Shift card.
+  Fence's mascot, glossy vinyl-toy direction. Original design: a soft purple pear with huge
+  glossy eyes, heavy soft brows and an antenna whose light carries the mood (Fence's ◎ mark
+  glows inside it). Two poses are first-class: standing, and peeking over a Fence card.
   Every expression is a set of numbers the face springs between; everything is Canvas 2D
   gradients so it can blink and move, and ports to a SwiftUI Canvas.
 -->
@@ -53,7 +53,7 @@
   <div class="moods" id="moods"></div>
   <p class="note"><kbd>←</kbd> <kbd>→</kbd> step through moods.</p>
   <h2>Story</h2>
-  <button class="play" id="play">▶ Play a day with Shift</button>
+  <button class="play" id="play">▶ Play a day with Fence</button>
   <h2>Colour</h2>
   <div class="swatches" id="colours"></div>
   <h2>Details</h2>
@@ -89,7 +89,7 @@ const BASE = { lid: .22, lidTilt: 0, low: 0, lookX: 0, lookY: 0, pupil: 1, bLy: 
   raise: 0, wave: 0, tap: 0, handIn: 0, sink: 0,
   zzz: 0, sweat: 0, tear: 0, steam: 0, q: 0, sparkle: 0 };
 const MOODS = [
-  { id: 'calm', label: 'Calm', use: 'Shift is on, nothing to do', glow: 'warm', p: {} },
+  { id: 'calm', label: 'Calm', use: 'Fence is on, nothing to do', glow: 'warm', p: {} },
   { id: 'curious', label: 'Curious', use: 'A feed keyword in the title', glow: 'teal', p: { lid: .05, lookX: .6, lookY: -.25, bRy: -13, bRr: .08, bLy: -1, curve: .15, mw: 7, open: .18, tilt: 8, q: 1, armAng: -6, handIn: .2 } },
   { id: 'cheeky', label: 'Cheeky', use: 'Back again within the hour', glow: 'warm', p: { lid: .45, lidTilt: .06, lookX: .65, bLy: 4, bLr: -.12, bRy: -13, bRr: .2, curve: .55, mw: 13, asym: 1, mx: 8, tilt: 6, glow: 1 } },
   { id: 'worried', label: 'Worried', use: 'Drifting toward a blocked list', glow: 'amber', p: { lid: 0, lookX: -.25, lookY: .15, pupil: .88, bLy: -8, bRy: -8, bLr: .36, bRr: .36, curve: -.25, mw: 9, wobble: 1, blush: .15, glow: .65, sweat: 1, armAng: -30, handIn: .55 } },
@@ -102,7 +102,7 @@ const MOODS = [
 ];
 const MOOD = Object.fromEntries(MOODS.map(m => [m.id, m]));
 const CARD = {
-  calm: ['Shift is on', 'Weeknights list until 18:00.'], curious: ['That title looks like a feed.', 'Still what you came for?'],
+  calm: ['Fence is on', 'Weeknights list until 18:00.'], curious: ['That title looks like a feed.', 'Still what you came for?'],
   cheeky: ['Back so soon?', 'That\'s twice in an hour.'], worried: ['This one tends to pull.', 'Maybe a different tab?'],
   holdon: ['Hold on a second.', 'This is on your Weeknights list.'], angry: ['Third time this hour.', 'Let\'s actually close it this time.'],
   sad: ['No breaks left today.', 'They come back tomorrow morning.'], happy: ['You turned back.', 'That\'s the whole habit, right there.'],
@@ -266,7 +266,7 @@ class Mascot {
     ctx.save(); ctx.shadowColor = 'rgba(10,10,40,.3)'; ctx.shadowBlur = 34 * (o.dpr || 1) * (ctx.getTransform().a / (o.dpr || 1)); ctx.shadowOffsetY = 12;
     const C = new Path2D(); C.roundRect(-200, y, 400, 124, 28); ctx.fillStyle = 'rgba(248,248,252,.94)'; ctx.fill(C); ctx.restore();
     ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 1.5; ctx.stroke(C);
-    ctx.textAlign = 'left'; ctx.fillStyle = '#8e8e93'; ctx.font = '600 13px -apple-system, system-ui'; ctx.fillText('SHIFT', -170, y + 38);
+    ctx.textAlign = 'left'; ctx.fillStyle = '#8e8e93'; ctx.font = '600 13px -apple-system, system-ui'; ctx.fillText('FENCE', -170, y + 38);
     ctx.fillStyle = '#8e8e93'; ctx.textAlign = 'right'; ctx.fillText('now', 170, y + 38); ctx.textAlign = 'left';
     ctx.fillStyle = '#1d1d1f'; ctx.font = '600 21px -apple-system, system-ui'; ctx.fillText(CARD[this.mood][0], -170, y + 70);
     ctx.fillStyle = '#48484a'; ctx.font = '17px -apple-system, system-ui'; ctx.fillText(CARD[this.mood][1], -170, y + 96);
@@ -329,7 +329,7 @@ function sync() { for (const b of moodsEl.children) b.classList.toggle('on', b.d
 
 const STORY = ['calm', 'curious', 'cheeky', 'worried', 'holdon', 'angry', 'happy', 'proud', 'sleepy', 'sad', 'calm'];
 let story = null; const playBtn = document.getElementById('play');
-function stop() { story = null; playBtn.classList.remove('on'); playBtn.textContent = '▶ Play a day with Shift'; }
+function stop() { story = null; playBtn.classList.remove('on'); playBtn.textContent = '▶ Play a day with Fence'; }
 playBtn.onclick = () => { if (story) return stop(); story = { t: 0, i: -1 }; playBtn.classList.add('on'); playBtn.textContent = '■ Stop'; };
 
 let last = performance.now();
